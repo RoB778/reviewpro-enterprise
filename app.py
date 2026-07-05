@@ -472,7 +472,21 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                         messages=[{"role": "user", "content": f"Nombre del negocio: {nombre_local_final}\nReseña: \"\"\"{resena_cliente}\"\"\""}]
                     )
 
-                    texto_bruto = response.content[0].text.strip()
+                    texto_bruto = None
+                    for bloque in response.content:
+                        if getattr(bloque, "type", None) == "text":
+                            texto_bruto = bloque.text.strip()
+                            break
+
+                    if texto_bruto is None:
+                        raise ValueError("La respuesta del modelo no contenía ningún bloque de texto.")
+
+                    texto_bruto = texto_bruto.strip()
+                    if texto_bruto.startswith("```"):
+                        texto_bruto = texto_bruto.strip("`")
+                        if texto_bruto.lower().startswith("json"):
+                            texto_bruto = texto_bruto[4:].strip()
+
                     datos_respuesta = json.loads(texto_bruto)
 
                     respuesta_nativa = datos_respuesta.get("respuesta_nativa", "").replace("*", "").replace('"', "")
