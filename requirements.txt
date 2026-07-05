@@ -1,4 +1,5 @@
 streamlit
-stripe
+bcrypt
+supabase
 anthropic
-extra-streamlit-components
+
