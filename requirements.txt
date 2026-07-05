@@ -1,0 +1,4 @@
+streamlit
+stripe
+anthropic
+extra-streamlit-components
