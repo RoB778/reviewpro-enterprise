@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timedelta
 
 import bcrypt
@@ -43,6 +44,75 @@ def verificar_password(password_plano, password_hash):
         return bcrypt.checkpw(password_plano.encode("utf-8"), password_hash.encode("utf-8"))
     except (ValueError, AttributeError):
         return False
+
+
+LIMITE_USOS_PLAN_GRATIS = 10  # respuestas por mes incluidas en el plan Free
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# Enlaces de pago de Stripe (Payment Links) — sustituye estas URLs por las reales
+# que generes en tu Dashboard de Stripe para cada plan.
+ENLACE_PAGO_STARTER = "https://buy.stripe.com/tu-enlace-starter"
+ENLACE_PAGO_GROWTH = "https://buy.stripe.com/tu-enlace-growth"
+ENLACE_PAGO_ENTERPRISE = "https://buy.stripe.com/tu-enlace-enterprise"
+
+
+def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_plano, nombre_usuario):
+    """
+    Alta de autoservicio para el plan Free: crea la agencia (plan='free'),
+    su primer usuario y un primer local, sin intervención manual.
+    Devuelve (True, None) si todo ha ido bien, o (False, "motivo") si ha fallado.
+    """
+    email_normalizado = email.lower().strip()
+
+    if not EMAIL_REGEX.match(email_normalizado):
+        return False, "El email no tiene un formato válido."
+    if len(password_plano) < 8:
+        return False, "La contraseña debe tener al menos 8 caracteres."
+
+    existente = supabase.table("usuarios").select("id").eq("email", email_normalizado).execute()
+    if existente.data:
+        return False, "Ya existe una cuenta con ese email. Inicia sesión en su lugar."
+
+    try:
+        nueva_agencia = supabase.table("agencias").insert({
+            "nombre_agencia": nombre_agencia.strip(),
+            "logo_url": "https://dummyimage.com/200x60/635BFF/ffffff&text=ReviewPro",
+            "color_marca": "#635BFF",
+            "plan": "free"
+        }).execute()
+        agencia_id = nueva_agencia.data[0]["id"]
+
+        supabase.table("usuarios").insert({
+            "agencia_id": agencia_id,
+            "email": email_normalizado,
+            "password_hash": bcrypt.hashpw(password_plano.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
+            "nombre_usuario": nombre_usuario.strip(),
+            "rol": "admin"
+        }).execute()
+
+        supabase.table("locales").insert({
+            "agencia_id": agencia_id,
+            "nombre": nombre_local.strip(),
+            "nicho": "general",
+            "seo_keywords": []
+        }).execute()
+
+        return True, None
+    except Exception as e:
+        return False, f"Error al crear la cuenta: {e}"
+
+
+def contar_usos_del_mes(agencia_id):
+    """Cuenta cuántas respuestas ha generado una agencia desde el día 1 del mes actual.
+    Esta cuenta vive en Supabase, no en el navegador, por lo que no se puede
+    burlar borrando cookies, usando incógnito o cambiando de dispositivo."""
+    inicio_de_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    resultado = supabase.table("historico_respuestas") \
+        .select("id", count="exact") \
+        .eq("agencia_id", agencia_id) \
+        .gte("creado_en", inicio_de_mes) \
+        .execute()
+    return resultado.count or 0
 
 
 def cargar_perfil_login(email):
@@ -100,40 +170,162 @@ if "local_activo" not in st.session_state:
     st.session_state.local_activo = None
 
 # =========================================================
-# 🔑 PANTALLA DE LOGIN — EMAIL + CONTRASEÑA (MULTI-USUARIO)
+# 🔑 LANDING: PLANES Y PRECIOS + LOGIN
 # =========================================================
 if not st.session_state.sesion_activa:
-    st.title("🔑 Acceso Corporativo - ReviewPro Enterprise")
-    st.markdown("Introduce tu email y contraseña personales. Cada usuario de tu agencia tiene su propio acceso.")
 
-    email_usuario = st.text_input("Email de usuario:")
-    password_usuario = st.text_input("Contraseña:", type="password")
+    st.markdown("""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+        html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
+        .rp-hero-title {
+            font-family: 'Fraunces', serif; font-weight: 700; font-size: 2.6rem;
+            color: #F5F7FA; line-height: 1.15; margin-bottom: 0.3rem;
+        }
+        .rp-hero-sub { color: #8B95A8; font-size: 1.05rem; margin-bottom: 1.8rem; }
+        .rp-card {
+            background: #131B2E; border: 1px solid #232C42; border-radius: 14px;
+            padding: 26px 22px; height: 100%;
+        }
+        .rp-card-destacado { border: 1px solid #FFB454; box-shadow: 0 0 0 1px #FFB45433; }
+        .rp-plan-nombre { font-family: 'Fraunces', serif; font-size: 1.3rem; color: #F5F7FA; margin-bottom: 2px; }
+        .rp-plan-target { color: #8B95A8; font-size: 0.85rem; margin-bottom: 14px; }
+        .rp-precio { font-family: 'IBM Plex Sans', monospace; font-size: 2rem; font-weight: 600; color: #FFB454; }
+        .rp-precio-periodo { color: #8B95A8; font-size: 0.9rem; }
+        .rp-feature { color: #C7CDDB; font-size: 0.88rem; margin: 6px 0; }
+        .rp-badge { display:inline-block; background:#FFB45422; color:#FFB454; font-size:0.72rem;
+            padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; font-weight:600; letter-spacing: 0.03em; }
+        </style>
+    """, unsafe_allow_html=True)
 
-    if st.button("🚪 Iniciar sesión", use_container_width=True):
-        if not email_usuario.strip() or not password_usuario:
-            st.warning("Introduce email y contraseña.")
-        else:
-            email_normalizado = email_usuario.lower().strip()
-            with st.spinner("Verificando credenciales..."):
-                try:
-                    perfil = cargar_perfil_login(email_normalizado)
+    st.markdown('<div class="rp-hero-title">Deja de improvisar respuestas<br>a las reseñas de tus clientes.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rp-hero-sub">ReviewPro Enterprise redacta respuestas profesionales, con tu marca y con SEO integrado, para toda la cartera de tu agencia.</div>', unsafe_allow_html=True)
 
-                    if perfil is None:
-                        st.error("❌ Email o contraseña incorrectos.")
-                    elif not verificar_password(password_usuario, perfil["usuario"]["password_hash"]):
-                        st.error("❌ Email o contraseña incorrectos.")
+    tab_planes, tab_login = st.tabs(["💳 Planes y precios", "🔑 Ya tengo cuenta"])
+
+    # -----------------------------------------------------
+    # PESTAÑA: PLANES Y PRECIOS
+    # -----------------------------------------------------
+    with tab_planes:
+        col_free, col_starter, col_growth, col_ent = st.columns(4)
+
+        with col_free:
+            st.markdown(f"""
+                <div class="rp-card">
+                    <div class="rp-plan-nombre">Free</div>
+                    <div class="rp-plan-target">Para probar antes de decidir</div>
+                    <div class="rp-precio">0€</div>
+                    <div class="rp-precio-periodo">para siempre</div>
+                    <hr style="border-color:#232C42; margin:14px 0;">
+                    <div class="rp-feature">✓ 1 local de prueba</div>
+                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>
+                    <div class="rp-feature">✓ Sin tarjeta de crédito</div>
+                    <div class="rp-feature" style="opacity:0.4;">✗ Marca blanca</div>
+                    <div class="rp-feature" style="opacity:0.4;">✗ Multi-usuario</div>
+                </div>
+            """, unsafe_allow_html=True)
+            with st.popover("Empezar gratis", use_container_width=True):
+                st.caption("Crea tu cuenta en 30 segundos. Sin tarjeta.")
+                nombre_agencia_free = st.text_input("Nombre de tu agencia o negocio", key="free_nombre_agencia")
+                nombre_local_free = st.text_input("Nombre del primer local a probar", key="free_nombre_local")
+                nombre_usuario_free = st.text_input("Tu nombre", key="free_nombre_usuario")
+                email_free = st.text_input("Email", key="free_email")
+                password_free = st.text_input("Contraseña (mín. 8 caracteres)", type="password", key="free_password")
+                if st.button("Crear cuenta gratis", key="free_submit", use_container_width=True):
+                    if not all([nombre_agencia_free, nombre_local_free, nombre_usuario_free, email_free, password_free]):
+                        st.warning("Rellena todos los campos.")
                     else:
-                        st.session_state.sesion_activa = True
-                        st.session_state.usuario_actual = perfil["usuario"]
-                        st.session_state.agencia_actual = perfil["agencia"]
-                        st.session_state.locales_agencia = perfil["locales"]
-                        st.success(f"🔋 Bienvenido, {perfil['usuario']['nombre_usuario']}.")
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Error de conexión con la base de datos: {e}")
+                        ok, error = registrar_agencia_gratuita(
+                            nombre_agencia_free, nombre_local_free, email_free, password_free, nombre_usuario_free
+                        )
+                        if ok:
+                            st.success("Cuenta creada. Ve a la pestaña 'Ya tengo cuenta' para iniciar sesión.")
+                        else:
+                            st.error(error)
 
-    st.divider()
-    st.caption("¿Tu agencia todavía no tiene acceso? Contacta con nosotros para el alta Enterprise.")
+        with col_starter:
+            st.markdown(f"""
+                <div class="rp-card">
+                    <div class="rp-plan-nombre">Starter</div>
+                    <div class="rp-plan-target">Agencias pequeñas · hasta 10 locales</div>
+                    <div class="rp-precio">49€</div>
+                    <div class="rp-precio-periodo">/ mes</div>
+                    <hr style="border-color:#232C42; margin:14px 0;">
+                    <div class="rp-feature">✓ Hasta 10 locales</div>
+                    <div class="rp-feature">✓ Respuestas ilimitadas</div>
+                    <div class="rp-feature">✓ Marca blanca completa</div>
+                    <div class="rp-feature">✓ SEO invisible por local</div>
+                </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f'<a href="{ENLACE_PAGO_STARTER}" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Starter</div></a>', unsafe_allow_html=True)
+
+        with col_growth:
+            st.markdown(f"""
+                <div class="rp-card rp-card-destacado">
+                    <span class="rp-badge">MÁS ELEGIDO</span>
+                    <div class="rp-plan-nombre">Growth</div>
+                    <div class="rp-plan-target">Agencias medianas · hasta 30 locales</div>
+                    <div class="rp-precio">129€</div>
+                    <div class="rp-precio-periodo">/ mes</div>
+                    <hr style="border-color:#232C42; margin:14px 0;">
+                    <div class="rp-feature">✓ Hasta 30 locales</div>
+                    <div class="rp-feature">✓ Respuestas ilimitadas</div>
+                    <div class="rp-feature">✓ Marca blanca completa</div>
+                    <div class="rp-feature">✓ Multi-usuario + analítica</div>
+                </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f'<a href="{ENLACE_PAGO_GROWTH}" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Growth</div></a>', unsafe_allow_html=True)
+
+        with col_ent:
+            st.markdown(f"""
+                <div class="rp-card">
+                    <div class="rp-plan-nombre">Enterprise</div>
+                    <div class="rp-plan-target">Agencias grandes · locales ilimitados</div>
+                    <div class="rp-precio">249€+</div>
+                    <div class="rp-precio-periodo">/ mes</div>
+                    <hr style="border-color:#232C42; margin:14px 0;">
+                    <div class="rp-feature">✓ Locales ilimitados</div>
+                    <div class="rp-feature">✓ Soporte prioritario</div>
+                    <div class="rp-feature">✓ Marca blanca completa</div>
+                    <div class="rp-feature">✓ Multi-usuario + analítica</div>
+                </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f'<a href="{ENLACE_PAGO_ENTERPRISE}" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Enterprise</div></a>', unsafe_allow_html=True)
+
+        st.caption("Tras pagar en Stripe, recibirás tus credenciales de acceso en un plazo máximo de 24h mientras completamos tu alta.")
+
+    # -----------------------------------------------------
+    # PESTAÑA: LOGIN
+    # -----------------------------------------------------
+    with tab_login:
+        st.markdown("Introduce tu email y contraseña personales. Cada usuario de tu agencia tiene su propio acceso.")
+
+        email_usuario = st.text_input("Email de usuario:")
+        password_usuario = st.text_input("Contraseña:", type="password")
+
+        if st.button("🚪 Iniciar sesión", use_container_width=True):
+            if not email_usuario.strip() or not password_usuario:
+                st.warning("Introduce email y contraseña.")
+            else:
+                email_normalizado = email_usuario.lower().strip()
+                with st.spinner("Verificando credenciales..."):
+                    try:
+                        perfil = cargar_perfil_login(email_normalizado)
+
+                        if perfil is None:
+                            st.error("❌ Email o contraseña incorrectos.")
+                        elif not verificar_password(password_usuario, perfil["usuario"]["password_hash"]):
+                            st.error("❌ Email o contraseña incorrectos.")
+                        else:
+                            st.session_state.sesion_activa = True
+                            st.session_state.usuario_actual = perfil["usuario"]
+                            st.session_state.agencia_actual = perfil["agencia"]
+                            st.session_state.locales_agencia = perfil["locales"]
+                            st.success(f"🔋 Bienvenido, {perfil['usuario']['nombre_usuario']}.")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Error de conexión con la base de datos: {e}")
+
     st.stop()
 
 # A partir de aquí: sesión válida.
@@ -208,6 +400,11 @@ with tab_generar:
 
     st.caption(f"Nicho: **{local_activo['nicho']}** · {len(local_activo['seo_keywords'])} keywords SEO cargadas.")
 
+    if agencia.get("plan") == "free":
+        usos_hechos = contar_usos_del_mes(agencia["id"])
+        restantes = max(0, LIMITE_USOS_PLAN_GRATIS - usos_hechos)
+        st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}** respuestas este mes.")
+
     with st.form("review_form"):
         nombre_negocio = st.text_input("Nombre del establecimiento", value=local_activo["nombre"], disabled=True)
         resena_cliente = st.text_area("Pega aquí la reseña del cliente", height=150)
@@ -220,6 +417,9 @@ with tab_generar:
             st.warning("Por favor, pega la reseña del cliente.")
         elif not acepta_terminos:
             st.error("⚠️ Es obligatorio aceptar los términos de uso.")
+        elif agencia.get("plan") == "free" and contar_usos_del_mes(agencia["id"]) >= LIMITE_USOS_PLAN_GRATIS:
+            st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite.")
+            st.markdown(f'<a href="{ENLACE_PAGO_STARTER}" target="_blank"><button style="background-color:{color_agencia};color:white;padding:10px 20px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;">💳 Ver planes de pago</button></a>', unsafe_allow_html=True)
         else:
             with st.spinner("ReviewPro Enterprise está redactando tu respuesta estratégica..."):
                 try:
