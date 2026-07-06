@@ -492,7 +492,7 @@ if not st.session_state.sesion_activa:
                     <div class="rp-feature">✓ Multi-usuario + analítica</div>
                 </div>
             """, unsafe_allow_html=True)
-            st.markdown(f'<a href="{ENLACE_PAGO_GROWTH}" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Growth</div></a>', unsafe_allow_html=True)
+            st.markdown(f'<a href="https://buy.stripe.com/test_28E9AU5JS250eloez1aVa02" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Growth</div></a>', unsafe_allow_html=True)
 
         with col_ent:
             st.markdown(f"""
@@ -508,7 +508,7 @@ if not st.session_state.sesion_activa:
                     <div class="rp-feature">✓ Multi-usuario + analítica</div>
                 </div>
             """, unsafe_allow_html=True)
-            st.markdown(f'<a href="{ENLACE_PAGO_ENTERPRISE}" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Enterprise</div></a>', unsafe_allow_html=True)
+            st.markdown(f'<a href="https://buy.stripe.com/test_7sYbJ24FOdNI4KO8aDaVa03" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Enterprise</div></a>', unsafe_allow_html=True)
 
         st.caption("Tras pagar en Stripe, recibirás tus credenciales de acceso en un plazo máximo de 24h mientras completamos tu alta.")
 
