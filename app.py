@@ -421,7 +421,7 @@ with tab_generar:
             st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite.")
             st.markdown(f'<a href="{ENLACE_PAGO_STARTER}" target="_blank"><button style="background-color:{color_agencia};color:white;padding:10px 20px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;">💳 Ver planes de pago</button></a>', unsafe_allow_html=True)
         else:
-            with st.spinner("ReviewPro Enterprise está redactando tu respuesta estratégica..."):
+            with st.spinner("Analizando el idioma y el tono de la reseña..."):
                 try:
                     nombre_local_final = local_activo["nombre"]
                     nicho_local = local_activo["nicho"]
@@ -498,10 +498,12 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
 
                     if traduccion:
                         st.subheader("📋 Texto para copiar y pegar en tu reseña:")
-                        st.text_area("Respuesta oficial (Nativa):", value=respuesta_nativa, height=150)
+                        st.caption("Respuesta oficial (Nativa) — pasa el ratón por encima para copiar:")
+                        st.code(respuesta_nativa, language=None, wrap_lines=True)
                         st.info(f"🌐 **Traducción al español para el propietario:**\n\n{traduccion}")
                     else:
-                        st.text_area("Copia este texto y pégalo directamente:", value=respuesta_nativa, height=180)
+                        st.caption("Copia este texto y pégalo directamente — pasa el ratón por encima para copiar:")
+                        st.code(respuesta_nativa, language=None, wrap_lines=True)
 
                     registrar_respuesta_en_historico(
                         agencia_id=agencia["id"],
@@ -561,9 +563,13 @@ with tab_analitica:
             st.bar_chart(conteo_por_local)
 
             # Actividad por usuario (visibilidad multi-usuario)
+            usuarios_de_la_agencia = supabase.table("usuarios").select("id, nombre_usuario").eq("agencia_id", agencia["id"]).execute().data
+            id_a_nombre_usuario = {u["id"]: u["nombre_usuario"] for u in usuarios_de_la_agencia}
+
             conteo_por_usuario = {}
             for fila in historico:
-                conteo_por_usuario[fila["usuario_id"]] = conteo_por_usuario.get(fila["usuario_id"], 0) + 1
+                nombre_usuario_fila = id_a_nombre_usuario.get(fila["usuario_id"], "Usuario eliminado")
+                conteo_por_usuario[nombre_usuario_fila] = conteo_por_usuario.get(nombre_usuario_fila, 0) + 1
 
             st.markdown("**Reparto de trabajo por usuario del equipo:**")
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
