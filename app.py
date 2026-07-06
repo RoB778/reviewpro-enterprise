@@ -441,7 +441,7 @@ if not st.session_state.sesion_activa:
                 <div class="rp-card">
                     <div class="rp-plan-nombre">Starter</div>
                     <div class="rp-plan-target">Agencias pequeñas · hasta 10 locales</div>
-                    <div class="rp-precio">49€</div>
+                    <div class="rp-precio">69€</div>
                     <div class="rp-precio-periodo">/ mes</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ Hasta 10 locales</div>
@@ -458,7 +458,7 @@ if not st.session_state.sesion_activa:
                     <span class="rp-badge">MÁS ELEGIDO</span>
                     <div class="rp-plan-nombre">Growth</div>
                     <div class="rp-plan-target">Agencias medianas · hasta 30 locales</div>
-                    <div class="rp-precio">129€</div>
+                    <div class="rp-precio">169€</div>
                     <div class="rp-precio-periodo">/ mes</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ Hasta 30 locales</div>
@@ -474,7 +474,7 @@ if not st.session_state.sesion_activa:
                 <div class="rp-card">
                     <div class="rp-plan-nombre">Enterprise</div>
                     <div class="rp-plan-target">Agencias grandes · locales ilimitados</div>
-                    <div class="rp-precio">249€+</div>
+                    <div class="rp-precio">269€+</div>
                     <div class="rp-precio-periodo">/ mes</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ Locales ilimitados</div>
