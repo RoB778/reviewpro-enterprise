@@ -56,6 +56,8 @@ def verificar_password(password_plano, password_hash):
 
 
 LIMITE_USOS_PLAN_GRATIS = 10  # respuestas por mes incluidas en el plan Free
+LIMITE_LOCALES_POR_PLAN = {"free": 1, "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
+UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Enlaces de pago de Stripe (Payment Links) — sustituye estas URLs por las reales
@@ -109,19 +111,6 @@ def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_pla
         return True, None
     except Exception as e:
         return False, f"Error al crear la cuenta: {e}"
-
-
-def contar_usos_del_mes(agencia_id):
-    """Cuenta cuántas respuestas ha generado una agencia desde el día 1 del mes actual.
-    Esta cuenta vive en Supabase, no en el navegador, por lo que no se puede
-    burlar borrando cookies, usando incógnito o cambiando de dispositivo."""
-    inicio_de_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-    resultado = supabase.table("historico_respuestas") \
-        .select("id", count="exact") \
-        .eq("agencia_id", agencia_id) \
-        .gte("creado_en", inicio_de_mes) \
-        .execute()
-    return resultado.count or 0
 
 
 def generar_informe_pdf_mensual(agencia, historico, locales_agencia, id_a_nombre_usuario, periodo_texto):
@@ -260,6 +249,42 @@ Devuelve EXCLUSIVAMENTE el texto final, sin comillas, sin explicaciones, sin enc
         if getattr(bloque, "type", None) == "text":
             return bloque.text.strip().strip('"')
     return ""
+
+
+def contar_usos_del_mes(agencia_id):
+    """Cuenta cuántas respuestas ha generado una agencia desde el día 1 del mes actual.
+    Esta cuenta vive en Supabase, no en el navegador, por lo que no se puede
+    burlar borrando cookies, usando incógnito o cambiando de dispositivo."""
+    inicio_de_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    resultado = supabase.table("historico_respuestas") \
+        .select("id", count="exact") \
+        .eq("agencia_id", agencia_id) \
+        .gte("creado_en", inicio_de_mes) \
+        .execute()
+    return resultado.count or 0
+
+
+def contar_usos_del_mes_por_local(local_id):
+    """Igual que contar_usos_del_mes pero acotado a un local concreto.
+    Se usa solo para el aviso informativo de actividad inusual, no para bloquear."""
+    inicio_de_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    resultado = supabase.table("historico_respuestas") \
+        .select("id", count="exact") \
+        .eq("local_id", local_id) \
+        .gte("creado_en", inicio_de_mes) \
+        .execute()
+    return resultado.count or 0
+
+
+def puede_agencia_anadir_local(agencia, locales_actuales):
+    """Comprueba si la agencia puede añadir un local más según el límite de su plan.
+    Devuelve (True, None) si puede, o (False, "motivo") si no."""
+    limite = LIMITE_LOCALES_POR_PLAN.get(agencia.get("plan", "growth"))
+    if limite is None:
+        return True, None
+    if len(locales_actuales) >= limite:
+        return False, f"Tu plan '{agencia.get('plan')}' incluye hasta {limite} locales. Actualiza tu plan para añadir más."
+    return True, None
 
 
 def cargar_perfil_login(email):
@@ -411,7 +436,7 @@ if not st.session_state.sesion_activa:
                     <div class="rp-precio-periodo">para siempre</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ 1 local de prueba</div>
-                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas</div>
+                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>
                     <div class="rp-feature">✓ Sin tarjeta de crédito</div>
                     <div class="rp-feature" style="opacity:0.4;">✗ Marca blanca</div>
                     <div class="rp-feature" style="opacity:0.4;">✗ Multi-usuario</div>
@@ -441,7 +466,7 @@ if not st.session_state.sesion_activa:
                 <div class="rp-card">
                     <div class="rp-plan-nombre">Starter</div>
                     <div class="rp-plan-target">Agencias pequeñas · hasta 10 locales</div>
-                    <div class="rp-precio">69€</div>
+                    <div class="rp-precio">49€</div>
                     <div class="rp-precio-periodo">/ mes</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ Hasta 10 locales</div>
@@ -458,7 +483,7 @@ if not st.session_state.sesion_activa:
                     <span class="rp-badge">MÁS ELEGIDO</span>
                     <div class="rp-plan-nombre">Growth</div>
                     <div class="rp-plan-target">Agencias medianas · hasta 30 locales</div>
-                    <div class="rp-precio">169€</div>
+                    <div class="rp-precio">129€</div>
                     <div class="rp-precio-periodo">/ mes</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ Hasta 30 locales</div>
@@ -474,7 +499,7 @@ if not st.session_state.sesion_activa:
                 <div class="rp-card">
                     <div class="rp-plan-nombre">Enterprise</div>
                     <div class="rp-plan-target">Agencias grandes · locales ilimitados</div>
-                    <div class="rp-precio">269€+</div>
+                    <div class="rp-precio">249€+</div>
                     <div class="rp-precio-periodo">/ mes</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ Locales ilimitados</div>
@@ -584,8 +609,38 @@ tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
 with tab_generar:
     locales_disponibles = st.session_state.locales_agencia
 
+    # ---- Añadir un nuevo establecimiento (respetando el límite del plan) ----
+    limite_locales = LIMITE_LOCALES_POR_PLAN.get(agencia.get("plan", "growth"))
+    texto_limite = "sin límite" if limite_locales is None else f"{len(locales_disponibles)}/{limite_locales}"
+    with st.expander(f"➕ Añadir establecimiento ({texto_limite})"):
+        nombre_nuevo_local = st.text_input("Nombre del establecimiento", key="nuevo_local_nombre")
+        nicho_nuevo_local = st.text_input("Nicho (ej: hotel, restaurante, clínica dental)", key="nuevo_local_nicho")
+        keywords_nuevo_local = st.text_input("Palabras clave SEO, separadas por comas", key="nuevo_local_keywords")
+        if st.button("Crear establecimiento", key="crear_establecimiento_btn"):
+            puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
+            if not puede:
+                st.error(f"⚠️ {motivo}")
+                enlace_upgrade = {"free": ENLACE_PAGO_STARTER, "starter": ENLACE_PAGO_GROWTH}.get(agencia.get("plan"), ENLACE_PAGO_ENTERPRISE)
+                st.markdown(f'<a href="{enlace_upgrade}" target="_blank"><button style="background-color:{color_agencia};color:white;padding:8px 18px;border:none;border-radius:8px;font-weight:bold;">Actualizar plan</button></a>', unsafe_allow_html=True)
+            elif not nombre_nuevo_local.strip() or not nicho_nuevo_local.strip():
+                st.warning("Rellena al menos el nombre y el nicho.")
+            else:
+                try:
+                    keywords_lista = [k.strip() for k in keywords_nuevo_local.split(",") if k.strip()]
+                    nuevo = supabase.table("locales").insert({
+                        "agencia_id": agencia["id"],
+                        "nombre": nombre_nuevo_local.strip(),
+                        "nicho": nicho_nuevo_local.strip(),
+                        "seo_keywords": keywords_lista
+                    }).execute()
+                    st.session_state.locales_agencia.append(nuevo.data[0])
+                    st.success(f"'{nombre_nuevo_local}' añadido correctamente.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"No se pudo crear el local: {e}")
+
     if not locales_disponibles:
-        st.error("⚠️ Esta agencia no tiene ningún local registrado en su cartera. Contacta con soporte.")
+        st.info("Añade tu primer establecimiento arriba para empezar a generar respuestas.")
         st.stop()
 
     nombres_locales = [local["nombre"] for local in locales_disponibles]
@@ -599,7 +654,11 @@ with tab_generar:
     if agencia.get("plan") == "free":
         usos_hechos = contar_usos_del_mes(agencia["id"])
         restantes = max(0, LIMITE_USOS_PLAN_GRATIS - usos_hechos)
-        st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}**.")
+        st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}** respuestas este mes.")
+    else:
+        usos_local_este_mes = contar_usos_del_mes_por_local(local_activo["id"])
+        if usos_local_este_mes >= UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL:
+            st.warning(f"📈 Este local ha generado {usos_local_este_mes} respuestas este mes — un volumen inusualmente alto. Si no es un cliente real de mucho tráfico, te recomendamos revisarlo.")
 
     with st.form("review_form"):
         nombre_negocio = st.text_input("Nombre del establecimiento", value=local_activo["nombre"], disabled=True)
@@ -869,6 +928,34 @@ with tab_analitica:
 
     except Exception as e:
         st.error(f"No se pudo cargar la analítica: {e}")
+
+# =========================================================
+# 🗑️ ZONA DE BAJA — solo visible para el usuario admin de la agencia
+# =========================================================
+if usuario.get("rol") == "admin":
+    with st.expander("🗑️ Darme de baja / Eliminar todos los datos de mi agencia"):
+        st.warning(
+            "Esta acción borra permanentemente tu agencia, todos sus usuarios, "
+            "todos sus locales y todo el histórico de respuestas generadas. "
+            "No se puede deshacer."
+        )
+        confirmacion = st.text_input(
+            f"Escribe exactamente el nombre de tu agencia (\"{agencia['nombre_agencia']}\") para confirmar:",
+            key="confirmacion_borrado_agencia"
+        )
+        if st.button("Eliminar definitivamente mi agencia", type="primary"):
+            if confirmacion.strip() != agencia["nombre_agencia"]:
+                st.error("El texto no coincide con el nombre de tu agencia. No se ha borrado nada.")
+            else:
+                try:
+                    supabase.table("agencias").delete().eq("id", agencia["id"]).execute()
+                    for key in ["sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia", "local_activo"]:
+                        st.session_state[key] = False if key == "sesion_activa" else None if "actual" in key else []
+                    st.session_state.vista_landing = "info"
+                    st.success("Tu agencia y todos sus datos han sido eliminados.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"No se pudo completar el borrado: {e}")
 
 st.divider()
 st.markdown(f"""
