@@ -411,7 +411,7 @@ if not st.session_state.sesion_activa:
                     <div class="rp-precio-periodo">para siempre</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ 1 local de prueba</div>
-                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>
+                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas</div>
                     <div class="rp-feature">✓ Sin tarjeta de crédito</div>
                     <div class="rp-feature" style="opacity:0.4;">✗ Marca blanca</div>
                     <div class="rp-feature" style="opacity:0.4;">✗ Multi-usuario</div>
@@ -599,7 +599,7 @@ with tab_generar:
     if agencia.get("plan") == "free":
         usos_hechos = contar_usos_del_mes(agencia["id"])
         restantes = max(0, LIMITE_USOS_PLAN_GRATIS - usos_hechos)
-        st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}** respuestas este mes.")
+        st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}**.")
 
     with st.form("review_form"):
         nombre_negocio = st.text_input("Nombre del establecimiento", value=local_activo["nombre"], disabled=True)
