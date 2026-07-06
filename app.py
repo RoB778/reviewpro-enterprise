@@ -1,10 +1,19 @@
 import json
 import re
+import urllib.parse
 from datetime import datetime, timedelta
+from io import BytesIO
 
 import bcrypt
+import qrcode
+import requests
 import streamlit as st
 from anthropic import Anthropic
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from supabase import create_client
 
 # Configuración de las claves secretas de los servidores
@@ -113,6 +122,144 @@ def contar_usos_del_mes(agencia_id):
         .gte("creado_en", inicio_de_mes) \
         .execute()
     return resultado.count or 0
+
+
+def generar_informe_pdf_mensual(agencia, historico, locales_agencia, id_a_nombre_usuario, periodo_texto):
+    """
+    Genera un informe PDF de marca blanca con el logo y color de la agencia,
+    resumiendo la actividad de un periodo concreto. Devuelve los bytes del PDF.
+    """
+    buffer = BytesIO()
+    color_hex = agencia.get("color_marca", "#635BFF").lstrip("#")
+    color_rl = colors.HexColor(f"#{color_hex}")
+
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
+    estilos = getSampleStyleSheet()
+    estilo_titulo = ParagraphStyle("TituloInforme", parent=estilos["Title"], textColor=color_rl, fontSize=20)
+    estilo_subtitulo = ParagraphStyle("Subtitulo", parent=estilos["Normal"], textColor=colors.grey, fontSize=11)
+    estilo_seccion = ParagraphStyle("Seccion", parent=estilos["Heading2"], textColor=color_rl, spaceBefore=14)
+
+    story = []
+
+    # Logo (si se puede descargar; si falla, se omite sin romper el informe)
+    try:
+        resp_logo = requests.get(agencia["logo_url"], timeout=5)
+        imagen_logo = RLImage(BytesIO(resp_logo.content), width=4 * cm, height=1.2 * cm)
+        story.append(imagen_logo)
+        story.append(Spacer(1, 10))
+    except Exception:
+        pass
+
+    story.append(Paragraph(f"Informe de reputación online", estilo_titulo))
+    story.append(Paragraph(f"{agencia['nombre_agencia']} · {periodo_texto}", estilo_subtitulo))
+    story.append(Spacer(1, 16))
+
+    total = len(historico)
+    positivas = sum(1 for r in historico if r["sentimiento"] == "positivo")
+    negativas = total - positivas
+    pct_positivas = round(positivas / total * 100) if total else 0
+
+    story.append(Paragraph("Resumen del periodo", estilo_seccion))
+    tabla_resumen = Table([
+        ["Respuestas generadas", "Reseñas positivas", "Reseñas negativas", "% positivas"],
+        [str(total), str(positivas), str(negativas), f"{pct_positivas}%"]
+    ], colWidths=[4 * cm, 4 * cm, 4 * cm, 3 * cm])
+    tabla_resumen.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), color_rl),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(tabla_resumen)
+    story.append(Spacer(1, 16))
+
+    story.append(Paragraph("Actividad por local", estilo_seccion))
+    id_a_nombre_local = {l["id"]: l["nombre"] for l in locales_agencia}
+    conteo_local = {}
+    for fila in historico:
+        nombre = id_a_nombre_local.get(fila["local_id"], "Local desconocido")
+        conteo_local[nombre] = conteo_local.get(nombre, 0) + 1
+
+    filas_tabla_local = [["Local", "Respuestas generadas"]] + [[nombre, str(n)] for nombre, n in conteo_local.items()]
+    tabla_locales = Table(filas_tabla_local, colWidths=[10 * cm, 5 * cm])
+    tabla_locales.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A3448")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(tabla_locales)
+    story.append(Spacer(1, 20))
+
+    story.append(Paragraph(
+        f"Informe generado automáticamente por ReviewPro Enterprise en nombre de {agencia['nombre_agencia']}. "
+        "Documento de uso interno/comercial para justificar la gestión de reputación online frente a sus clientes.",
+        ParagraphStyle("Pie", parent=estilos["Normal"], fontSize=7, textColor=colors.grey)
+    ))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def generar_qr_png(url_destino):
+    """Genera un código QR en PNG (bytes) que apunta a la URL indicada."""
+    qr = qrcode.QRCode(box_size=8, border=2)
+    qr.add_data(url_destino)
+    qr.make(fit=True)
+    imagen = qr.make_image(fill_color="black", back_color="white")
+    buffer = BytesIO()
+    imagen.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def generar_mensaje_whatsapp(nombre_local, enlace_resena):
+    """Construye el enlace wa.me con un mensaje precargado para pedir una reseña."""
+    mensaje = (
+        f"¡Hola! Muchas gracias por confiar en {nombre_local} 🙌 "
+        f"¿Nos ayudarías dejando tu opinión en Google? Solo te llevará 1 minuto: {enlace_resena}"
+    )
+    return "https://wa.me/?text=" + urllib.parse.quote(mensaje)
+
+
+def generar_contenido_seo_extra(client, nombre_local, nicho, seo_keywords, tipo_contenido):
+    """
+    Reutiliza el motor de IA para generar contenido SEO adicional (más allá de
+    respuestas a reseñas): publicaciones de Google Business o descripciones
+    para redes sociales, usando las mismas keywords ya cargadas del local.
+    """
+    keywords_texto = ", ".join(seo_keywords) if seo_keywords else "sin keywords específicas cargadas"
+
+    instrucciones_por_tipo = {
+        "Publicación de Google Business": "Escribe una publicación breve (40-60 palabras) para la sección de novedades de Google Business Profile. Debe sonar natural, cercana y con una llamada a la acción sutil (visitar, reservar, preguntar).",
+        "Descripción para redes sociales": "Escribe una descripción corta (25-40 palabras) pensada para el pie de una publicación de Instagram o Facebook. Tono cercano, sin hashtags excesivos (máximo 3 al final).",
+        "Meta descripción SEO": "Escribe una meta descripción SEO de máximo 155 caracteres para la página web de este negocio, pensada para aparecer en los resultados de Google. Debe incluir una llamada a la acción."
+    }
+
+    system_prompt = f"""Eres un redactor senior de marketing local especializado en SEO. Vas a escribir contenido corto para el negocio "{nombre_local}", cuyo nicho es "{nicho}".
+
+Integra de forma natural, sin forzar, al menos 1-2 de estas palabras clave si el contexto lo permite: {keywords_texto}.
+
+Instrucción específica para este contenido: {instrucciones_por_tipo[tipo_contenido]}
+
+Devuelve EXCLUSIVAMENTE el texto final, sin comillas, sin explicaciones, sin encabezados, sin markdown."""
+
+    response = client.messages.create(
+        model="claude-sonnet-5",
+        max_tokens=300,
+        system=system_prompt,
+        messages=[{"role": "user", "content": f"Genera el contenido para {nombre_local}."}]
+    )
+
+    for bloque in response.content:
+        if getattr(bloque, "type", None) == "text":
+            return bloque.text.strip().strip('"')
+    return ""
 
 
 def cargar_perfil_login(email):
@@ -427,7 +574,9 @@ st.info(f"Sesión activa: **{usuario['nombre_usuario']}** ({usuario['email']}) �
 # =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
 # =========================================================
-tab_generar, tab_analitica = st.tabs(["✨ Generar respuesta", "📊 Analítica de la agencia"])
+tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
+    ["✨ Generar respuesta", "📣 Pedir reseñas", "📝 Contenido SEO extra", "📊 Analítica de la agencia"]
+)
 
 # ---------------------------------------------------------
 # PESTAÑA 1: GENERACIÓN DE RESPUESTAS
@@ -567,6 +716,87 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                     st.error(f"Error al conectar con el servidor: {e}")
 
 # ---------------------------------------------------------
+# PESTAÑA: PEDIR RESEÑAS (WhatsApp + QR)
+# ---------------------------------------------------------
+with tab_pedir_resenas:
+    st.subheader("📣 Consigue más reseñas de las que ya tienes")
+    st.caption("Genera un mensaje de WhatsApp y un código QR para que el propio negocio pida reseñas a sus clientes satisfechos.")
+
+    locales_disponibles_pr = st.session_state.locales_agencia
+    if not locales_disponibles_pr:
+        st.info("Esta agencia todavía no tiene locales.")
+    else:
+        nombre_local_pr = st.selectbox(
+            "Local:", options=[l["nombre"] for l in locales_disponibles_pr], key="selector_local_pedir_resenas"
+        )
+        local_pr = next(l for l in locales_disponibles_pr if l["nombre"] == nombre_local_pr)
+
+        enlace_actual = local_pr.get("enlace_resena_google") or ""
+        nuevo_enlace = st.text_input(
+            "Enlace directo de Google para dejar una reseña:",
+            value=enlace_actual,
+            placeholder="https://g.page/r/xxxxxxxxxx/review",
+            help="Lo encuentras en Google Business Profile → Solicitar reseñas → Copiar enlace."
+        )
+
+        if st.button("💾 Guardar enlace"):
+            try:
+                supabase.table("locales").update({"enlace_resena_google": nuevo_enlace.strip()}).eq("id", local_pr["id"]).execute()
+                local_pr["enlace_resena_google"] = nuevo_enlace.strip()
+                st.success("Enlace guardado.")
+            except Exception as e:
+                st.error(f"No se pudo guardar: {e}")
+
+        if not nuevo_enlace.strip():
+            st.warning("Guarda primero el enlace de reseña de Google para generar el mensaje y el QR.")
+        else:
+            col_wa, col_qr = st.columns(2)
+            with col_wa:
+                st.markdown("**Mensaje listo para WhatsApp:**")
+                enlace_wa = generar_mensaje_whatsapp(nombre_local_pr, nuevo_enlace.strip())
+                st.markdown(f'<a href="{enlace_wa}" target="_blank"><button style="background-color:#25D366;color:white;padding:10px 20px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:100%;">📲 Abrir en WhatsApp</button></a>', unsafe_allow_html=True)
+                st.caption("Se abre con el mensaje ya escrito; solo hay que elegir el contacto.")
+            with col_qr:
+                st.markdown("**Código QR para imprimir en el local:**")
+                png_qr = generar_qr_png(nuevo_enlace.strip())
+                st.image(png_qr, width=180)
+                st.download_button("⬇️ Descargar QR (PNG)", data=png_qr, file_name=f"qr_resenas_{nombre_local_pr}.png", mime="image/png")
+
+# ---------------------------------------------------------
+# PESTAÑA: CONTENIDO SEO EXTRA
+# ---------------------------------------------------------
+with tab_seo_extra:
+    st.subheader("📝 Contenido SEO adicional para el local")
+    st.caption("Aprovecha las mismas palabras clave del local para generar contenido más allá de las respuestas a reseñas.")
+
+    locales_disponibles_seo = st.session_state.locales_agencia
+    if not locales_disponibles_seo:
+        st.info("Esta agencia todavía no tiene locales.")
+    else:
+        nombre_local_seo = st.selectbox(
+            "Local:", options=[l["nombre"] for l in locales_disponibles_seo], key="selector_local_seo_extra"
+        )
+        local_seo = next(l for l in locales_disponibles_seo if l["nombre"] == nombre_local_seo)
+
+        tipo_contenido = st.radio(
+            "Tipo de contenido:",
+            ["Publicación de Google Business", "Descripción para redes sociales", "Meta descripción SEO"],
+            horizontal=True
+        )
+
+        if st.button("✨ Generar contenido", key="generar_seo_extra"):
+            with st.spinner("Redactando el contenido..."):
+                try:
+                    texto_generado = generar_contenido_seo_extra(
+                        client, local_seo["nombre"], local_seo["nicho"], local_seo["seo_keywords"], tipo_contenido
+                    )
+                    st.code(texto_generado, language=None, wrap_lines=True)
+                    if tipo_contenido == "Meta descripción SEO":
+                        st.caption(f"Longitud: {len(texto_generado)} caracteres (recomendado: máx. 155).")
+                except Exception as e:
+                    st.error(f"Error al generar el contenido: {e}")
+
+# ---------------------------------------------------------
 # PESTAÑA 2: ANALÍTICA DE LA AGENCIA
 # ---------------------------------------------------------
 with tab_analitica:
@@ -621,6 +851,21 @@ with tab_analitica:
             st.markdown("**Reparto de trabajo por usuario del equipo:**")
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
             st.bar_chart(conteo_por_usuario)
+
+            st.divider()
+            st.markdown("**📄 Informe de marca blanca para reenviar a tus clientes:**")
+            try:
+                pdf_bytes = generar_informe_pdf_mensual(
+                    agencia, historico, st.session_state.locales_agencia, id_a_nombre_usuario, rango
+                )
+                st.download_button(
+                    "⬇️ Descargar informe PDF",
+                    data=pdf_bytes,
+                    file_name=f"informe_{agencia['nombre_agencia'].replace(' ', '_')}.pdf",
+                    mime="application/pdf"
+                )
+            except Exception as e:
+                st.error(f"No se pudo generar el informe: {e}")
 
     except Exception as e:
         st.error(f"No se pudo cargar la analítica: {e}")
