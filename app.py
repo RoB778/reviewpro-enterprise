@@ -168,6 +168,8 @@ if "locales_agencia" not in st.session_state:
     st.session_state.locales_agencia = []
 if "local_activo" not in st.session_state:
     st.session_state.local_activo = None
+if "vista_landing" not in st.session_state:
+    st.session_state.vista_landing = "info"
 
 # =========================================================
 # 🔑 LANDING: PLANES Y PRECIOS + LOGIN
@@ -201,12 +203,56 @@ if not st.session_state.sesion_activa:
     st.markdown('<div class="rp-hero-title">Deja de improvisar respuestas<br>a las reseñas de tus clientes.</div>', unsafe_allow_html=True)
     st.markdown('<div class="rp-hero-sub">ReviewPro Enterprise redacta respuestas profesionales, con tu marca y con SEO integrado, para toda la cartera de tu agencia.</div>', unsafe_allow_html=True)
 
-    tab_planes, tab_login = st.tabs(["💳 Planes y precios", "🔑 Ya tengo cuenta"])
+    # -----------------------------------------------------
+    # VISTA 1: INFO — presentación del producto antes de pedir nada
+    # -----------------------------------------------------
+    if st.session_state.vista_landing == "info":
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.markdown("""<div class="rp-card">
+                <div class="rp-plan-nombre" style="font-size:1.05rem;">🛡️ Blindaje legal</div>
+                <div class="rp-feature">Nunca admite negligencias ni usa términos de alerta sanitaria. Cada respuesta pasa por reglas de redacción pensadas para proteger la reputación del negocio.</div>
+            </div>""", unsafe_allow_html=True)
+        with col_b:
+            st.markdown("""<div class="rp-card">
+                <div class="rp-plan-nombre" style="font-size:1.05rem;">🔎 SEO invisible</div>
+                <div class="rp-feature">Cada respuesta integra de forma natural las palabras clave de posicionamiento de ese local concreto, sin que se note ni al cliente final ni a Google.</div>
+            </div>""", unsafe_allow_html=True)
+        with col_c:
+            st.markdown("""<div class="rp-card">
+                <div class="rp-plan-nombre" style="font-size:1.05rem;">🏢 Marca blanca real</div>
+                <div class="rp-feature">Tu agencia entra con su propio logo y color corporativo. Tus clientes ven tu marca, no la nuestra.</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
+        col_cta1, col_cta2 = st.columns(2)
+        with col_cta1:
+            if st.button("🔑 Ya tengo cuenta — Iniciar sesión", use_container_width=True):
+                st.session_state.vista_landing = "login"
+                st.rerun()
+        with col_cta2:
+            if st.button("🚀 Ver planes y empezar", use_container_width=True, type="primary"):
+                st.session_state.vista_landing = "planes"
+                st.rerun()
+        st.stop()
+
+    # Botón para volver a la info desde las otras dos vistas
+    if st.button("← Volver"):
+        st.session_state.vista_landing = "info"
+        st.rerun()
+
+    mostrar_planes = st.session_state.vista_landing == "planes"
+    mostrar_login = st.session_state.vista_landing == "login"
+
+    if mostrar_planes:
+        st.caption("¿Ya tienes cuenta? Usa el botón '← Volver' de arriba y elige 'Iniciar sesión'.")
+    if mostrar_login:
+        st.caption("¿Todavía no tienes cuenta? Usa el botón '← Volver' de arriba y elige 'Ver planes'.")
 
     # -----------------------------------------------------
-    # PESTAÑA: PLANES Y PRECIOS
+    # VISTA: PLANES Y PRECIOS
     # -----------------------------------------------------
-    with tab_planes:
+    if mostrar_planes:
         col_free, col_starter, col_growth, col_ent = st.columns(4)
 
         with col_free:
@@ -218,7 +264,7 @@ if not st.session_state.sesion_activa:
                     <div class="rp-precio-periodo">para siempre</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ 1 local de prueba</div>
-                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas</div>
+                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>
                     <div class="rp-feature">✓ Sin tarjeta de crédito</div>
                     <div class="rp-feature" style="opacity:0.4;">✗ Marca blanca</div>
                     <div class="rp-feature" style="opacity:0.4;">✗ Multi-usuario</div>
@@ -295,9 +341,9 @@ if not st.session_state.sesion_activa:
         st.caption("Tras pagar en Stripe, recibirás tus credenciales de acceso en un plazo máximo de 24h mientras completamos tu alta.")
 
     # -----------------------------------------------------
-    # PESTAÑA: LOGIN
+    # VISTA: LOGIN
     # -----------------------------------------------------
-    with tab_login:
+    if mostrar_login:
         st.markdown("Introduce tu email y contraseña personales. Cada usuario de tu agencia tiene su propio acceso.")
 
         email_usuario = st.text_input("Email de usuario:")
@@ -372,6 +418,7 @@ with col_cuenta:
     if st.button("🔒 Salir"):
         for key in ["sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia", "local_activo"]:
             st.session_state[key] = False if key == "sesion_activa" else None if "actual" in key else []
+        st.session_state.vista_landing = "info"
         st.rerun()
 
 st.markdown(f"<hr style='border-top:3px solid {color_agencia}; margin-top:4px;'>", unsafe_allow_html=True)
