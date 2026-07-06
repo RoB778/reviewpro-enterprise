@@ -1,5 +1,7 @@
 streamlit
-bcrypt
-supabase
 anthropic
+supabase
+bcrypt
+reportlab
+qrcode[pil]
 
