@@ -475,7 +475,7 @@ if not st.session_state.sesion_activa:
                     <div class="rp-feature">✓ SEO invisible por local</div>
                 </div>
             """, unsafe_allow_html=True)
-            st.markdown(f'<a href="{ENLACE_PAGO_STARTER}" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Starter</div></a>', unsafe_allow_html=True)
+            st.markdown(f'<a href="https://buy.stripe.com/test_7sYeVegow7pk1yCduXaVa01" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Starter</div></a>', unsafe_allow_html=True)
 
         with col_growth:
             st.markdown(f"""
