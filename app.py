@@ -22,9 +22,19 @@ client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
 
-# URL pública de la app, necesaria para que Stripe sepa a dónde devolver al usuario
-# tras el pago. Configúrala en secrets.toml, ej: APP_URL = "https://tuapp.streamlit.app"
-APP_URL = st.secrets.get("APP_URL", "http://localhost:8501")
+# URL pública de la app, necesaria para que Stripe sepa a dónde devolver al usuario tras
+# el pago. OBLIGATORIA: si falta o está mal puesta, Stripe redirige a una URL que no existe
+# y el usuario se queda "colgado" en la pantalla de éxito de Stripe sin volver nunca a la app.
+# Configúrala en secrets.toml con la URL exacta de tu app en Streamlit Cloud, ej:
+# APP_URL = "https://reviewpro-enterprise.streamlit.app"  (sin barra final)
+if "APP_URL" not in st.secrets:
+    st.error(
+        "⚠️ Falta configurar APP_URL en los secrets de la app. Sin esto, Stripe no puede "
+        "devolver al usuario tras el pago. Ve a 'Manage app' → Settings → Secrets y añade "
+        "APP_URL = \"https://tu-url-real.streamlit.app\" (la URL exacta con la que accedes a tu app)."
+    )
+    st.stop()
+APP_URL = st.secrets["APP_URL"].rstrip("/")
 
 # 1. Configuración de página limpia y profesional
 st.set_page_config(page_title="ReviewPro Enterprise", page_icon="🛡️", layout="centered")
@@ -105,12 +115,39 @@ def crear_sesion_pago_stripe(agencia_id, plan_nombre, price_id):
         return None
 
 
+def crear_sesion_pago_nueva_agencia(plan_nombre, price_id):
+    """
+    Crea la sesión de pago para alguien que compra un plan directamente desde la landing,
+    SIN tener cuenta todavía. Stripe recoge el email de pago por su cuenta, y añadimos un
+    campo extra para pedir el nombre de la agencia durante el propio checkout. Con esos dos
+    datos, al volver del pago ya podemos ofrecerle crear su contraseña y montar la cuenta.
+    """
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            payment_method_types=["card"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            metadata={"plan": plan_nombre, "flujo": "alta_nueva"},
+            custom_fields=[{
+                "key": "nombre_agencia",
+                "label": {"type": "custom", "custom": "Nombre de tu agencia o negocio"},
+                "type": "text",
+            }],
+            success_url=f"{APP_URL}/?alta_nueva=1&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{APP_URL}/?pago_cancelado=1",
+        )
+        return session.url
+    except Exception as e:
+        st.error(f"No se pudo iniciar el proceso de pago: {e}")
+        return None
+
+
 def confirmar_pago_y_activar_plan(session_id):
     """
-    Se llama cuando Stripe redirige de vuelta a la app tras un pago. Verifica contra la
-    propia Stripe (nunca te fíes solo de la URL) que el pago se ha completado de verdad,
-    y si es así, activa el plan de la agencia en Supabase automáticamente.
-    Devuelve (True, plan_nombre) o (False, "motivo").
+    Se llama cuando Stripe redirige de vuelta a la app tras un pago DE UPGRADE (agencia ya
+    existente). Verifica contra la propia Stripe (nunca te fíes solo de la URL) que el pago
+    se ha completado de verdad, y si es así, activa el plan de la agencia en Supabase
+    automáticamente. Devuelve (True, plan_nombre) o (False, "motivo").
     """
     try:
         session = stripe.checkout.Session.retrieve(session_id)
@@ -123,6 +160,36 @@ def confirmar_pago_y_activar_plan(session_id):
         supabase.table("agencias").update({"plan": plan_nombre}).eq("id", agencia_id).execute()
         return True, plan_nombre
     except Exception as e:
+        return False, str(e)
+
+
+def verificar_pago_alta_nueva(session_id):
+    """
+    Se llama cuando Stripe redirige de vuelta a la app tras un pago de un cliente NUEVO
+    (todavía sin cuenta). Verifica el pago y extrae el email de Stripe y el nombre de
+    agencia que rellenó durante el checkout, para poder mostrarle a continuación el
+    formulario de creación de contraseña. Devuelve (True, datos) o (False, "motivo").
+    """
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        if session.payment_status != "paid":
+            return False, "El pago todavía no se ha confirmado."
+        plan_nombre = session.metadata.get("plan")
+        email_pago = session.customer_details.email if session.customer_details else None
+        nombre_agencia_pago = ""
+        for campo in (session.custom_fields or []):
+            if campo.get("key") == "nombre_agencia" and campo.get("text"):
+                nombre_agencia_pago = campo["text"].get("value") or ""
+        if not plan_nombre or not email_pago:
+            return False, "No se pudieron recuperar todos los datos del pago. Escríbenos y lo resolvemos a mano."
+        return True, {
+            "session_id": session_id,
+            "email": email_pago,
+            "nombre_agencia": nombre_agencia_pago,
+            "plan": plan_nombre,
+        }
+    except Exception as e:
+        return False, str(e)
         return False, str(e)
 
 
@@ -170,6 +237,99 @@ def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_pla
         return True, None
     except Exception as e:
         return False, f"Error al crear la cuenta: {e}"
+
+
+def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plano, nombre_usuario, plan):
+    """
+    Igual que registrar_agencia_gratuita, pero para agencias que ya han pagado un plan
+    de pago (Starter/Growth) desde la landing. Se llama justo después de que el pago se
+    ha verificado en Stripe y el usuario elige su contraseña. A diferencia de la versión
+    gratuita, devuelve los datos completos de agencia/usuario/locales para poder hacer
+    login automático nada más crear la cuenta, sin obligar a otro paso.
+    Devuelve (True, {"agencia":..., "usuario":..., "locales":...}) o (False, "motivo").
+    """
+    email_normalizado = email.lower().strip()
+
+    if not EMAIL_REGEX.match(email_normalizado):
+        return False, "El email no tiene un formato válido."
+    if len(password_plano) < 8:
+        return False, "La contraseña debe tener al menos 8 caracteres."
+
+    existente = supabase.table("usuarios").select("id").eq("email", email_normalizado).execute()
+    if existente.data:
+        return False, "Ya existe una cuenta con ese email. Inicia sesión en su lugar."
+
+    try:
+        nueva_agencia = supabase.table("agencias").insert({
+            "nombre_agencia": nombre_agencia.strip(),
+            "logo_url": "https://dummyimage.com/200x60/635BFF/ffffff&text=ReviewPro",
+            "color_marca": "#635BFF",
+            "plan": plan
+        }).execute()
+        agencia_id = nueva_agencia.data[0]["id"]
+
+        nuevo_usuario = supabase.table("usuarios").insert({
+            "agencia_id": agencia_id,
+            "email": email_normalizado,
+            "password_hash": bcrypt.hashpw(password_plano.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
+            "nombre_usuario": nombre_usuario.strip(),
+            "rol": "admin"
+        }).execute()
+
+        nuevo_local = supabase.table("locales").insert({
+            "agencia_id": agencia_id,
+            "nombre": nombre_local.strip(),
+            "nicho": "general",
+            "seo_keywords": []
+        }).execute()
+
+        return True, {
+            "agencia": nueva_agencia.data[0],
+            "usuario": nuevo_usuario.data[0],
+            "locales": nuevo_local.data or []
+        }
+    except Exception as e:
+        return False, f"Error al crear la cuenta: {e}"
+
+
+def render_formulario_alta_pendiente():
+    """
+    Pantalla que se muestra justo después de un pago nuevo (cliente sin cuenta previa) ya
+    verificado en Stripe. Pide los últimos datos que faltan (contraseña, nombre del primer
+    local) y crea la cuenta completa, dejando al usuario ya logueado al terminar.
+    """
+    datos = st.session_state.alta_pendiente
+    st.success(f"✅ Pago confirmado para el plan **{datos['plan'].capitalize()}**. Solo falta un paso: crea tu contraseña de acceso.")
+    st.caption(f"Vamos a asociar tu cuenta al email **{datos['email']}**.")
+
+    with st.form("crear_password_alta_pendiente"):
+        nombre_agencia_final = st.text_input("Nombre de tu agencia o negocio", value=datos.get("nombre_agencia", ""))
+        nombre_local_final = st.text_input("Nombre de tu primer establecimiento")
+        nombre_usuario_final = st.text_input("Tu nombre")
+        password_final = st.text_input("Crea tu contraseña (mín. 8 caracteres)", type="password")
+        password_confirmar = st.text_input("Repite la contraseña", type="password")
+        submit_alta = st.form_submit_button("Crear mi cuenta y entrar", use_container_width=True)
+
+    if submit_alta:
+        if not all([nombre_agencia_final.strip(), nombre_local_final.strip(), nombre_usuario_final.strip(), password_final]):
+            st.warning("Rellena todos los campos.")
+        elif password_final != password_confirmar:
+            st.error("Las contraseñas no coinciden.")
+        else:
+            ok, resultado = registrar_agencia_de_pago(
+                nombre_agencia_final, nombre_local_final, datos["email"], password_final, nombre_usuario_final, datos["plan"]
+            )
+            if ok:
+                st.session_state.alta_completada_session_id = datos["session_id"]
+                st.session_state.alta_pendiente = None
+                st.session_state.sesion_activa = True
+                st.session_state.usuario_actual = resultado["usuario"]
+                st.session_state.agencia_actual = resultado["agencia"]
+                st.session_state.locales_agencia = resultado["locales"]
+                st.success(f"¡Cuenta creada! Bienvenido/a, {resultado['usuario']['nombre_usuario']}.")
+                st.rerun()
+            else:
+                st.error(resultado)
 
 
 def generar_informe_pdf_mensual(agencia, historico, locales_agencia, id_a_nombre_usuario, periodo_texto):
@@ -444,6 +604,8 @@ if "vista_landing" not in st.session_state:
     st.session_state.vista_landing = "info"
 if "mostrar_pagina_planes" not in st.session_state:
     st.session_state.mostrar_pagina_planes = False
+if "alta_pendiente" not in st.session_state:
+    st.session_state.alta_pendiente = None
 
 # =========================================================
 # 💳 VUELTA DESDE STRIPE: activación automática del plan
@@ -467,6 +629,16 @@ if parametros_url.get("pago_exito") == "1" and "session_id" in parametros_url:
         else:
             st.error(f"No se pudo confirmar el pago automáticamente: {resultado_pago}. Escríbenos si el cargo sí se realizó.")
     st.query_params.clear()
+elif parametros_url.get("alta_nueva") == "1" and "session_id" in parametros_url:
+    session_id_alta = parametros_url["session_id"]
+    if st.session_state.get("alta_completada_session_id") != session_id_alta:
+        if not st.session_state.alta_pendiente or st.session_state.alta_pendiente.get("session_id") != session_id_alta:
+            ok_alta, datos_alta = verificar_pago_alta_nueva(session_id_alta)
+            if ok_alta:
+                st.session_state.alta_pendiente = datos_alta
+            else:
+                st.error(f"No se pudo verificar el pago: {datos_alta}. Escríbenos si el cargo sí se realizó.")
+    st.query_params.clear()
 elif parametros_url.get("pago_cancelado") == "1":
     st.info("Has cancelado el proceso de pago. No se ha realizado ningún cargo.")
     st.query_params.clear()
@@ -474,6 +646,11 @@ elif parametros_url.get("pago_cancelado") == "1":
 # =========================================================
 # 🔑 LANDING: PLANES Y PRECIOS + LOGIN
 # =========================================================
+if not st.session_state.sesion_activa and st.session_state.alta_pendiente:
+    st.markdown('<div class="rp-hero-title" style="font-size:1.8rem;">Ya casi está 🎉</div>', unsafe_allow_html=True)
+    render_formulario_alta_pendiente()
+    st.stop()
+
 if not st.session_state.sesion_activa:
 
     st.markdown("""
@@ -603,7 +780,11 @@ if not st.session_state.sesion_activa:
                     <div class="rp-feature">✓ SEO invisible por local</div>
                 </div>
             """, unsafe_allow_html=True)
-            st.markdown(f'<a href="https://buy.stripe.com/test_7sYeVegow7pk1yCduXaVa01" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Starter</div></a>', unsafe_allow_html=True)
+            if st.button("Elegir Starter", key="landing_elegir_starter", use_container_width=True, type="primary"):
+                url_pago_starter = crear_sesion_pago_nueva_agencia("starter", STRIPE_PRICE_ID_STARTER)
+                if url_pago_starter:
+                    st.markdown(f'<meta http-equiv="refresh" content="0; url={url_pago_starter}">', unsafe_allow_html=True)
+                    st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago_starter})")
 
         with col_growth:
             st.markdown(f"""
@@ -620,7 +801,11 @@ if not st.session_state.sesion_activa:
                     <div class="rp-feature">✓ Multi-usuario + analítica</div>
                 </div>
             """, unsafe_allow_html=True)
-            st.markdown(f'<a href="https://buy.stripe.com/test_28E9AU5JS250eloez1aVa02" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Growth</div></a>', unsafe_allow_html=True)
+            if st.button("Elegir Growth", key="landing_elegir_growth", use_container_width=True, type="primary"):
+                url_pago_growth = crear_sesion_pago_nueva_agencia("growth", STRIPE_PRICE_ID_GROWTH)
+                if url_pago_growth:
+                    st.markdown(f'<meta http-equiv="refresh" content="0; url={url_pago_growth}">', unsafe_allow_html=True)
+                    st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago_growth})")
 
         with col_ent:
             st.markdown(f"""
@@ -636,9 +821,9 @@ if not st.session_state.sesion_activa:
                     <div class="rp-feature">✓ Multi-usuario + analítica</div>
                 </div>
             """, unsafe_allow_html=True)
-            st.markdown(f'<a href="https://buy.stripe.com/test_7sYbJ24FOdNI4KO8aDaVa03" target="_blank" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Elegir Enterprise</div></a>', unsafe_allow_html=True)
+            st.markdown(f'<a href="{ENLACE_CONTACTO_ENTERPRISE}" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Hablar con ventas</div></a>', unsafe_allow_html=True)
 
-        st.caption("Tras pagar en Stripe, recibirás tus credenciales de acceso en un plazo máximo de 24h mientras completamos tu alta.")
+        st.caption("Al pagar Starter o Growth, vuelves aquí mismo para crear tu contraseña y tu cuenta queda activa al instante.")
 
     # -----------------------------------------------------
     # VISTA: LOGIN
