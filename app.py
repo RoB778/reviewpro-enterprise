@@ -80,9 +80,9 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
 # "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
 # aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
-STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
-STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
-STRIPE_PRICE_ID_ENTERPRISE = "price_1TqCa0Kwc34DG74Mhr0ZS3se"
+STRIPE_PRICE_ID_STARTER = "price_TODO_starter"
+STRIPE_PRICE_ID_GROWTH = "price_TODO_growth"
+STRIPE_PRICE_ID_ENTERPRISE = "price_TODO_enterprise"
 
 PLANES_AUTOSERVICIO = {
     "starter": {"nombre": "Starter", "precio_texto": "49€/mes", "price_id": STRIPE_PRICE_ID_STARTER,
@@ -508,7 +508,19 @@ def puede_agencia_anadir_local(agencia, locales_actuales):
     return True, None
 
 
-def render_pagina_planes_upgrade(agencia, color_agencia):
+def redirigir_a_stripe(url_pago):
+    """
+    Redirige el navegador a la URL de pago de Stripe forzando el nivel superior de la
+    ventana (window.top). Un simple <meta refresh> se queda atrapado si Streamlit renderiza
+    el HTML dentro de un iframe interno, y Stripe bloquea la carga con el error
+    "not able to run in an iFrame" — por eso aquí usamos JavaScript en vez de meta refresh.
+    """
+    st.markdown(
+        f"""<script>window.top.location.href = "{url_pago}";</script>""",
+        unsafe_allow_html=True
+    )
+    st.info("Redirigiéndote a un pago seguro con Stripe...")
+    st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago})")
     """
     Página de actualización de plan para usuarios ya logueados. Sustituye al antiguo
     enlace directo a Stripe: ahora primero se ve la comparativa de planes (igual que en
@@ -536,9 +548,7 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
                 if st.button(f"Elegir {datos_plan['nombre']}", key=f"elegir_{clave_plan}", use_container_width=True):
                     url_pago = crear_sesion_pago_stripe(agencia["id"], clave_plan, datos_plan["price_id"])
                     if url_pago:
-                        st.markdown(f'<meta http-equiv="refresh" content="0; url={url_pago}">', unsafe_allow_html=True)
-                        st.info("Redirigiéndote a un pago seguro con Stripe...")
-                        st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago})")
+                        redirigir_a_stripe(url_pago)
 
 
 def cargar_perfil_login(email):
@@ -777,8 +787,7 @@ if not st.session_state.sesion_activa:
             if st.button("Elegir Starter", key="landing_elegir_starter", use_container_width=True, type="primary"):
                 url_pago_starter = crear_sesion_pago_nueva_agencia("starter", STRIPE_PRICE_ID_STARTER)
                 if url_pago_starter:
-                    st.markdown(f'<meta http-equiv="refresh" content="0; url={url_pago_starter}">', unsafe_allow_html=True)
-                    st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago_starter})")
+                    redirigir_a_stripe(url_pago_starter)
 
         with col_growth:
             st.markdown(f"""
@@ -798,8 +807,7 @@ if not st.session_state.sesion_activa:
             if st.button("Elegir Growth", key="landing_elegir_growth", use_container_width=True, type="primary"):
                 url_pago_growth = crear_sesion_pago_nueva_agencia("growth", STRIPE_PRICE_ID_GROWTH)
                 if url_pago_growth:
-                    st.markdown(f'<meta http-equiv="refresh" content="0; url={url_pago_growth}">', unsafe_allow_html=True)
-                    st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago_growth})")
+                    redirigir_a_stripe(url_pago_growth)
 
         with col_ent:
             st.markdown(f"""
@@ -818,8 +826,7 @@ if not st.session_state.sesion_activa:
             if st.button("Elegir Enterprise", key="landing_elegir_enterprise", use_container_width=True, type="primary"):
                 url_pago_enterprise = crear_sesion_pago_nueva_agencia("enterprise", STRIPE_PRICE_ID_ENTERPRISE)
                 if url_pago_enterprise:
-                    st.markdown(f'<meta http-equiv="refresh" content="0; url={url_pago_enterprise}">', unsafe_allow_html=True)
-                    st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago_enterprise})")
+                    redirigir_a_stripe(url_pago_enterprise)
 
         st.caption("Al pagar cualquier plan, vuelves aquí mismo para crear tu contraseña y tu cuenta queda activa al instante — sin esperas ni llamadas.")
 
