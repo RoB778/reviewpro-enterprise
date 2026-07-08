@@ -80,9 +80,9 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
 # "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
 # aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
-STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
-STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
-STRIPE_PRICE_ID_ENTERPRISE = "price_1Tr1RoKwc34DG74M8L4sjSVL"
+STRIPE_PRICE_ID_STARTER = "price_TODO_starter"
+STRIPE_PRICE_ID_GROWTH = "price_TODO_growth"
+STRIPE_PRICE_ID_ENTERPRISE = "price_TODO_enterprise"
 
 PLANES_AUTOSERVICIO = {
     "starter": {"nombre": "Starter", "precio_texto": "49€/mes", "price_id": STRIPE_PRICE_ID_STARTER,
@@ -120,9 +120,10 @@ def crear_sesion_pago_stripe(agencia_id, plan_nombre, price_id):
 def crear_sesion_pago_nueva_agencia(plan_nombre, price_id):
     """
     Crea la sesión de pago para alguien que compra un plan directamente desde la landing,
-    SIN tener cuenta todavía. Stripe recoge el email de pago por su cuenta, y añadimos un
-    campo extra para pedir el nombre de la agencia durante el propio checkout. Con esos dos
-    datos, al volver del pago ya podemos ofrecerle crear su contraseña y montar la cuenta.
+    SIN tener cuenta todavía. Ya no pedimos nada extra dentro del propio Stripe: al volver
+    del pago, la propia app le pide el email, el nombre de la agencia y la contraseña en
+    una pantalla intermedia (igual que el alta del plan Free), así que aquí basta con el
+    plan elegido.
     """
     try:
         session = stripe.checkout.Session.create(
@@ -130,11 +131,6 @@ def crear_sesion_pago_nueva_agencia(plan_nombre, price_id):
             payment_method_types=["card"],
             line_items=[{"price": price_id, "quantity": 1}],
             metadata={"plan": plan_nombre, "flujo": "alta_nueva"},
-            custom_fields=[{
-                "key": "nombre_agencia",
-                "label": {"type": "custom", "custom": "Nombre de tu agencia o negocio"},
-                "type": "text",
-            }],
             success_url=f"{APP_URL}/?alta_nueva=1&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{APP_URL}/?pago_cancelado=1",
         )
@@ -168,30 +164,31 @@ def confirmar_pago_y_activar_plan(session_id):
 def verificar_pago_alta_nueva(session_id):
     """
     Se llama cuando Stripe redirige de vuelta a la app tras un pago de un cliente NUEVO
-    (todavía sin cuenta). Verifica el pago y extrae el email de Stripe y el nombre de
-    agencia que rellenó durante el checkout, para poder mostrarle a continuación el
-    formulario de creación de contraseña. Devuelve (True, datos) o (False, "motivo").
+    (todavía sin cuenta). Solo confirma que el pago está completado y recupera el plan y
+    el stripe_customer_id (para guardarlo en la agencia, tal como pide el esquema). El
+    email y el nombre de la agencia se piden directamente en la app justo después, en vez
+    de depender de campos de Stripe. Devuelve (True, datos) o (False, "motivo").
     """
     try:
         session = stripe.checkout.Session.retrieve(session_id)
         if session.payment_status != "paid":
             return False, "El pago todavía no se ha confirmado."
         plan_nombre = session.metadata.get("plan")
-        email_pago = session.customer_details.email if session.customer_details else None
-        nombre_agencia_pago = ""
-        for campo in (session.custom_fields or []):
-            if campo.get("key") == "nombre_agencia" and campo.get("text"):
-                nombre_agencia_pago = campo["text"].get("value") or ""
-        if not plan_nombre or not email_pago:
-            return False, "No se pudieron recuperar todos los datos del pago. Escríbenos y lo resolvemos a mano."
+        if not plan_nombre:
+            return False, "No se pudo identificar el plan asociado a este pago."
+        email_prefill = ""
+        try:
+            if session.customer_details and session.customer_details.email:
+                email_prefill = session.customer_details.email
+        except Exception:
+            pass
         return True, {
             "session_id": session_id,
-            "email": email_pago,
-            "nombre_agencia": nombre_agencia_pago,
             "plan": plan_nombre,
+            "stripe_customer_id": session.customer,
+            "email_prefill": email_prefill,
         }
     except Exception as e:
-        return False, str(e)
         return False, str(e)
 
 
@@ -241,14 +238,13 @@ def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_pla
         return False, f"Error al crear la cuenta: {e}"
 
 
-def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plano, nombre_usuario, plan):
+def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plano, nombre_usuario, plan, stripe_customer_id=None):
     """
     Igual que registrar_agencia_gratuita, pero para agencias que ya han pagado un plan
-    de pago (Starter/Growth) desde la landing. Se llama justo después de que el pago se
-    ha verificado en Stripe y el usuario elige su contraseña. A diferencia de la versión
-    gratuita, devuelve los datos completos de agencia/usuario/locales para poder hacer
-    login automático nada más crear la cuenta, sin obligar a otro paso.
-    Devuelve (True, {"agencia":..., "usuario":..., "locales":...}) o (False, "motivo").
+    de pago (Starter/Growth/Enterprise) desde la landing. Se llama justo después de que
+    el pago se ha verificado en Stripe y el usuario rellena email + contraseña en la
+    pantalla intermedia. Devuelve (True, {"agencia":..., "usuario":..., "locales":...})
+    o (False, "motivo").
     """
     email_normalizado = email.lower().strip()
 
@@ -262,12 +258,16 @@ def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plan
         return False, "Ya existe una cuenta con ese email. Inicia sesión en su lugar."
 
     try:
-        nueva_agencia = supabase.table("agencias").insert({
+        datos_agencia = {
             "nombre_agencia": nombre_agencia.strip(),
             "logo_url": "https://dummyimage.com/200x60/635BFF/ffffff&text=ReviewPro",
             "color_marca": "#635BFF",
             "plan": plan
-        }).execute()
+        }
+        if stripe_customer_id:
+            datos_agencia["stripe_customer_id"] = stripe_customer_id
+
+        nueva_agencia = supabase.table("agencias").insert(datos_agencia).execute()
         agencia_id = nueva_agencia.data[0]["id"]
 
         nuevo_usuario = supabase.table("usuarios").insert({
@@ -297,29 +297,30 @@ def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plan
 def render_formulario_alta_pendiente():
     """
     Pantalla que se muestra justo después de un pago nuevo (cliente sin cuenta previa) ya
-    verificado en Stripe. Pide los últimos datos que faltan (contraseña, nombre del primer
-    local) y crea la cuenta completa, dejando al usuario ya logueado al terminar.
+    verificado en Stripe. Pide los mismos datos que el alta del plan Free (agencia, local,
+    nombre, email, contraseña) y crea la cuenta completa, dejando al usuario ya logueado.
     """
     datos = st.session_state.alta_pendiente
-    st.success(f"✅ Pago confirmado para el plan **{datos['plan'].capitalize()}**. Solo falta un paso: crea tu contraseña de acceso.")
-    st.caption(f"Vamos a asociar tu cuenta al email **{datos['email']}**.")
+    st.success(f"✅ Pago confirmado — plan **{datos['plan'].capitalize()}**. Un último paso para entrar:")
 
-    with st.form("crear_password_alta_pendiente"):
-        nombre_agencia_final = st.text_input("Nombre de tu agencia o negocio", value=datos.get("nombre_agencia", ""))
+    with st.form("crear_cuenta_alta_pendiente"):
+        nombre_agencia_final = st.text_input("Nombre de tu agencia o negocio")
         nombre_local_final = st.text_input("Nombre de tu primer establecimiento")
         nombre_usuario_final = st.text_input("Tu nombre")
+        email_final = st.text_input("Email", value=datos.get("email_prefill", ""))
         password_final = st.text_input("Crea tu contraseña (mín. 8 caracteres)", type="password")
         password_confirmar = st.text_input("Repite la contraseña", type="password")
-        submit_alta = st.form_submit_button("Crear mi cuenta y entrar", use_container_width=True)
+        submit_alta = st.form_submit_button("Crear mi cuenta y entrar", use_container_width=True, type="primary")
 
     if submit_alta:
-        if not all([nombre_agencia_final.strip(), nombre_local_final.strip(), nombre_usuario_final.strip(), password_final]):
+        if not all([nombre_agencia_final.strip(), nombre_local_final.strip(), nombre_usuario_final.strip(), email_final.strip(), password_final]):
             st.warning("Rellena todos los campos.")
         elif password_final != password_confirmar:
             st.error("Las contraseñas no coinciden.")
         else:
             ok, resultado = registrar_agencia_de_pago(
-                nombre_agencia_final, nombre_local_final, datos["email"], password_final, nombre_usuario_final, datos["plan"]
+                nombre_agencia_final, nombre_local_final, email_final, password_final,
+                nombre_usuario_final, datos["plan"], datos.get("stripe_customer_id")
             )
             if ok:
                 st.session_state.alta_completada_session_id = datos["session_id"]
@@ -519,33 +520,34 @@ def redirigir_a_stripe(url_pago):
         f"""<script>window.top.location.href = "{url_pago}";</script>""",
         unsafe_allow_html=True
     )
-    st.info("Redirigiéndote a un pago seguro con Stripe...")
-    st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago})")
+    st.caption(f"Redirigiendo a un pago seguro con Stripe... [haz clic aquí si no ocurre solo]({url_pago})")
+
+
+def render_pagina_planes_upgrade(agencia, color_agencia):
     """
-    Página de actualización de plan para usuarios ya logueados. Sustituye al antiguo
-    enlace directo a Stripe: ahora primero se ve la comparativa de planes (igual que en
-    el landing) y solo al elegir uno se genera la sesión de pago, ya ligada a la agencia.
+    Página de actualización de plan para usuarios ya logueados. Muestra las tres tarjetas
+    de plan (igual que en la landing) en formato compacto; solo al elegir uno se genera la
+    sesión de pago, ya ligada a la agencia.
     """
     if st.button("← Volver a mi panel"):
         st.session_state.mostrar_pagina_planes = False
         st.rerun()
 
-    st.markdown("## 🚀 Elige tu plan")
-    st.caption(f"Tu plan actual es **{agencia.get('plan', 'free').capitalize()}**.")
+    st.markdown(f"### Tu plan actual: {agencia.get('plan', 'free').capitalize()}")
 
     columnas = st.columns(len(PLANES_AUTOSERVICIO))
 
     for columna, (clave_plan, datos_plan) in zip(columnas, PLANES_AUTOSERVICIO.items()):
         with columna:
-            es_plan_actual = agencia.get("plan") == clave_plan
-            st.markdown(f"### {datos_plan['nombre']}")
-            st.markdown(f"**{datos_plan['precio_texto']}**")
-            for feature in datos_plan["features"]:
-                st.caption(f"✓ {feature}")
-            if es_plan_actual:
-                st.success("Tu plan actual")
-            else:
-                if st.button(f"Elegir {datos_plan['nombre']}", key=f"elegir_{clave_plan}", use_container_width=True):
+            with st.container(border=True):
+                es_plan_actual = agencia.get("plan") == clave_plan
+                st.markdown(f"**{datos_plan['nombre']}**")
+                st.markdown(f"## {datos_plan['precio_texto']}")
+                for feature in datos_plan["features"]:
+                    st.caption(f"✓ {feature}")
+                if es_plan_actual:
+                    st.success("Tu plan actual")
+                elif st.button(f"Elegir {datos_plan['nombre']}", key=f"elegir_{clave_plan}", use_container_width=True, type="primary"):
                     url_pago = crear_sesion_pago_stripe(agencia["id"], clave_plan, datos_plan["price_id"])
                     if url_pago:
                         redirigir_a_stripe(url_pago)
