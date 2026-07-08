@@ -9,6 +9,7 @@ import qrcode
 import requests
 import stripe
 import streamlit as st
+import streamlit.components.v1 as components
 from anthropic import Anthropic
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -149,16 +150,24 @@ def confirmar_pago_y_activar_plan(session_id):
     """
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        if session.payment_status != "paid":
+        # Desde stripe-python v15, los objetos de Stripe ya NO son diccionarios:
+        # llamar a .get() directamente sobre ellos lanza AttributeError("get")
+        # (el famoso error "No se pudo verificar el pago: get"). Los convertimos
+        # una sola vez a un dict normal de Python y trabajamos siempre sobre él.
+        datos = session.to_dict()
+        if datos.get("payment_status") != "paid":
             return False, "El pago todavía no se ha confirmado."
-        agencia_id = session.metadata.get("agencia_id")
-        plan_nombre = session.metadata.get("plan")
+        metadata = datos.get("metadata") or {}
+        agencia_id = metadata.get("agencia_id")
+        plan_nombre = metadata.get("plan")
         if not agencia_id or not plan_nombre:
             return False, "No se pudo identificar la agencia o el plan asociado a este pago."
         supabase.table("agencias").update({"plan": plan_nombre}).eq("id", agencia_id).execute()
         return True, plan_nombre
     except Exception as e:
-        return False, str(e)
+        # Incluimos el tipo de la excepción: "AttributeError: get" se entiende;
+        # "get" a secas era indescifrable.
+        return False, f"{type(e).__name__}: {e}"
 
 
 def verificar_pago_alta_nueva(session_id):
@@ -171,25 +180,28 @@ def verificar_pago_alta_nueva(session_id):
     """
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        if session.payment_status != "paid":
+        # Igual que en confirmar_pago_y_activar_plan: convertimos el objeto de Stripe
+        # a un dict normal (stripe-python v15 rompió el acceso tipo diccionario).
+        datos = session.to_dict()
+        if datos.get("payment_status") != "paid":
             return False, "El pago todavía no se ha confirmado."
-        plan_nombre = session.metadata.get("plan")
+        plan_nombre = (datos.get("metadata") or {}).get("plan")
         if not plan_nombre:
             return False, "No se pudo identificar el plan asociado a este pago."
-        email_prefill = ""
-        try:
-            if session.customer_details and session.customer_details.email:
-                email_prefill = session.customer_details.email
-        except Exception:
-            pass
+        email_prefill = (datos.get("customer_details") or {}).get("email") or ""
+        # 'customer' puede venir como id (str) o, si se expandiera, como objeto: nos
+        # quedamos solo con el id en ambos casos.
+        customer = datos.get("customer")
+        if isinstance(customer, dict):
+            customer = customer.get("id")
         return True, {
             "session_id": session_id,
             "plan": plan_nombre,
-            "stripe_customer_id": session.customer,
+            "stripe_customer_id": customer,
             "email_prefill": email_prefill,
         }
     except Exception as e:
-        return False, str(e)
+        return False, f"{type(e).__name__}: {e}"
 
 
 def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_plano, nombre_usuario):
@@ -516,11 +528,16 @@ def redirigir_a_stripe(url_pago):
     el HTML dentro de un iframe interno, y Stripe bloquea la carga con el error
     "not able to run in an iFrame" — por eso aquí usamos JavaScript en vez de meta refresh.
     """
-    st.markdown(
-        f"""<script>window.top.location.href = "{url_pago}";</script>""",
-        unsafe_allow_html=True
+    # OJO: st.markdown NO ejecuta etiquetas <script> (las inserta con innerHTML y el
+    # navegador las ignora por seguridad) — por eso la redirección "nunca llegaba" y
+    # había que pulsar el enlace manual. components.html sí renderiza un iframe real
+    # del mismo origen donde el script se ejecuta, y desde ahí window.top navega bien.
+    components.html(
+        f"""<script>window.top.location.href = {json.dumps(url_pago)};</script>""",
+        height=0,
     )
-    st.caption(f"Redirigiendo a un pago seguro con Stripe... [haz clic aquí si no ocurre solo]({url_pago})")
+    st.link_button("Ir al pago seguro de Stripe →", url_pago, type="primary")
+    st.caption("Te estamos redirigiendo automáticamente... si no ocurre en unos segundos, pulsa el botón.")
 
 
 def render_pagina_planes_upgrade(agencia, color_agencia):
