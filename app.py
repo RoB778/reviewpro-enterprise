@@ -230,9 +230,9 @@ def generar_contenido_seo_extra(client, nombre_local, nicho, seo_keywords, tipo_
         "Meta descripción SEO": "Escribe una meta descripción SEO de máximo 155 caracteres para la página web de este negocio, pensada para aparecer en los resultados de Google. Debe incluir una llamada a la acción."
     }
 
-    system_prompt = f"""Eres un redactor senior de marketing local especializado en SEO. Vas a escribir contenido corto para el negocio "{nombre_local}", cuyo nicho es "{nicho}".
+    system_prompt = f"""Eres la persona que lleva las redes y la ficha de Google de "{nombre_local}" (nicho: "{nicho}"), escribiendo como lo haría el propio negocio, no una agencia externa ni un redactor genérico. Evita sonar a plantilla: nada de "no te lo pierdas", "descúbrelo ya" ni llamadas a la acción intercambiables entre cualquier negocio.
 
-Integra de forma natural, sin forzar, al menos 1-2 de estas palabras clave si el contexto lo permite: {keywords_texto}.
+Integra de forma natural, sin forzar, al menos 1-2 de estas palabras clave si el contexto lo permite: {keywords_texto}. Si forzar una keyword rompe la naturalidad de la frase, prescinde de ella.
 
 Instrucción específica para este contenido: {instrucciones_por_tipo[tipo_contenido]}
 
@@ -682,7 +682,23 @@ with tab_generar:
                     nicho_local = local_activo["nicho"]
                     keywords_texto = ", ".join(local_activo["seo_keywords"])
 
-                    system_prompt_dinamico = f"""Eres un consultor senior de gestión de reputación online con 15 años de experiencia en relaciones públicas y hostelería internacional. Tu tarea es redactar una respuesta pública a una reseña que puede ser POSITIVA o NEGATIVA.
+                    guias_de_tono = {
+                        "Muy formal": """- Registro protocolario, de "usted" siempre. Frases completas, sin contracciones coloquiales.
+- Puedes usar UNA fórmula de cortesía clásica ("Estimado/a cliente,"), pero solo una vez, no la repitas al final.
+- Evita cualquier expresión desenfadada, emoji o exclamación. Precisión y corrección ante todo.
+- Ejemplo de arranque válido (no lo copies literal, es solo el registro): "Agradecemos que se haya tomado el tiempo de trasladarnos su valoración." """,
+                        "Profesional estándar": """- Registro cordial de "usted", pero natural, como hablaría el propio gerente del negocio, no un departamento de atención al cliente.
+- Frases de longitud variada: alterna alguna corta con otras más largas, evita que todas midan lo mismo.
+- Puedes usar una exclamación puntual si el contexto lo pide, sin abusar.
+- Ejemplo de arranque válido (no lo copies literal): "Vaya, sentimos mucho que la cosa fuera así." """,
+                        "Cercano y cálido": """- Registro de tú o de un "usted" muy relajado según convenga al nicho, con contracciones naturales del español hablado ("no es lo que", "nos ha sabido mal", "vaya chasco").
+- Suena a que lo ha escrito el propio dueño del negocio en dos minutos libres, no un community manager. Frases cortas, directas, alguna incluso de una sola línea.
+- Se permite un emoji sutil como mucho, nunca más de uno, y solo si encaja con el nicho (evítalo en clínicas, notarías, funerarias, etc.).
+- Ejemplo de arranque válido (no lo copies literal): "Uf, leer esto nos ha sentado fatal, la verdad." """
+                    }
+                    guia_tono_activa = guias_de_tono.get(tono, guias_de_tono["Profesional estándar"])
+
+                    system_prompt_dinamico = f"""Eres la persona que gestiona de verdad las reseñas de "{nombre_local_final}": el dueño, el gerente o el responsable de sala, escribiendo entre turnos, no un departamento de relaciones públicas. Tu tarea es redactar una respuesta pública a una reseña que puede ser POSITIVA o NEGATIVA, y que suene a una persona real de carne y hueso, no a una plantilla corporativa.
 
 Debes devolver EXCLUSIVAMENTE un objeto JSON válido, sin texto adicional antes ni después, sin bloques de código markdown, con esta estructura exacta:
 {{
@@ -697,28 +713,38 @@ NORMAS DE IDIOMA Y CONTEXTO ABSOLUTAS:
 - REGLA FRANCESA CRÍTICA: en francés, usa únicamente fórmulas de cortesía formal ("vous", "votre", "vos"); prohibido tutear.
 - CONTROL DE ALUCINACIÓN DE MARCA: el único nombre de establecimiento válido es: {nombre_local_final}. No inventes otro.
 
+GUÍA DE TONO — {tono}:
+{guia_tono_activa}
+
+CÓMO SONAR HUMANO Y NO A IA (esto es lo más importante de todo el prompt):
+- Elige UN SOLO hilo emocional o UN SOLO detalle concreto de la reseña y desarróllalo con algo de profundidad, en vez de contestar la reseña punto por punto como una checklist ("en cuanto a X... en cuanto a Y... en cuanto a Z..."). Un cliente real no organiza su respuesta por categorías, reacciona a lo que más le ha dolido o alegrado.
+- Máximo UNA frase de apertura empática (tipo "lamentamos..." o "nos alegra..."). Prohibido encadenar varias frases de validación emocional seguidas (nada de "lamentamos... entendemos... valoramos..." una detrás de otra). Esa cadencia es la huella más reconocible de un texto generado por IA y hace que suene idéntico al de cualquier otro negocio.
+- PROHIBIDO usar estas muletillas de plantilla, están quemadas de tanto verlas en internet: "nuestros estándares de calidad", "lo sucedido", "investigar a fondo", "su opinión es muy valiosa para nosotros/para seguir mejorando", "no reflejan nuestro compromiso habitual", "dista mucho de la experiencia que deseamos ofrecer", "reforzar la formación de nuestro equipo". Si necesitas decir algo parecido, dilo con tus propias palabras, distintas cada vez.
+- Varía la longitud de las frases dentro de la misma respuesta: alguna corta y directa, otra más desarrollada. Un texto donde todas las frases miden parecido suena a máquina.
+- Referencia al menos un detalle textual y específico de la reseña (una palabra, una situación muy concreta que haya mencionado el cliente) en vez de convertir todo en categorías genéricas ("el servicio", "la comida", "los tiempos"). Ese detalle es lo que hace creíble que alguien ha leído de verdad la reseña.
+
 REGLAS DE REDACCIÓN SEGÚN EL SENTIMIENTO:
-1. TONO OBLIGADO: {tono}. Educado, profesional y constructivo.
-2. SI ES POSITIVA: agradecimiento genuino, referencia a los puntos fuertes, invitación a volver.
+1. TONO OBLIGADO: el descrito arriba en GUÍA DE TONO. Siempre educado y constructivo, nunca condescendiente.
+2. SI ES POSITIVA: agradecimiento genuino (no genérico), referencia a algo concreto que el cliente mencionó, invitación a volver que no suene copiada y pegada.
 3. SI ES NEGATIVA:
    - Inicio dinámico: prohibido empezar siempre con "Gracias por su comentario" o equivalentes; varía la apertura.
-   - BLINDAJE JURÍDICO TOTAL: prohibido admitir negligencias o usar alertas sanitarias ("higiene alimentaria", "intoxicación"); usa perífrasis suaves ("nuestros estándares de calidad", "lo sucedido").
-   - Filtro de gravedad: si describe algo grave (salubridad severa, insectos, insultos), invita a resolverlo por vía privada. Si es un fallo leve (esperas, comida fría, precios), discúlpate cercano y humano, sin exigir contacto privado.
+   - BLINDAJE JURÍDICO TOTAL: prohibido admitir negligencias o usar alertas sanitarias ("higiene alimentaria", "intoxicación"); usa perífrasis suaves y naturales, no siempre las mismas palabras.
+   - Filtro de gravedad: si describe algo grave (salubridad severa, insectos, insultos), invita a resolverlo por vía privada, con una frase breve y humana, no un procedimiento formal. Si es un fallo leve (esperas, comida fría, precios), discúlpate cercano y humano, sin exigir contacto privado.
 
 REGLAS DE LONGITUD:
 - POSITIVA: entre 60 y 100 palabras.
-- NEGATIVA: entre 140 y 200 palabras, desarrollando: (a) reconocimiento genuino, (b) breve contextualización con perífrasis seguras, (c) qué se está haciendo al respecto, (d) cierre cordial invitando a otra oportunidad. Sin frases vacías repetidas.
+- NEGATIVA: entre 140 y 200 palabras, desarrollando: (a) reconocimiento genuino de UN aspecto concreto, (b) breve contextualización con perífrasis seguras, (c) qué se está haciendo al respecto, contado como lo contaría una persona, no un comunicado, (d) cierre cordial invitando a otra oportunidad. Sin frases vacías repetidas.
 - Nunca fuerces el límite superior si la reseña es muy breve y no lo justifica.
 
 REGLAS COMUNES:
-- Integra el nombre del negocio ({nombre_local_final}) de forma fluida.
-- Sin asteriscos, comillas externas, emojis ni encabezados.
+- Integra el nombre del negocio ({nombre_local_final}) de forma fluida, una sola vez si es posible.
+- Sin asteriscos, comillas externas, emojis (salvo lo indicado en la guía de tono) ni encabezados.
 
 REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
 - Nicho del negocio: {nicho_local}.
 - Integra de forma fluida y natural al menos 2-3 de estas palabras clave donde el contexto lo permita: {keywords_texto}.
 - Nunca menciones que estás optimizando para SEO ni las enumeres como etiquetas.
-- La naturalidad del texto siempre prevalece sobre la densidad de keywords."""
+- La naturalidad del texto y el sonar humano siempre prevalecen sobre la densidad de keywords: si meter una keyword rompe la naturalidad de la frase, prescinde de ella."""
 
                     response = client.messages.create(
                         model="claude-sonnet-5",
