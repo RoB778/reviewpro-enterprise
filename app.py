@@ -7,6 +7,7 @@ from io import BytesIO
 import bcrypt
 import qrcode
 import requests
+import stripe
 import streamlit as st
 from anthropic import Anthropic
 from reportlab.lib import colors
@@ -19,6 +20,11 @@ from supabase import create_client
 # Configuración de las claves secretas de los servidores
 client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
+
+# URL pública de la app, necesaria para que Stripe sepa a dónde devolver al usuario
+# tras el pago. Configúrala en secrets.toml, ej: APP_URL = "https://tuapp.streamlit.app"
+APP_URL = st.secrets.get("APP_URL", "http://localhost:8501")
 
 # 1. Configuración de página limpia y profesional
 st.set_page_config(page_title="ReviewPro Enterprise", page_icon="🛡️", layout="centered")
@@ -60,11 +66,64 @@ LIMITE_LOCALES_POR_PLAN = {"free": 1, "starter": 10, "growth": 30, "enterprise":
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# Enlaces de pago de Stripe (Payment Links) — sustituye estas URLs por las reales
-# que generes en tu Dashboard de Stripe para cada plan.
-ENLACE_PAGO_STARTER = "https://buy.stripe.com/tu-enlace-starter"
-ENLACE_PAGO_GROWTH = "https://buy.stripe.com/tu-enlace-growth"
-ENLACE_PAGO_ENTERPRISE = "https://buy.stripe.com/tu-enlace-enterprise"
+# Price IDs de Stripe (no Payment Links) — cópialos de tu Dashboard de Stripe:
+# Producto → Pricing → "API ID" de cada precio recurrente (empiezan por "price_...").
+# Enterprise no tiene precio fijo ("249€+"), así que no lleva checkout de autoservicio;
+# se gestiona por contacto directo (ver ENLACE_CONTACTO_ENTERPRISE).
+STRIPE_PRICE_ID_STARTER = "price_TODO_starter"
+STRIPE_PRICE_ID_GROWTH = "price_TODO_growth"
+ENLACE_CONTACTO_ENTERPRISE = "mailto:ventas@reviewpro.example?subject=Quiero%20el%20plan%20Enterprise"
+
+PLANES_AUTOSERVICIO = {
+    "starter": {"nombre": "Starter", "precio_texto": "49€/mes", "price_id": STRIPE_PRICE_ID_STARTER,
+                "features": ["Hasta 10 locales", "Respuestas ilimitadas", "Marca blanca completa", "SEO invisible por local"]},
+    "growth": {"nombre": "Growth", "precio_texto": "129€/mes", "price_id": STRIPE_PRICE_ID_GROWTH,
+               "features": ["Hasta 30 locales", "Respuestas ilimitadas", "Marca blanca completa", "Multi-usuario + analítica"]},
+}
+
+
+def crear_sesion_pago_stripe(agencia_id, plan_nombre, price_id):
+    """
+    Crea una sesión de Stripe Checkout dinámica para que la agencia contrate un plan.
+    Guarda agencia_id y plan en la metadata de la sesión: así, cuando el pago se confirme,
+    sabremos automáticamente a qué agencia activarle qué plan sin tocar nada a mano.
+    Devuelve la URL de pago, o None si algo falla.
+    """
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            payment_method_types=["card"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            client_reference_id=str(agencia_id),
+            metadata={"agencia_id": str(agencia_id), "plan": plan_nombre},
+            success_url=f"{APP_URL}/?pago_exito=1&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{APP_URL}/?pago_cancelado=1",
+        )
+        return session.url
+    except Exception as e:
+        st.error(f"No se pudo iniciar el proceso de pago: {e}")
+        return None
+
+
+def confirmar_pago_y_activar_plan(session_id):
+    """
+    Se llama cuando Stripe redirige de vuelta a la app tras un pago. Verifica contra la
+    propia Stripe (nunca te fíes solo de la URL) que el pago se ha completado de verdad,
+    y si es así, activa el plan de la agencia en Supabase automáticamente.
+    Devuelve (True, plan_nombre) o (False, "motivo").
+    """
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        if session.payment_status != "paid":
+            return False, "El pago todavía no se ha confirmado."
+        agencia_id = session.metadata.get("agencia_id")
+        plan_nombre = session.metadata.get("plan")
+        if not agencia_id or not plan_nombre:
+            return False, "No se pudo identificar la agencia o el plan asociado a este pago."
+        supabase.table("agencias").update({"plan": plan_nombre}).eq("id", agencia_id).execute()
+        return True, plan_nombre
+    except Exception as e:
+        return False, str(e)
 
 
 def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_plano, nombre_usuario):
@@ -287,6 +346,47 @@ def puede_agencia_anadir_local(agencia, locales_actuales):
     return True, None
 
 
+def render_pagina_planes_upgrade(agencia, color_agencia):
+    """
+    Página de actualización de plan para usuarios ya logueados. Sustituye al antiguo
+    enlace directo a Stripe: ahora primero se ve la comparativa de planes (igual que en
+    el landing) y solo al elegir uno se genera la sesión de pago, ya ligada a la agencia.
+    """
+    if st.button("← Volver a mi panel"):
+        st.session_state.mostrar_pagina_planes = False
+        st.rerun()
+
+    st.markdown("## 🚀 Elige tu plan")
+    st.caption(f"Tu plan actual es **{agencia.get('plan', 'free').capitalize()}**.")
+
+    columnas = st.columns(len(PLANES_AUTOSERVICIO) + 1)
+
+    for columna, (clave_plan, datos_plan) in zip(columnas, PLANES_AUTOSERVICIO.items()):
+        with columna:
+            es_plan_actual = agencia.get("plan") == clave_plan
+            st.markdown(f"### {datos_plan['nombre']}")
+            st.markdown(f"**{datos_plan['precio_texto']}**")
+            for feature in datos_plan["features"]:
+                st.caption(f"✓ {feature}")
+            if es_plan_actual:
+                st.success("Tu plan actual")
+            else:
+                if st.button(f"Elegir {datos_plan['nombre']}", key=f"elegir_{clave_plan}", use_container_width=True):
+                    url_pago = crear_sesion_pago_stripe(agencia["id"], clave_plan, datos_plan["price_id"])
+                    if url_pago:
+                        st.markdown(f'<meta http-equiv="refresh" content="0; url={url_pago}">', unsafe_allow_html=True)
+                        st.info("Redirigiéndote a un pago seguro con Stripe...")
+                        st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago})")
+
+    with columnas[-1]:
+        st.markdown("### Enterprise")
+        st.markdown("**249€+/mes**")
+        st.caption("✓ Locales ilimitados")
+        st.caption("✓ Soporte prioritario")
+        st.caption("✓ Marca blanca completa")
+        st.markdown(f'<a href="{ENLACE_CONTACTO_ENTERPRISE}"><button style="background-color:{color_agencia};color:white;padding:8px 18px;border:none;border-radius:8px;font-weight:bold;width:100%;">Hablar con ventas</button></a>', unsafe_allow_html=True)
+
+
 def cargar_perfil_login(email):
     """
     Busca el usuario por email y, si existe y está activo, devuelve también los
@@ -342,6 +442,34 @@ if "local_activo" not in st.session_state:
     st.session_state.local_activo = None
 if "vista_landing" not in st.session_state:
     st.session_state.vista_landing = "info"
+if "mostrar_pagina_planes" not in st.session_state:
+    st.session_state.mostrar_pagina_planes = False
+
+# =========================================================
+# 💳 VUELTA DESDE STRIPE: activación automática del plan
+# Esto se comprueba nada más cargar la app, tanto si la sesión de Streamlit
+# se ha mantenido como si no (el redirect a Stripe y de vuelta a veces la
+# resetea) — por eso la activación se basa en la metadata de Stripe, no en
+# el estado de sesión.
+# =========================================================
+parametros_url = st.query_params
+if parametros_url.get("pago_exito") == "1" and "session_id" in parametros_url:
+    session_id_pago = parametros_url["session_id"]
+    if st.session_state.get("ultima_sesion_pago_confirmada") != session_id_pago:
+        ok_pago, resultado_pago = confirmar_pago_y_activar_plan(session_id_pago)
+        if ok_pago:
+            st.session_state.ultima_sesion_pago_confirmada = session_id_pago
+            st.session_state.mostrar_pagina_planes = False
+            # Si la sesión de Streamlit se mantuvo, refrescamos el plan en memoria al momento.
+            if st.session_state.sesion_activa and st.session_state.agencia_actual:
+                st.session_state.agencia_actual["plan"] = resultado_pago
+            st.success(f"✅ ¡Pago confirmado! Tu plan '{resultado_pago}' ya está activo.")
+        else:
+            st.error(f"No se pudo confirmar el pago automáticamente: {resultado_pago}. Escríbenos si el cargo sí se realizó.")
+    st.query_params.clear()
+elif parametros_url.get("pago_cancelado") == "1":
+    st.info("Has cancelado el proceso de pago. No se ha realizado ningún cargo.")
+    st.query_params.clear()
 
 # =========================================================
 # 🔑 LANDING: PLANES Y PRECIOS + LOGIN
@@ -551,6 +679,12 @@ agencia = st.session_state.agencia_actual
 usuario = st.session_state.usuario_actual
 color_agencia = agencia["color_marca"]
 
+# Si el usuario ha pulsado "Actualizar plan" / "Ver planes de pago", mostramos la
+# comparativa de planes dentro del propio panel en vez de saltar directo a Stripe.
+if st.session_state.mostrar_pagina_planes:
+    render_pagina_planes_upgrade(agencia, color_agencia)
+    st.stop()
+
 # =========================================================
 # 🎨 CSS DINÁMICO — MARCA BLANCA POR AGENCIA
 # =========================================================
@@ -620,8 +754,9 @@ with tab_generar:
             puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
             if not puede:
                 st.error(f"⚠️ {motivo}")
-                enlace_upgrade = {"free": ENLACE_PAGO_STARTER, "starter": ENLACE_PAGO_GROWTH}.get(agencia.get("plan"), ENLACE_PAGO_ENTERPRISE)
-                st.markdown(f'<a href="{enlace_upgrade}" target="_blank"><button style="background-color:{color_agencia};color:white;padding:8px 18px;border:none;border-radius:8px;font-weight:bold;">Actualizar plan</button></a>', unsafe_allow_html=True)
+                if st.button("Actualizar plan", key="actualizar_plan_limite_locales"):
+                    st.session_state.mostrar_pagina_planes = True
+                    st.rerun()
             elif not nombre_nuevo_local.strip() or not nicho_nuevo_local.strip():
                 st.warning("Rellena al menos el nombre y el nicho.")
             else:
@@ -674,7 +809,9 @@ with tab_generar:
             st.error("⚠️ Es obligatorio aceptar los términos de uso.")
         elif agencia.get("plan") == "free" and contar_usos_del_mes(agencia["id"]) >= LIMITE_USOS_PLAN_GRATIS:
             st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite.")
-            st.markdown(f'<a href="{ENLACE_PAGO_STARTER}" target="_blank"><button style="background-color:{color_agencia};color:white;padding:10px 20px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;">💳 Ver planes de pago</button></a>', unsafe_allow_html=True)
+            if st.button("💳 Ver planes de pago", key="ver_planes_limite_usos"):
+                st.session_state.mostrar_pagina_planes = True
+                st.rerun()
         else:
             with st.spinner("Analizando el idioma y el tono de la reseña..."):
                 try:
