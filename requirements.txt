@@ -4,4 +4,4 @@ supabase
 bcrypt
 reportlab
 qrcode[pil]
-
+stripe
