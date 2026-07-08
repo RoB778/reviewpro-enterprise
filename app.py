@@ -76,19 +76,21 @@ LIMITE_LOCALES_POR_PLAN = {"free": 1, "starter": 10, "growth": 30, "enterprise":
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# Price IDs de Stripe (no Payment Links) — cópialos de tu Dashboard de Stripe:
-# Producto → Pricing → "API ID" de cada precio recurrente (empiezan por "price_...").
-# Enterprise no tiene precio fijo ("249€+"), así que no lleva checkout de autoservicio;
-# se gestiona por contacto directo (ver ENLACE_CONTACTO_ENTERPRISE).
-STRIPE_PRICE_ID_STARTER = "prod_UpsGe1fTbR3837"
-STRIPE_PRICE_ID_GROWTH = "prod_UpsJSgx52AISaV"
-ENLACE_CONTACTO_ENTERPRISE = "mailto:rovalver08@gmail.com?subject=Quiero%20el%20plan%20Enterprise"
+# Price IDs de Stripe (NO Product ID) — cópialos de tu Dashboard de Stripe:
+# entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
+# "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
+# aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
+STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
+STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
+STRIPE_PRICE_ID_ENTERPRISE = "price_1TqCa0Kwc34DG74Mhr0ZS3se"
 
 PLANES_AUTOSERVICIO = {
     "starter": {"nombre": "Starter", "precio_texto": "49€/mes", "price_id": STRIPE_PRICE_ID_STARTER,
                 "features": ["Hasta 10 locales", "Respuestas ilimitadas", "Marca blanca completa", "SEO invisible por local"]},
     "growth": {"nombre": "Growth", "precio_texto": "129€/mes", "price_id": STRIPE_PRICE_ID_GROWTH,
                "features": ["Hasta 30 locales", "Respuestas ilimitadas", "Marca blanca completa", "Multi-usuario + analítica"]},
+    "enterprise": {"nombre": "Enterprise", "precio_texto": "299€/mes", "price_id": STRIPE_PRICE_ID_ENTERPRISE,
+                   "features": ["Locales ilimitados", "Soporte prioritario", "Marca blanca completa", "Multi-usuario + analítica"]},
 }
 
 
@@ -519,7 +521,7 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
     st.markdown("## 🚀 Elige tu plan")
     st.caption(f"Tu plan actual es **{agencia.get('plan', 'free').capitalize()}**.")
 
-    columnas = st.columns(len(PLANES_AUTOSERVICIO) + 1)
+    columnas = st.columns(len(PLANES_AUTOSERVICIO))
 
     for columna, (clave_plan, datos_plan) in zip(columnas, PLANES_AUTOSERVICIO.items()):
         with columna:
@@ -537,14 +539,6 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
                         st.markdown(f'<meta http-equiv="refresh" content="0; url={url_pago}">', unsafe_allow_html=True)
                         st.info("Redirigiéndote a un pago seguro con Stripe...")
                         st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago})")
-
-    with columnas[-1]:
-        st.markdown("### Enterprise")
-        st.markdown("**249€+/mes**")
-        st.caption("✓ Locales ilimitados")
-        st.caption("✓ Soporte prioritario")
-        st.caption("✓ Marca blanca completa")
-        st.markdown(f'<a href="{ENLACE_CONTACTO_ENTERPRISE}"><button style="background-color:{color_agencia};color:white;padding:8px 18px;border:none;border-radius:8px;font-weight:bold;width:100%;">Hablar con ventas</button></a>', unsafe_allow_html=True)
 
 
 def cargar_perfil_login(email):
@@ -812,7 +806,7 @@ if not st.session_state.sesion_activa:
                 <div class="rp-card">
                     <div class="rp-plan-nombre">Enterprise</div>
                     <div class="rp-plan-target">Agencias grandes · locales ilimitados</div>
-                    <div class="rp-precio">249€+</div>
+                    <div class="rp-precio">299€</div>
                     <div class="rp-precio-periodo">/ mes</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ Locales ilimitados</div>
@@ -821,9 +815,13 @@ if not st.session_state.sesion_activa:
                     <div class="rp-feature">✓ Multi-usuario + analítica</div>
                 </div>
             """, unsafe_allow_html=True)
-            st.markdown(f'<a href="{ENLACE_CONTACTO_ENTERPRISE}" style="text-decoration:none;"><div style="background:#FFB454;color:#0B1120;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin-top:8px;">Hablar con ventas</div></a>', unsafe_allow_html=True)
+            if st.button("Elegir Enterprise", key="landing_elegir_enterprise", use_container_width=True, type="primary"):
+                url_pago_enterprise = crear_sesion_pago_nueva_agencia("enterprise", STRIPE_PRICE_ID_ENTERPRISE)
+                if url_pago_enterprise:
+                    st.markdown(f'<meta http-equiv="refresh" content="0; url={url_pago_enterprise}">', unsafe_allow_html=True)
+                    st.markdown(f"[Si no eres redirigido automáticamente, haz clic aquí]({url_pago_enterprise})")
 
-        st.caption("Al pagar Starter o Growth, vuelves aquí mismo para crear tu contraseña y tu cuenta queda activa al instante.")
+        st.caption("Al pagar cualquier plan, vuelves aquí mismo para crear tu contraseña y tu cuenta queda activa al instante — sin esperas ni llamadas.")
 
     # -----------------------------------------------------
     # VISTA: LOGIN
