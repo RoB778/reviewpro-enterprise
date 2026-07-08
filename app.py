@@ -80,9 +80,9 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
 # "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
 # aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
-STRIPE_PRICE_ID_STARTER = "price_TODO_starter"
-STRIPE_PRICE_ID_GROWTH = "price_TODO_growth"
-STRIPE_PRICE_ID_ENTERPRISE = "price_TODO_enterprise"
+STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
+STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
+STRIPE_PRICE_ID_ENTERPRISE = "price_1Tr1RoKwc34DG74M8L4sjSVL"
 
 PLANES_AUTOSERVICIO = {
     "starter": {"nombre": "Starter", "precio_texto": "49€/mes", "price_id": STRIPE_PRICE_ID_STARTER,
