@@ -1080,10 +1080,11 @@ REGLAS DE REDACCIÓN SEGÚN EL SENTIMIENTO:
    - Filtro de gravedad: si describe algo grave (salubridad severa, insectos, insultos), invita a resolverlo por vía privada, con una frase breve y humana, no un procedimiento formal. Si es un fallo leve (esperas, comida fría, precios), discúlpate cercano y humano, sin exigir contacto privado.
    - Si la reseña reúne varias quejas distintas (espera, ruido, cobro, trato, limpieza...), NO respondas por categorías ni las vayas enumerando una a una. Elige la que tenga más peso emocional o de riesgo (lo relacionado con salud, alérgenos o trato indebido siempre pesa más que esperas o ruido) y desarróllala con el mismo criterio de "un solo hilo" de la sección anterior; cierra invitando a hablar del resto por privado en vez de darles a todas la misma respuesta genérica.
 
-REGLAS DE LONGITUD:
-- POSITIVA: entre 60 y 100 palabras.
-- NEGATIVA: entre 140 y 200 palabras, desarrollando: (a) reconocimiento genuino de UN aspecto concreto, (b) breve contextualización con perífrasis seguras, (c) qué se está haciendo al respecto, contado como lo contaría una persona, no un comunicado, (d) cierre cordial invitando a otra oportunidad. Sin frases vacías repetidas.
+REGLAS DE LONGITUD (LÍMITE DURO, NO ORIENTATIVO):
+- POSITIVA: entre 60 y 100 palabras. NUNCA superes 120 palabras bajo ningún concepto.
+- NEGATIVA: entre 140 y 200 palabras, desarrollando: (a) reconocimiento genuino de UN aspecto concreto, (b) breve contextualización con perífrasis seguras, (c) qué se está haciendo al respecto, contado como lo contaría una persona, no un comunicado, (d) cierre cordial invitando a otra oportunidad. Sin frases vacías repetidas. NUNCA superes 220 palabras bajo ningún concepto, sea cual sea la cantidad de quejas o temas que mencione la reseña original: elige lo más importante y deja el resto para la conversación privada, nunca alargues el texto para cubrirlo todo.
 - Nunca fuerces el límite superior si la reseña es muy breve y no lo justifica.
+- Antes de devolver el JSON, cuenta mentalmente las palabras de "respuesta_nativa": si te has pasado del límite duro, recórtalo tú mismo antes de responder. Completar el JSON correctamente es más importante que desarrollar cada matiz.
 
 REGLAS COMUNES:
 - Integra el nombre del negocio ({nombre_local_final}) de forma fluida, una sola vez si es posible.
@@ -1097,22 +1098,29 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
 
                     response = client.messages.create(
                         model="claude-sonnet-5",
-                        max_tokens=2000,
+                        max_tokens=4000,
                         system=system_prompt_dinamico,
                         messages=[{"role": "user", "content": f"Nombre del negocio: {nombre_local_final}\nReseña: \"\"\"{resena_cliente}\"\"\""}]
                     )
 
-                    # Si el modelo se queda sin tokens a mitad de generar el JSON (respuesta
-                    # larga + traducción al español, por ejemplo), el texto llega cortado y
-                    # json.loads revienta con un JSONDecodeError que no dice la causa real.
-                    # Lo detectamos aquí primero para dar un mensaje que sí explica qué pasó.
+                    # Con el límite duro de palabras ya reforzado en el prompt, esto no debería
+                    # activarse en uso normal. Si aun así ocurre (el modelo se desboca con
+                    # alguna reseña concreta y entra en un bucle de repetición), reintentamos
+                    # UNA vez con una instrucción extra de brevedad antes de rendirnos, en vez
+                    # de dejar al usuario sin nada.
                     if response.stop_reason == "max_tokens":
-                        raise ValueError(
-                            "La respuesta se cortó por exceder el límite de tokens antes de "
-                            "terminar el JSON (respuesta demasiado larga, normalmente por venir "
-                            "con traducción al español incluida). Sube max_tokens o acorta la "
-                            "instrucción de longitud en el prompt."
+                        response = client.messages.create(
+                            model="claude-sonnet-5",
+                            max_tokens=4000,
+                            system=system_prompt_dinamico + "\n\nAVISO CRÍTICO: tu intento anterior se cortó por ser demasiado largo. Esta vez sé notablemente más breve, respeta estrictamente el límite duro de palabras y no desarrolles cada matiz.",
+                            messages=[{"role": "user", "content": f"Nombre del negocio: {nombre_local_final}\nReseña: \"\"\"{resena_cliente}\"\"\""}]
                         )
+                        if response.stop_reason == "max_tokens":
+                            raise ValueError(
+                                "El modelo ha generado una respuesta anormalmente larga dos veces "
+                                "seguidas para esta reseña. Prueba de nuevo o simplifica el texto "
+                                "de la reseña; si se repite con reseñas distintas, revisa el prompt."
+                            )
 
                     texto_bruto = None
                     for bloque in response.content:
