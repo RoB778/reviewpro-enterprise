@@ -1097,10 +1097,22 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
 
                     response = client.messages.create(
                         model="claude-sonnet-5",
-                        max_tokens=1000,
+                        max_tokens=2000,
                         system=system_prompt_dinamico,
                         messages=[{"role": "user", "content": f"Nombre del negocio: {nombre_local_final}\nReseña: \"\"\"{resena_cliente}\"\"\""}]
                     )
+
+                    # Si el modelo se queda sin tokens a mitad de generar el JSON (respuesta
+                    # larga + traducción al español, por ejemplo), el texto llega cortado y
+                    # json.loads revienta con un JSONDecodeError que no dice la causa real.
+                    # Lo detectamos aquí primero para dar un mensaje que sí explica qué pasó.
+                    if response.stop_reason == "max_tokens":
+                        raise ValueError(
+                            "La respuesta se cortó por exceder el límite de tokens antes de "
+                            "terminar el JSON (respuesta demasiado larga, normalmente por venir "
+                            "con traducción al español incluida). Sube max_tokens o acorta la "
+                            "instrucción de longitud en el prompt."
+                        )
 
                     texto_bruto = None
                     for bloque in response.content:
@@ -1117,7 +1129,18 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                         if texto_bruto.lower().startswith("json"):
                             texto_bruto = texto_bruto[4:].strip()
 
-                    datos_respuesta = json.loads(texto_bruto)
+                    try:
+                        datos_respuesta = json.loads(texto_bruto)
+                    except json.JSONDecodeError:
+                        # Red de seguridad: a veces el modelo añade alguna palabra suelta antes
+                        # o después del JSON aunque se le pida que no lo haga. Si dentro del
+                        # texto hay un objeto JSON completo, lo recortamos y lo intentamos de
+                        # nuevo antes de rendirnos.
+                        inicio = texto_bruto.find("{")
+                        fin = texto_bruto.rfind("}")
+                        if inicio == -1 or fin == -1 or fin <= inicio:
+                            raise
+                        datos_respuesta = json.loads(texto_bruto[inicio:fin + 1])
 
                     respuesta_nativa = datos_respuesta.get("respuesta_nativa", "").replace("*", "").replace('"', "")
                     traduccion = datos_respuesta.get("traduccion_espanol")
@@ -1146,8 +1169,10 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
 
                 except json.JSONDecodeError:
                     st.error("El modelo devolvió un formato inesperado. Inténtalo de nuevo.")
+                except ValueError as e:
+                    st.error(f"No se pudo generar la respuesta: {e}")
                 except Exception as e:
-                    st.error(f"Error al conectar con el servidor: {e}")
+                    st.error(f"Error al conectar con el servidor: {type(e).__name__}: {e}")
 
 # ---------------------------------------------------------
 # PESTAÑA: PEDIR RESEÑAS (WhatsApp + QR)
