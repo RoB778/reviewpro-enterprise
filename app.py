@@ -70,9 +70,9 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # Producto → Pricing → "API ID" de cada precio recurrente (empiezan por "price_...").
 # Enterprise no tiene precio fijo ("249€+"), así que no lleva checkout de autoservicio;
 # se gestiona por contacto directo (ver ENLACE_CONTACTO_ENTERPRISE).
-STRIPE_PRICE_ID_STARTER = "price_TODO_starter"
-STRIPE_PRICE_ID_GROWTH = "price_TODO_growth"
-ENLACE_CONTACTO_ENTERPRISE = "mailto:ventas@reviewpro.example?subject=Quiero%20el%20plan%20Enterprise"
+STRIPE_PRICE_ID_STARTER = "prod_UpsGe1fTbR3837"
+STRIPE_PRICE_ID_GROWTH = "prod_UpsJSgx52AISaV"
+ENLACE_CONTACTO_ENTERPRISE = "mailto:rovalver08@gmail.com?subject=Quiero%20el%20plan%20Enterprise"
 
 PLANES_AUTOSERVICIO = {
     "starter": {"nombre": "Starter", "precio_texto": "49€/mes", "price_id": STRIPE_PRICE_ID_STARTER,
