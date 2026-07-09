@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 import urllib.parse
@@ -81,7 +82,7 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
 # "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
 # aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
-STRIPE_PRICE_ID_INDIVIDUAL = "price_1TrILkKwc34DG74MdoZMStq2"  # crea el producto "Individual" a 29€/mes en Stripe y pega aquí su Price ID
+STRIPE_PRICE_ID_INDIVIDUAL = "price_TODO_individual"  # crea el producto "Individual" a 29€/mes en Stripe y pega aquí su Price ID
 STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
 STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
 STRIPE_PRICE_ID_ENTERPRISE = "price_1Tr1RoKwc34DG74M8L4sjSVL"
@@ -367,10 +368,17 @@ def generar_informe_pdf_mensual(agencia, historico, locales_agencia, id_a_nombre
 
     story = []
 
-    # Logo (si se puede descargar; si falla, se omite sin romper el informe)
+    # Logo (si se puede cargar; si falla, se omite sin romper el informe).
+    # Soporta dos formatos: URL normal (http...) y data URL en base64
+    # ("data:image/png;base64,..."), que es como se guarda el logo subido
+    # desde la pestaña "Mi cuenta".
     try:
-        resp_logo = requests.get(agencia["logo_url"], timeout=5)
-        imagen_logo = RLImage(BytesIO(resp_logo.content), width=4 * cm, height=1.2 * cm)
+        logo_url = agencia["logo_url"]
+        if logo_url.startswith("data:"):
+            contenido_logo = base64.b64decode(logo_url.split(",", 1)[1])
+        else:
+            contenido_logo = requests.get(logo_url, timeout=5).content
+        imagen_logo = RLImage(BytesIO(contenido_logo), width=4 * cm, height=1.2 * cm)
         story.append(imagen_logo)
         story.append(Spacer(1, 10))
     except Exception:
@@ -513,6 +521,20 @@ def contar_usos_del_mes_por_local(local_id):
     return resultado.count or 0
 
 
+def mostrar_logo(logo_url, **kwargs):
+    """Muestra el logo tanto si es una URL normal (http...) como si es una data URL
+    en base64 (formato en que se guarda el logo subido desde 'Mi cuenta'). Las data
+    URLs se decodifican a bytes porque st.image en algunas versiones interpreta las
+    cadenas que no empiezan por http como rutas de archivo."""
+    try:
+        if isinstance(logo_url, str) and logo_url.startswith("data:"):
+            st.image(base64.b64decode(logo_url.split(",", 1)[1]), **kwargs)
+        else:
+            st.image(logo_url, **kwargs)
+    except Exception:
+        pass  # un logo que no carga nunca debe tumbar el panel
+
+
 def puede_agencia_anadir_local(agencia, locales_actuales):
     """Comprueba si la agencia puede añadir un local más según el límite de su plan.
     Devuelve (True, None) si puede, o (False, "motivo") si no."""
@@ -573,17 +595,25 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
                         redirigir_a_stripe(url_pago)
 
 
-def cargar_perfil_login(email):
+def cargar_perfil_login(email, password_plano):
     """
-    Busca el usuario por email y, si existe y está activo, devuelve también los
-    datos de la agencia a la que pertenece y su cartera de locales.
-    Devuelve None si el email no existe.
+    Busca TODOS los usuarios activos con ese email (una misma empresa puede tener
+    varios perfiles compartiendo el correo corporativo) y comprueba la contraseña
+    contra cada uno: la contraseña es la que identifica de qué perfil se trata.
+    Devuelve el perfil completo (usuario + agencia + locales) del que coincida,
+    o None si ninguno coincide.
     """
-    resultado_usuario = supabase.table("usuarios").select("*").eq("email", email).eq("activo", True).execute()
-    if not resultado_usuario.data:
+    resultado_usuarios = supabase.table("usuarios").select("*").eq("email", email).eq("activo", True).execute()
+    if not resultado_usuarios.data:
         return None
 
-    usuario = resultado_usuario.data[0]
+    usuario = None
+    for candidato in resultado_usuarios.data:
+        if verificar_password(password_plano, candidato["password_hash"]):
+            usuario = candidato
+            break
+    if usuario is None:
+        return None
 
     resultado_agencia = supabase.table("agencias").select("*").eq("id", usuario["agencia_id"]).execute()
     if not resultado_agencia.data:
@@ -889,11 +919,9 @@ if not st.session_state.sesion_activa:
                 email_normalizado = email_usuario.lower().strip()
                 with st.spinner("Verificando credenciales..."):
                     try:
-                        perfil = cargar_perfil_login(email_normalizado)
+                        perfil = cargar_perfil_login(email_normalizado, password_usuario)
 
                         if perfil is None:
-                            st.error("❌ Email o contraseña incorrectos.")
-                        elif not verificar_password(password_usuario, perfil["usuario"]["password_hash"]):
                             st.error("❌ Email o contraseña incorrectos.")
                         else:
                             st.session_state.sesion_activa = True
@@ -949,7 +977,7 @@ st.markdown(f"""
 # =========================================================
 col_logo, col_titulo, col_cuenta = st.columns([1, 3, 1])
 with col_logo:
-    st.image(agencia["logo_url"], use_container_width=True)
+    mostrar_logo(agencia["logo_url"], use_container_width=True)
 with col_titulo:
     st.markdown(f"<h2 style='margin-bottom:0; padding-top:8px;'>Console | {agencia['nombre_agencia']}</h2>", unsafe_allow_html=True)
 with col_cuenta:
@@ -966,8 +994,8 @@ st.info(f"Sesión activa: **{usuario['nombre_usuario']}** ({usuario['email']}) �
 # =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
 # =========================================================
-tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
-    ["✨ Generar respuesta", "📣 Pedir reseñas", "📝 Contenido SEO extra", "📊 Analítica de la agencia"]
+tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica, tab_cuenta = st.tabs(
+    ["✨ Generar respuesta", "📣 Pedir reseñas", "📝 Contenido SEO extra", "📊 Analítica de la agencia", "⚙️ Mi cuenta"]
 )
 
 # ---------------------------------------------------------
@@ -980,32 +1008,38 @@ with tab_generar:
     limite_locales = LIMITE_LOCALES_POR_PLAN.get(agencia.get("plan", "growth"))
     texto_limite = "sin límite" if limite_locales is None else f"{len(locales_disponibles)}/{limite_locales}"
     with st.expander(f"➕ Añadir establecimiento ({texto_limite})"):
-        nombre_nuevo_local = st.text_input("Nombre del establecimiento", key="nuevo_local_nombre")
-        nicho_nuevo_local = st.text_input("Nicho (ej: hotel, restaurante, clínica dental)", key="nuevo_local_nicho")
-        keywords_nuevo_local = st.text_input("Palabras clave SEO, separadas por comas", key="nuevo_local_keywords")
-        if st.button("Crear establecimiento", key="crear_establecimiento_btn"):
-            puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
-            if not puede:
-                st.error(f"⚠️ {motivo}")
-                if st.button("Actualizar plan", key="actualizar_plan_limite_locales"):
-                    st.session_state.mostrar_pagina_planes = True
-                    st.rerun()
-            elif not nombre_nuevo_local.strip() or not nicho_nuevo_local.strip():
-                st.warning("Rellena al menos el nombre y el nicho.")
-            else:
-                try:
-                    keywords_lista = [k.strip() for k in keywords_nuevo_local.split(",") if k.strip()]
-                    nuevo = supabase.table("locales").insert({
-                        "agencia_id": agencia["id"],
-                        "nombre": nombre_nuevo_local.strip(),
-                        "nicho": nicho_nuevo_local.strip(),
-                        "seo_keywords": keywords_lista
-                    }).execute()
-                    st.session_state.locales_agencia.append(nuevo.data[0])
-                    st.success(f"'{nombre_nuevo_local}' añadido correctamente.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"No se pudo crear el local: {e}")
+        # El límite se comprueba ANTES de pintar el formulario. Así, si ya está al tope,
+        # el usuario ve directamente el aviso y un botón de upgrade QUE FUNCIONA.
+        # (Antes el botón "Actualizar plan" estaba anidado dentro del click de
+        # "Crear establecimiento": en Streamlit un botón dentro del if de otro botón
+        # se pinta un instante pero su pulsación se pierde en el rerun — nunca funcionó.)
+        puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
+        if not puede:
+            st.error(f"⚠️ {motivo}")
+            if st.button("💳 Actualizar plan", key="actualizar_plan_limite_locales", type="primary"):
+                st.session_state.mostrar_pagina_planes = True
+                st.rerun()
+        else:
+            nombre_nuevo_local = st.text_input("Nombre del establecimiento", key="nuevo_local_nombre")
+            nicho_nuevo_local = st.text_input("Nicho (ej: hotel, restaurante, clínica dental)", key="nuevo_local_nicho")
+            keywords_nuevo_local = st.text_input("Palabras clave SEO, separadas por comas", key="nuevo_local_keywords")
+            if st.button("Crear establecimiento", key="crear_establecimiento_btn"):
+                if not nombre_nuevo_local.strip() or not nicho_nuevo_local.strip():
+                    st.warning("Rellena al menos el nombre y el nicho.")
+                else:
+                    try:
+                        keywords_lista = [k.strip() for k in keywords_nuevo_local.split(",") if k.strip()]
+                        nuevo = supabase.table("locales").insert({
+                            "agencia_id": agencia["id"],
+                            "nombre": nombre_nuevo_local.strip(),
+                            "nicho": nicho_nuevo_local.strip(),
+                            "seo_keywords": keywords_lista
+                        }).execute()
+                        st.session_state.locales_agencia.append(nuevo.data[0])
+                        st.success(f"'{nombre_nuevo_local}' añadido correctamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"No se pudo crear el local: {e}")
 
     if not locales_disponibles:
         st.info("Añade tu primer establecimiento arriba para empezar a generar respuestas.")
@@ -1022,7 +1056,13 @@ with tab_generar:
     if agencia.get("plan") == "free":
         usos_hechos = contar_usos_del_mes(agencia["id"])
         restantes = max(0, LIMITE_USOS_PLAN_GRATIS - usos_hechos)
-        st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}** respuestas este mes.")
+        if restantes <= 0:
+            st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite.")
+            if st.button("💳 Ver planes de pago", key="ver_planes_limite_usos_pre", type="primary"):
+                st.session_state.mostrar_pagina_planes = True
+                st.rerun()
+        else:
+            st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}** respuestas este mes.")
     else:
         usos_local_este_mes = contar_usos_del_mes_por_local(local_activo["id"])
         if usos_local_este_mes >= UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL:
@@ -1041,10 +1081,7 @@ with tab_generar:
         elif not acepta_terminos:
             st.error("⚠️ Es obligatorio aceptar los términos de uso.")
         elif agencia.get("plan") == "free" and contar_usos_del_mes(agencia["id"]) >= LIMITE_USOS_PLAN_GRATIS:
-            st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite.")
-            if st.button("💳 Ver planes de pago", key="ver_planes_limite_usos"):
-                st.session_state.mostrar_pagina_planes = True
-                st.rerun()
+            st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Usa el botón '💳 Ver planes de pago' de arriba para actualizar tu plan.")
         else:
             with st.spinner("Analizando el idioma y el tono de la reseña..."):
                 try:
@@ -1400,3 +1437,135 @@ st.markdown(f"""
     prohibida la ingeniería inversa, descompilación o extracción de la lógica de negocio de esta plataforma.
 </div>
 """, unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# PESTAÑA 5: MI CUENTA (logo de empresa + gestión de usuarios)
+# ---------------------------------------------------------
+with tab_cuenta:
+    plan_actual = agencia.get("plan", "free")
+    es_plan_de_pago = plan_actual != "free"
+
+    # =========================
+    # 🖼️ LOGO DE LA EMPRESA
+    # =========================
+    st.markdown("#### 🖼️ Logo de tu empresa")
+    if not es_plan_de_pago:
+        st.info("La personalización del logo está disponible en los planes de pago.")
+        if st.button("💳 Ver planes de pago", key="ver_planes_desde_logo", type="primary"):
+            st.session_state.mostrar_pagina_planes = True
+            st.rerun()
+    else:
+        col_logo_actual, col_logo_subida = st.columns([1, 2])
+        with col_logo_actual:
+            st.caption("Logo actual:")
+            mostrar_logo(agencia["logo_url"], width=200)
+        with col_logo_subida:
+            archivo_logo = st.file_uploader(
+                "Sube tu logo (PNG o JPG, máximo 500 KB)",
+                type=["png", "jpg", "jpeg"],
+                key="uploader_logo_empresa"
+            )
+            if archivo_logo is not None:
+                if archivo_logo.size > 500 * 1024:
+                    st.error("El archivo pesa más de 500 KB. Comprime el logo o usa una versión más pequeña.")
+                else:
+                    st.image(archivo_logo, width=200, caption="Vista previa")
+                    if st.button("💾 Guardar logo", key="guardar_logo_btn", type="primary"):
+                        try:
+                            # Guardamos el logo como data URL (base64) en la columna logo_url:
+                            # así no dependemos de configurar Supabase Storage y el logo queda
+                            # dentro de la propia fila de la agencia.
+                            mime = "image/png" if archivo_logo.type == "image/png" else "image/jpeg"
+                            b64 = base64.b64encode(archivo_logo.getvalue()).decode("utf-8")
+                            data_url = f"data:{mime};base64,{b64}"
+                            supabase.table("agencias").update({"logo_url": data_url}).eq("id", agencia["id"]).execute()
+                            st.session_state.agencia_actual["logo_url"] = data_url
+                            st.success("Logo guardado. Ya aparece en tu panel y en los informes PDF.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"No se pudo guardar el logo: {type(e).__name__}: {e}")
+
+    st.markdown("---")
+
+    # =========================
+    # 👥 USUARIOS DE LA CUENTA
+    # =========================
+    st.markdown("#### 👥 Usuarios de la cuenta")
+    if not es_plan_de_pago:
+        st.info("Los perfiles de usuario adicionales están disponibles en los planes de pago.")
+        if st.button("💳 Ver planes de pago", key="ver_planes_desde_usuarios", type="primary"):
+            st.session_state.mostrar_pagina_planes = True
+            st.rerun()
+    else:
+        try:
+            usuarios_agencia = supabase.table("usuarios").select(
+                "id, nombre_usuario, email, rol, activo, creado_en"
+            ).eq("agencia_id", agencia["id"]).order("creado_en").execute().data or []
+        except Exception as e:
+            usuarios_agencia = []
+            st.error(f"No se pudieron cargar los usuarios: {e}")
+
+        for u in usuarios_agencia:
+            etiqueta_estado = "" if u.get("activo") else " · ⛔ desactivado"
+            marcador_tu = " · (tú)" if u["id"] == usuario["id"] else ""
+            st.markdown(f"- **{u['nombre_usuario']}** · {u['email']} · rol: {u['rol']}{marcador_tu}{etiqueta_estado}")
+
+        st.markdown("")
+
+        if usuario.get("rol") != "admin":
+            st.caption("Solo los usuarios con rol admin pueden añadir nuevos perfiles.")
+        else:
+            with st.expander("➕ Añadir un nuevo usuario"):
+                st.caption(
+                    "Puedes usar el mismo correo de la empresa para varios perfiles: en ese caso, "
+                    "cada perfil se distingue por su contraseña al iniciar sesión, así que cada "
+                    "usuario debe tener una contraseña distinta."
+                )
+                nuevo_nombre_usuario = st.text_input("Nombre del usuario (ej: Ana García)", key="nuevo_usuario_nombre")
+                nuevo_email_usuario = st.text_input("Email de acceso", value=usuario["email"], key="nuevo_usuario_email")
+                nueva_password_usuario = st.text_input("Contraseña", type="password", key="nuevo_usuario_pass")
+                nueva_password_usuario_2 = st.text_input("Repite la contraseña", type="password", key="nuevo_usuario_pass2")
+                nuevo_rol_usuario = st.selectbox("Rol", options=["gestor", "admin"], key="nuevo_usuario_rol")
+
+                if st.button("Crear usuario", key="crear_usuario_btn", type="primary"):
+                    email_nuevo_norm = nuevo_email_usuario.lower().strip()
+                    if not nuevo_nombre_usuario.strip():
+                        st.warning("Escribe el nombre del usuario.")
+                    elif not EMAIL_REGEX.match(email_nuevo_norm):
+                        st.warning("El email no tiene un formato válido.")
+                    elif len(nueva_password_usuario) < 8:
+                        st.warning("La contraseña debe tener al menos 8 caracteres.")
+                    elif nueva_password_usuario != nueva_password_usuario_2:
+                        st.warning("Las contraseñas no coinciden.")
+                    else:
+                        try:
+                            # Usuarios ya existentes con ese mismo email (en cualquier agencia):
+                            # 1) no puede repetirse el par email+nombre de usuario, y
+                            # 2) la contraseña nueva no puede coincidir con la de otro perfil del
+                            #    mismo email, porque es lo que identifica a cada perfil al entrar.
+                            existentes = supabase.table("usuarios").select(
+                                "id, nombre_usuario, password_hash"
+                            ).eq("email", email_nuevo_norm).execute().data or []
+
+                            nombre_norm = nuevo_nombre_usuario.strip().lower()
+                            if any(e["nombre_usuario"].strip().lower() == nombre_norm for e in existentes):
+                                st.error("Ya existe un usuario con ese email y ese nombre. Cambia el nombre de usuario.")
+                            elif any(verificar_password(nueva_password_usuario, e["password_hash"]) for e in existentes):
+                                st.error(
+                                    "Esa contraseña ya la usa otro perfil con este mismo email. "
+                                    "Elige una contraseña distinta para poder diferenciarlos al iniciar sesión."
+                                )
+                            else:
+                                supabase.table("usuarios").insert({
+                                    "agencia_id": agencia["id"],
+                                    "email": email_nuevo_norm,
+                                    "password_hash": bcrypt.hashpw(
+                                        nueva_password_usuario.encode("utf-8"), bcrypt.gensalt()
+                                    ).decode("utf-8"),
+                                    "nombre_usuario": nuevo_nombre_usuario.strip(),
+                                    "rol": nuevo_rol_usuario
+                                }).execute()
+                                st.success(f"Usuario '{nuevo_nombre_usuario.strip()}' creado. Ya puede iniciar sesión.")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"No se pudo crear el usuario: {type(e).__name__}: {e}")
