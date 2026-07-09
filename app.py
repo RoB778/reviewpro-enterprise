@@ -73,7 +73,7 @@ def verificar_password(password_plano, password_hash):
 
 
 LIMITE_USOS_PLAN_GRATIS = 10  # respuestas por mes incluidas en el plan Free
-LIMITE_LOCALES_POR_PLAN = {"free": 1, "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
+LIMITE_LOCALES_POR_PLAN = {"free": 1, "individual": 1, "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -81,11 +81,14 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
 # "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
 # aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
+STRIPE_PRICE_ID_INDIVIDUAL = "price_TODO_individual"  # crea el producto "Individual" a 29€/mes en Stripe y pega aquí su Price ID
 STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
 STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
 STRIPE_PRICE_ID_ENTERPRISE = "price_1Tr1RoKwc34DG74M8L4sjSVL"
 
 PLANES_AUTOSERVICIO = {
+    "individual": {"nombre": "Individual", "precio_texto": "29€/mes", "price_id": STRIPE_PRICE_ID_INDIVIDUAL,
+                   "features": ["1 local (tu restaurante)", "Respuestas ilimitadas", "SEO invisible + contenido", "QR de reseñas + informe PDF"]},
     "starter": {"nombre": "Starter", "precio_texto": "49€/mes", "price_id": STRIPE_PRICE_ID_STARTER,
                 "features": ["Hasta 10 locales", "Respuestas ilimitadas", "Marca blanca completa", "SEO invisible por local"]},
     "growth": {"nombre": "Growth", "precio_texto": "129€/mes", "price_id": STRIPE_PRICE_ID_GROWTH,
@@ -753,7 +756,7 @@ if not st.session_state.sesion_activa:
     # VISTA: PLANES Y PRECIOS
     # -----------------------------------------------------
     if mostrar_planes:
-        col_free, col_starter, col_growth, col_ent = st.columns(4)
+        col_free, col_individual, col_starter, col_growth, col_ent = st.columns(5)
 
         with col_free:
             st.markdown(f"""
@@ -788,6 +791,25 @@ if not st.session_state.sesion_activa:
                             st.success("Cuenta creada. Ve a la pestaña 'Ya tengo cuenta' para iniciar sesión.")
                         else:
                             st.error(error)
+
+        with col_individual:
+            st.markdown(f"""
+                <div class="rp-card">
+                    <div class="rp-plan-nombre">Individual</div>
+                    <div class="rp-plan-target">Un solo restaurante o negocio local</div>
+                    <div class="rp-precio">29€</div>
+                    <div class="rp-precio-periodo">/ mes</div>
+                    <hr style="border-color:#232C42; margin:14px 0;">
+                    <div class="rp-feature">✓ 1 local (tu negocio)</div>
+                    <div class="rp-feature">✓ Respuestas ilimitadas</div>
+                    <div class="rp-feature">✓ SEO invisible + contenido</div>
+                    <div class="rp-feature">✓ QR de reseñas + informe PDF</div>
+                </div>
+            """, unsafe_allow_html=True)
+            if st.button("Elegir Individual", key="landing_elegir_individual", use_container_width=True, type="primary"):
+                url_pago_individual = crear_sesion_pago_nueva_agencia("individual", STRIPE_PRICE_ID_INDIVIDUAL)
+                if url_pago_individual:
+                    redirigir_a_stripe(url_pago_individual)
 
         with col_starter:
             st.markdown(f"""
