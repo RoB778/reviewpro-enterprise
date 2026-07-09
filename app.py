@@ -690,16 +690,18 @@ if not st.session_state.sesion_activa:
         .rp-hero-sub { color: #8B95A8; font-size: 1.05rem; margin-bottom: 1.8rem; }
         .rp-card {
             background: #131B2E; border: 1px solid #232C42; border-radius: 14px;
-            padding: 26px 22px; height: 100%;
+            padding: 20px 14px; height: 100%;
         }
         .rp-card-destacado { border: 1px solid #FFB454; box-shadow: 0 0 0 1px #FFB45433; }
-        .rp-plan-nombre { font-family: 'Fraunces', serif; font-size: 1.3rem; color: #F5F7FA; margin-bottom: 2px; }
-        .rp-plan-target { color: #8B95A8; font-size: 0.85rem; margin-bottom: 14px; }
-        .rp-precio { font-family: 'IBM Plex Sans', monospace; font-size: 2rem; font-weight: 600; color: #FFB454; }
-        .rp-precio-periodo { color: #8B95A8; font-size: 0.9rem; }
-        .rp-feature { color: #C7CDDB; font-size: 0.88rem; margin: 6px 0; }
-        .rp-badge { display:inline-block; background:#FFB45422; color:#FFB454; font-size:0.72rem;
-            padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; font-weight:600; letter-spacing: 0.03em; }
+        .rp-plan-nombre { font-family: 'Fraunces', serif; font-size: 1.12rem; color: #F5F7FA;
+            margin-bottom: 2px; white-space: nowrap; }
+        .rp-plan-target { color: #8B95A8; font-size: 0.78rem; margin-bottom: 12px; min-height: 2.3em; }
+        .rp-precio { font-family: 'IBM Plex Sans', monospace; font-size: 1.65rem; font-weight: 600; color: #FFB454; }
+        .rp-precio-periodo { color: #8B95A8; font-size: 0.82rem; }
+        .rp-feature { color: #C7CDDB; font-size: 0.8rem; margin: 5px 0; }
+        .rp-badge { display:inline-block; background:#FFB45422; color:#FFB454; font-size:0.65rem;
+            padding: 3px 8px; border-radius: 20px; margin-bottom: 8px; font-weight:600;
+            letter-spacing: 0.03em; white-space: nowrap; }
         </style>
     """, unsafe_allow_html=True)
 
