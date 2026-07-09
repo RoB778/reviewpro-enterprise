@@ -82,7 +82,7 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
 # "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
 # aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
-STRIPE_PRICE_ID_INDIVIDUAL = "price_1TrILkKwc34DG74MdoZMStq2"  # crea el producto "Individual" a 29€/mes en Stripe y pega aquí su Price ID
+STRIPE_PRICE_ID_INDIVIDUAL = "price_TODO_individual"  # crea el producto "Individual" a 29€/mes en Stripe y pega aquí su Price ID
 STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
 STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
 STRIPE_PRICE_ID_ENTERPRISE = "price_1Tr1RoKwc34DG74M8L4sjSVL"
@@ -172,6 +172,83 @@ def confirmar_pago_y_activar_plan(session_id):
         # Incluimos el tipo de la excepción: "AttributeError: get" se entiende;
         # "get" a secas era indescifrable.
         return False, f"{type(e).__name__}: {e}"
+
+
+def sincronizar_plan_con_stripe(agencia):
+    """
+    Consulta en Stripe el estado REAL de la suscripción de esta agencia y ajusta el plan
+    en Supabase si no coincide. Cubre el agujero de las bajas: si el cliente canceló su
+    suscripción o Stripe la dio de baja por impagos, aquí se detecta y el plan baja a
+    'free' (la app no tiene webhook, así que esto no ocurre solo).
+
+    Devuelve (estado, mensaje) donde estado es uno de:
+      "ok"        → todo coincide, no se ha cambiado nada
+      "ajustado"  → el plan se ha corregido en Supabase
+      "aviso"     → hay algo que revisar (pago pendiente, doble suscripción...)
+      "error"     → no se pudo comprobar
+    """
+    customer_id = agencia.get("stripe_customer_id")
+    if not customer_id:
+        return "aviso", ("Esta cuenta no tiene cliente de Stripe asociado (alta manual o plan Free), "
+                         "así que no hay suscripción que comprobar.")
+
+    # Mapa Price ID de Stripe → clave de plan, construido del catálogo de planes.
+    price_id_a_plan = {datos["price_id"]: clave for clave, datos in PLANES_AUTOSERVICIO.items()}
+
+    try:
+        suscripciones = stripe.Subscription.list(customer=customer_id, status="all", limit=20).to_dict()
+        subs = suscripciones.get("data") or []
+
+        # Suscripciones "vivas": activas, en periodo de prueba, o con pago pendiente de reintento.
+        vivas = [s for s in subs if s.get("status") in ("active", "trialing", "past_due")]
+        # La más reciente primero (si hubo upgrades que crearon suscripciones nuevas).
+        vivas.sort(key=lambda s: s.get("created", 0), reverse=True)
+
+        plan_actual_db = agencia.get("plan", "free")
+
+        if not vivas:
+            # No queda ninguna suscripción viva: si en la base de datos sigue con plan de
+            # pago, hay que bajarlo a free.
+            if plan_actual_db != "free":
+                supabase.table("agencias").update({"plan": "free"}).eq("id", agencia["id"]).execute()
+                return "ajustado", (f"La suscripción de Stripe está cancelada o dada de baja, pero el plan en la app "
+                                    f"seguía siendo '{plan_actual_db}'. Se ha ajustado a Free.")
+            return "ok", "Sin suscripción activa en Stripe y plan Free en la app: todo coherente."
+
+        sub_principal = vivas[0]
+        items = (sub_principal.get("items") or {}).get("data") or []
+        price_id_activo = None
+        if items:
+            price_id_activo = ((items[0].get("price") or {}).get("id"))
+        plan_segun_stripe = price_id_a_plan.get(price_id_activo)
+
+        avisos = []
+        if len(vivas) > 1:
+            avisos.append(f"⚠️ Este cliente tiene {len(vivas)} suscripciones vivas a la vez en Stripe "
+                          f"(probablemente por un upgrade que creó una nueva sin cancelar la anterior). "
+                          f"Revisa el Dashboard de Stripe y cancela la antigua para no cobrarle doble.")
+        if sub_principal.get("status") == "past_due":
+            avisos.append("⚠️ El último cobro de la suscripción ha fallado y Stripe está reintentándolo "
+                          "(estado 'past_due'). Si los reintentos agotan, la suscripción se cancelará; "
+                          "vuelve a sincronizar en unos días.")
+
+        if plan_segun_stripe is None:
+            avisos.append(f"No se pudo mapear el precio activo de Stripe ({price_id_activo}) a ningún plan "
+                          f"del catálogo. ¿Se contrató con un Price ID antiguo?")
+            return "aviso", " ".join(avisos)
+
+        if plan_segun_stripe != plan_actual_db:
+            supabase.table("agencias").update({"plan": plan_segun_stripe}).eq("id", agencia["id"]).execute()
+            mensaje = (f"El plan en la app era '{plan_actual_db}' pero la suscripción activa de Stripe "
+                       f"corresponde a '{plan_segun_stripe}'. Se ha ajustado.")
+            return ("aviso" if avisos else "ajustado"), " ".join([mensaje] + avisos)
+
+        if avisos:
+            return "aviso", " ".join([f"El plan '{plan_actual_db}' coincide con Stripe."] + avisos)
+        return "ok", f"Todo en orden: la suscripción de Stripe está activa y coincide con el plan '{plan_actual_db}'."
+
+    except Exception as e:
+        return "error", f"No se pudo comprobar la suscripción en Stripe: {type(e).__name__}: {e}"
 
 
 def verificar_pago_alta_nueva(session_id):
@@ -1444,6 +1521,39 @@ st.markdown(f"""
 with tab_cuenta:
     plan_actual = agencia.get("plan", "free")
     es_plan_de_pago = plan_actual != "free"
+
+    # =========================
+    # 💳 SUSCRIPCIÓN
+    # =========================
+    st.markdown("#### 💳 Suscripción")
+    st.markdown(f"Plan actual: **{plan_actual.capitalize()}**")
+    if usuario.get("rol") == "admin":
+        st.caption(
+            "El botón consulta el estado real de tu suscripción en Stripe y corrige el plan "
+            "de la cuenta si no coinciden (por ejemplo, tras una cancelación o un impago)."
+        )
+        if st.button("🔄 Sincronizar con Stripe", key="sincronizar_stripe_btn"):
+            with st.spinner("Consultando Stripe..."):
+                estado_sync, mensaje_sync = sincronizar_plan_con_stripe(agencia)
+            if estado_sync == "ok":
+                st.success(mensaje_sync)
+            elif estado_sync == "ajustado":
+                st.warning(mensaje_sync)
+                # Recargar la agencia para que el resto del panel refleje el plan corregido.
+                agencia_recargada = supabase.table("agencias").select("*").eq("id", agencia["id"]).execute()
+                if agencia_recargada.data:
+                    st.session_state.agencia_actual = agencia_recargada.data[0]
+                st.rerun()
+            elif estado_sync == "aviso":
+                st.warning(mensaje_sync)
+                agencia_recargada = supabase.table("agencias").select("*").eq("id", agencia["id"]).execute()
+                if agencia_recargada.data and agencia_recargada.data[0].get("plan") != plan_actual:
+                    st.session_state.agencia_actual = agencia_recargada.data[0]
+                    st.rerun()
+            else:
+                st.error(mensaje_sync)
+
+    st.markdown("---")
 
     # =========================
     # 🖼️ LOGO DE LA EMPRESA
