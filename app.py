@@ -1,5 +1,3 @@
-import base64
-import html as html_stdlib
 import json
 import re
 import urllib.parse
@@ -11,7 +9,6 @@ import qrcode
 import requests
 import stripe
 import streamlit as st
-import streamlit.components.v1 as components
 from anthropic import Anthropic
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -75,7 +72,7 @@ def verificar_password(password_plano, password_hash):
 
 
 LIMITE_USOS_PLAN_GRATIS = 10  # respuestas por mes incluidas en el plan Free
-LIMITE_LOCALES_POR_PLAN = {"free": 1, "individual": 1, "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
+LIMITE_LOCALES_POR_PLAN = {"free": 1, "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -83,14 +80,11 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
 # "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
 # aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
-STRIPE_PRICE_ID_INDIVIDUAL = "price_TODO_individual"  # crea el producto "Individual" a 29€/mes en Stripe y pega aquí su Price ID
 STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
 STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
 STRIPE_PRICE_ID_ENTERPRISE = "price_1Tr1RoKwc34DG74M8L4sjSVL"
 
 PLANES_AUTOSERVICIO = {
-    "individual": {"nombre": "Individual", "precio_texto": "29€/mes", "price_id": STRIPE_PRICE_ID_INDIVIDUAL,
-                   "features": ["1 local (tu restaurante)", "Respuestas ilimitadas", "SEO invisible + contenido", "QR de reseñas + informe PDF"]},
     "starter": {"nombre": "Starter", "precio_texto": "49€/mes", "price_id": STRIPE_PRICE_ID_STARTER,
                 "features": ["Hasta 10 locales", "Respuestas ilimitadas", "Marca blanca completa", "SEO invisible por local"]},
     "growth": {"nombre": "Growth", "precio_texto": "129€/mes", "price_id": STRIPE_PRICE_ID_GROWTH,
@@ -155,101 +149,16 @@ def confirmar_pago_y_activar_plan(session_id):
     """
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        # Desde stripe-python v15, los objetos de Stripe ya NO son diccionarios:
-        # llamar a .get() directamente sobre ellos lanza AttributeError("get")
-        # (el famoso error "No se pudo verificar el pago: get"). Los convertimos
-        # una sola vez a un dict normal de Python y trabajamos siempre sobre él.
-        datos = session.to_dict()
-        if datos.get("payment_status") != "paid":
+        if session.payment_status != "paid":
             return False, "El pago todavía no se ha confirmado."
-        metadata = datos.get("metadata") or {}
-        agencia_id = metadata.get("agencia_id")
-        plan_nombre = metadata.get("plan")
+        agencia_id = session.metadata.get("agencia_id")
+        plan_nombre = session.metadata.get("plan")
         if not agencia_id or not plan_nombre:
             return False, "No se pudo identificar la agencia o el plan asociado a este pago."
         supabase.table("agencias").update({"plan": plan_nombre}).eq("id", agencia_id).execute()
         return True, plan_nombre
     except Exception as e:
-        # Incluimos el tipo de la excepción: "AttributeError: get" se entiende;
-        # "get" a secas era indescifrable.
-        return False, f"{type(e).__name__}: {e}"
-
-
-def sincronizar_plan_con_stripe(agencia):
-    """
-    Consulta en Stripe el estado REAL de la suscripción de esta agencia y ajusta el plan
-    en Supabase si no coincide. Cubre el agujero de las bajas: si el cliente canceló su
-    suscripción o Stripe la dio de baja por impagos, aquí se detecta y el plan baja a
-    'free' (la app no tiene webhook, así que esto no ocurre solo).
-
-    Devuelve (estado, mensaje) donde estado es uno de:
-      "ok"        → todo coincide, no se ha cambiado nada
-      "ajustado"  → el plan se ha corregido en Supabase
-      "aviso"     → hay algo que revisar (pago pendiente, doble suscripción...)
-      "error"     → no se pudo comprobar
-    """
-    customer_id = agencia.get("stripe_customer_id")
-    if not customer_id:
-        return "aviso", ("Esta cuenta no tiene cliente de Stripe asociado (alta manual o plan Free), "
-                         "así que no hay suscripción que comprobar.")
-
-    # Mapa Price ID de Stripe → clave de plan, construido del catálogo de planes.
-    price_id_a_plan = {datos["price_id"]: clave for clave, datos in PLANES_AUTOSERVICIO.items()}
-
-    try:
-        suscripciones = stripe.Subscription.list(customer=customer_id, status="all", limit=20).to_dict()
-        subs = suscripciones.get("data") or []
-
-        # Suscripciones "vivas": activas, en periodo de prueba, o con pago pendiente de reintento.
-        vivas = [s for s in subs if s.get("status") in ("active", "trialing", "past_due")]
-        # La más reciente primero (si hubo upgrades que crearon suscripciones nuevas).
-        vivas.sort(key=lambda s: s.get("created", 0), reverse=True)
-
-        plan_actual_db = agencia.get("plan", "free")
-
-        if not vivas:
-            # No queda ninguna suscripción viva: si en la base de datos sigue con plan de
-            # pago, hay que bajarlo a free.
-            if plan_actual_db != "free":
-                supabase.table("agencias").update({"plan": "free"}).eq("id", agencia["id"]).execute()
-                return "ajustado", (f"La suscripción de Stripe está cancelada o dada de baja, pero el plan en la app "
-                                    f"seguía siendo '{plan_actual_db}'. Se ha ajustado a Free.")
-            return "ok", "Sin suscripción activa en Stripe y plan Free en la app: todo coherente."
-
-        sub_principal = vivas[0]
-        items = (sub_principal.get("items") or {}).get("data") or []
-        price_id_activo = None
-        if items:
-            price_id_activo = ((items[0].get("price") or {}).get("id"))
-        plan_segun_stripe = price_id_a_plan.get(price_id_activo)
-
-        avisos = []
-        if len(vivas) > 1:
-            avisos.append(f"⚠️ Este cliente tiene {len(vivas)} suscripciones vivas a la vez en Stripe "
-                          f"(probablemente por un upgrade que creó una nueva sin cancelar la anterior). "
-                          f"Revisa el Dashboard de Stripe y cancela la antigua para no cobrarle doble.")
-        if sub_principal.get("status") == "past_due":
-            avisos.append("⚠️ El último cobro de la suscripción ha fallado y Stripe está reintentándolo "
-                          "(estado 'past_due'). Si los reintentos agotan, la suscripción se cancelará; "
-                          "vuelve a sincronizar en unos días.")
-
-        if plan_segun_stripe is None:
-            avisos.append(f"No se pudo mapear el precio activo de Stripe ({price_id_activo}) a ningún plan "
-                          f"del catálogo. ¿Se contrató con un Price ID antiguo?")
-            return "aviso", " ".join(avisos)
-
-        if plan_segun_stripe != plan_actual_db:
-            supabase.table("agencias").update({"plan": plan_segun_stripe}).eq("id", agencia["id"]).execute()
-            mensaje = (f"El plan en la app era '{plan_actual_db}' pero la suscripción activa de Stripe "
-                       f"corresponde a '{plan_segun_stripe}'. Se ha ajustado.")
-            return ("aviso" if avisos else "ajustado"), " ".join([mensaje] + avisos)
-
-        if avisos:
-            return "aviso", " ".join([f"El plan '{plan_actual_db}' coincide con Stripe."] + avisos)
-        return "ok", f"Todo en orden: la suscripción de Stripe está activa y coincide con el plan '{plan_actual_db}'."
-
-    except Exception as e:
-        return "error", f"No se pudo comprobar la suscripción en Stripe: {type(e).__name__}: {e}"
+        return False, str(e)
 
 
 def verificar_pago_alta_nueva(session_id):
@@ -262,28 +171,25 @@ def verificar_pago_alta_nueva(session_id):
     """
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        # Igual que en confirmar_pago_y_activar_plan: convertimos el objeto de Stripe
-        # a un dict normal (stripe-python v15 rompió el acceso tipo diccionario).
-        datos = session.to_dict()
-        if datos.get("payment_status") != "paid":
+        if session.payment_status != "paid":
             return False, "El pago todavía no se ha confirmado."
-        plan_nombre = (datos.get("metadata") or {}).get("plan")
+        plan_nombre = session.metadata.get("plan")
         if not plan_nombre:
             return False, "No se pudo identificar el plan asociado a este pago."
-        email_prefill = (datos.get("customer_details") or {}).get("email") or ""
-        # 'customer' puede venir como id (str) o, si se expandiera, como objeto: nos
-        # quedamos solo con el id en ambos casos.
-        customer = datos.get("customer")
-        if isinstance(customer, dict):
-            customer = customer.get("id")
+        email_prefill = ""
+        try:
+            if session.customer_details and session.customer_details.email:
+                email_prefill = session.customer_details.email
+        except Exception:
+            pass
         return True, {
             "session_id": session_id,
             "plan": plan_nombre,
-            "stripe_customer_id": customer,
+            "stripe_customer_id": session.customer,
             "email_prefill": email_prefill,
         }
     except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
+        return False, str(e)
 
 
 def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_plano, nombre_usuario):
@@ -446,17 +352,10 @@ def generar_informe_pdf_mensual(agencia, historico, locales_agencia, id_a_nombre
 
     story = []
 
-    # Logo (si se puede cargar; si falla, se omite sin romper el informe).
-    # Soporta dos formatos: URL normal (http...) y data URL en base64
-    # ("data:image/png;base64,..."), que es como se guarda el logo subido
-    # desde la pestaña "Mi cuenta".
+    # Logo (si se puede descargar; si falla, se omite sin romper el informe)
     try:
-        logo_url = agencia["logo_url"]
-        if logo_url.startswith("data:"):
-            contenido_logo = base64.b64decode(logo_url.split(",", 1)[1])
-        else:
-            contenido_logo = requests.get(logo_url, timeout=5).content
-        imagen_logo = RLImage(BytesIO(contenido_logo), width=4 * cm, height=1.2 * cm)
+        resp_logo = requests.get(agencia["logo_url"], timeout=5)
+        imagen_logo = RLImage(BytesIO(resp_logo.content), width=4 * cm, height=1.2 * cm)
         story.append(imagen_logo)
         story.append(Spacer(1, 10))
     except Exception:
@@ -539,229 +438,6 @@ def generar_mensaje_whatsapp(nombre_local, enlace_resena):
     return "https://wa.me/?text=" + urllib.parse.quote(mensaje)
 
 
-# =========================================================
-# 🔍 AUDITORÍA EXPRESS DE REPUTACIÓN (herramienta de prospección)
-# =========================================================
-# Usa la API oficial de Google Places (New). Limitación conocida y aceptada:
-# la API devuelve como máximo 5 reseñas de muestra por negocio y NO indica si
-# el propietario las respondió (ese dato Google solo lo da de negocios propios).
-# Por eso el dato "¿responde a reseñas?" se marca a mano tras mirar su ficha.
-
-def buscar_negocio_google(texto_busqueda):
-    """Busca negocios en Google Places por texto ("Umi Sushi Sevilla").
-    Devuelve (lista_de_candidatos, None) o ([], mensaje_de_error)."""
-    api_key = st.secrets.get("GOOGLE_PLACES_API_KEY")
-    if not api_key:
-        return [], ("Falta GOOGLE_PLACES_API_KEY en los secrets. Créala en Google Cloud Console "
-                    "(APIs y servicios → habilitar 'Places API (New)' → credenciales) y añádela "
-                    "al secrets.toml de Streamlit Cloud.")
-    try:
-        respuesta = requests.post(
-            "https://places.googleapis.com/v1/places:searchText",
-            headers={
-                "Content-Type": "application/json",
-                "X-Goog-Api-Key": api_key,
-                "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
-            },
-            json={"textQuery": texto_busqueda, "languageCode": "es"},
-            timeout=10,
-        )
-        datos = respuesta.json()
-        if respuesta.status_code != 200:
-            detalle = (datos.get("error") or {}).get("message", respuesta.text[:200])
-            return [], f"Google Places devolvió un error: {detalle}"
-        candidatos = []
-        for p in datos.get("places", [])[:5]:
-            candidatos.append({
-                "place_id": p.get("id"),
-                "nombre": (p.get("displayName") or {}).get("text", "(sin nombre)"),
-                "direccion": p.get("formattedAddress", ""),
-                "rating": p.get("rating"),
-                "total_resenas": p.get("userRatingCount", 0),
-            })
-        if not candidatos:
-            return [], "No se encontró ningún negocio con ese nombre. Prueba añadiendo la ciudad."
-        return candidatos, None
-    except Exception as e:
-        return [], f"No se pudo consultar Google Places: {type(e).__name__}: {e}"
-
-
-def obtener_resenas_muestra_google(place_id):
-    """Recupera hasta 5 reseñas de muestra del negocio. Devuelve (lista, None) o ([], error)."""
-    api_key = st.secrets.get("GOOGLE_PLACES_API_KEY")
-    try:
-        respuesta = requests.get(
-            f"https://places.googleapis.com/v1/places/{place_id}",
-            headers={
-                "X-Goog-Api-Key": api_key,
-                "X-Goog-FieldMask": "reviews",
-            },
-            params={"languageCode": "es"},
-            timeout=10,
-        )
-        datos = respuesta.json()
-        if respuesta.status_code != 200:
-            detalle = (datos.get("error") or {}).get("message", respuesta.text[:200])
-            return [], f"Google Places devolvió un error: {detalle}"
-        resenas = []
-        for r in datos.get("reviews", []):
-            resenas.append({
-                "rating": r.get("rating"),
-                "texto": ((r.get("text") or {}).get("text") or "").strip(),
-                "cuando": r.get("relativePublishTimeDescription", ""),
-            })
-        return resenas, None
-    except Exception as e:
-        return [], f"No se pudieron recuperar las reseñas: {type(e).__name__}: {e}"
-
-
-def analizar_resenas_auditoria(nombre_negocio, resenas_muestra):
-    """Pide a la IA un diagnóstico comercial breve a partir de la muestra de reseñas.
-    Devuelve un dict con fortalezas, debilidades y resumen, o None si falla."""
-    if not resenas_muestra:
-        return None
-    listado = "\n".join(
-        f"- [{r['rating']}★, {r['cuando']}] {r['texto'][:400]}" for r in resenas_muestra if r["texto"]
-    )
-    prompt_analisis = f"""Eres consultor de reputación online. Analiza esta muestra de reseñas reales de "{nombre_negocio}" y devuelve SOLO un JSON válido (sin backticks ni texto extra) con esta forma exacta:
-{{"fortalezas": ["...", "..."], "debilidades": ["...", "..."], "resumen": "..."}}
-
-- "fortalezas": 2-3 temas concretos que los clientes elogian (con sustancia, no genéricos).
-- "debilidades": 2-3 temas concretos de queja o riesgo detectados. Si la muestra es toda positiva, indica riesgos por ausencia (p. ej. poca variedad de opiniones recientes).
-- "resumen": 2-3 frases en tono comercial y directo, dirigidas al dueño del negocio, sobre el estado de su reputación y el margen de mejora. Sin tecnicismos.
-
-Muestra de reseñas:
-{listado}"""
-    try:
-        respuesta = client.messages.create(
-            model="claude-sonnet-5",
-            max_tokens=1200,
-            messages=[{"role": "user", "content": prompt_analisis}],
-        )
-        texto = ""
-        for bloque in respuesta.content:
-            if getattr(bloque, "type", None) == "text":
-                texto = bloque.text.strip()
-                break
-        inicio, fin = texto.find("{"), texto.rfind("}")
-        if inicio == -1 or fin <= inicio:
-            return None
-        return json.loads(texto[inicio:fin + 1])
-    except Exception:
-        return None
-
-
-def calcular_score_reputacion(rating, total_resenas, nivel_respuesta):
-    """Puntuación 0-100: nota media (hasta 50 pts) + volumen (hasta 20) + hábito de respuesta (hasta 30)."""
-    puntos_rating = (float(rating or 0) / 5.0) * 50
-    puntos_volumen = min((total_resenas or 0) / 500.0, 1.0) * 20
-    puntos_respuesta = {"No responde": 0, "Responde a algunas": 15, "Responde a casi todas": 30}.get(nivel_respuesta, 0)
-    return int(round(puntos_rating + puntos_volumen + puntos_respuesta))
-
-
-def etiqueta_score(score):
-    if score >= 80:
-        return "Excelente", colors.HexColor("#2E7D32")
-    if score >= 60:
-        return "Buena, con margen de mejora", colors.HexColor("#F9A825")
-    if score >= 40:
-        return "Mejorable", colors.HexColor("#EF6C00")
-    return "Crítica", colors.HexColor("#C62828")
-
-
-def generar_pdf_auditoria(agencia, negocio, resenas_muestra, analisis, score, nivel_respuesta):
-    """Genera el PDF de auditoría con la marca de la agencia. Devuelve los bytes del PDF."""
-    buffer = BytesIO()
-    color_hex = (agencia.get("color_marca") or "#635BFF").lstrip("#")
-    color_marca = colors.HexColor(f"#{color_hex}")
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
-    estilos = getSampleStyleSheet()
-    estilo_titulo = ParagraphStyle("TituloAud", parent=estilos["Title"], textColor=color_marca, fontSize=19)
-    estilo_sub = ParagraphStyle("SubAud", parent=estilos["Normal"], textColor=colors.grey, fontSize=11)
-    estilo_seccion = ParagraphStyle("SecAud", parent=estilos["Heading2"], textColor=color_marca, spaceBefore=14)
-    estilo_normal = estilos["Normal"]
-
-    story = []
-    try:
-        logo_url = agencia["logo_url"]
-        if logo_url.startswith("data:"):
-            contenido_logo = base64.b64decode(logo_url.split(",", 1)[1])
-        else:
-            contenido_logo = requests.get(logo_url, timeout=5).content
-        story.append(RLImage(BytesIO(contenido_logo), width=4 * cm, height=1.2 * cm))
-        story.append(Spacer(1, 10))
-    except Exception:
-        pass
-
-    # reportlab interpreta los textos de Paragraph como mini-HTML: un "&" o un "<"
-    # en el nombre del negocio ("Fish & Chips") rompería el PDF si no se escapa.
-    esc = html_stdlib.escape
-    story.append(Paragraph("Auditoría express de reputación online", estilo_titulo))
-    story.append(Paragraph(f"{esc(negocio['nombre'])} · {esc(negocio['direccion'])}", estilo_sub))
-    story.append(Paragraph(f"Elaborada por {esc(agencia['nombre_agencia'])} · {datetime.now().strftime('%d/%m/%Y')}", estilo_sub))
-    story.append(Spacer(1, 12))
-
-    texto_etiqueta, color_etiqueta = etiqueta_score(score)
-    tabla_resumen = Table([
-        ["Nota media en Google", "Total de reseñas", "¿Responde a reseñas?", "Puntuación de reputación"],
-        [f"{negocio.get('rating', '—')} ★", str(negocio.get("total_resenas", 0)), nivel_respuesta, f"{score}/100 · {texto_etiqueta}"],
-    ], colWidths=[4.2 * cm, 3.6 * cm, 4.2 * cm, 5 * cm])
-    tabla_resumen.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), color_marca),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TEXTCOLOR", (3, 1), (3, 1), color_etiqueta),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-    ]))
-    story.append(tabla_resumen)
-
-    if analisis:
-        story.append(Paragraph("Qué dicen tus clientes (muestra analizada con IA)", estilo_seccion))
-        for f in analisis.get("fortalezas", []):
-            story.append(Paragraph(f"✓ {esc(str(f))}", estilo_normal))
-        for d in analisis.get("debilidades", []):
-            story.append(Paragraph(f"✗ {esc(str(d))}", estilo_normal))
-        story.append(Spacer(1, 8))
-        story.append(Paragraph(esc(str(analisis.get("resumen", ""))), estilo_normal))
-
-    story.append(Paragraph("La oportunidad", estilo_seccion))
-    partes_oportunidad = []
-    if nivel_respuesta == "No responde":
-        partes_oportunidad.append(
-            f"{esc(negocio['nombre'])} acumula {negocio.get('total_resenas', 0)} reseñas sin una gestión activa de respuestas. "
-            "Google valora la actividad del negocio en su ficha: responder de forma constante y profesional influye en el "
-            "posicionamiento local y en la decisión de compra de quien lee las reseñas antes de visitar."
-        )
-    else:
-        partes_oportunidad.append(
-            "Una gestión constante, rápida y profesional de todas las reseñas —no solo algunas— refuerza el posicionamiento "
-            "local en Google y la confianza de los clientes que leen antes de decidir."
-        )
-    partes_oportunidad.append(
-        "Cada reseña negativa sin respuesta es la última palabra que lee un cliente potencial. Una respuesta bien redactada "
-        "convierte esa misma reseña en una demostración pública de cómo trata el negocio a sus clientes."
-    )
-    for p in partes_oportunidad:
-        story.append(Paragraph(p, estilo_normal))
-        story.append(Spacer(1, 6))
-
-    story.append(Spacer(1, 10))
-    pie = ParagraphStyle("PieAud", parent=estilos["Normal"], textColor=colors.grey, fontSize=8)
-    story.append(Paragraph(
-        "Datos obtenidos de la API oficial de Google Places en la fecha indicada. El análisis de opiniones se basa en la "
-        "muestra de reseñas públicas que Google facilita (máximo 5) y tiene carácter orientativo y comercial, no estadístico.",
-        pie,
-    ))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer.getvalue()
-
-
 def generar_contenido_seo_extra(client, nombre_local, nicho, seo_keywords, tipo_contenido):
     """
     Reutiliza el motor de IA para generar contenido SEO adicional (más allá de
@@ -822,20 +498,6 @@ def contar_usos_del_mes_por_local(local_id):
     return resultado.count or 0
 
 
-def mostrar_logo(logo_url, **kwargs):
-    """Muestra el logo tanto si es una URL normal (http...) como si es una data URL
-    en base64 (formato en que se guarda el logo subido desde 'Mi cuenta'). Las data
-    URLs se decodifican a bytes porque st.image en algunas versiones interpreta las
-    cadenas que no empiezan por http como rutas de archivo."""
-    try:
-        if isinstance(logo_url, str) and logo_url.startswith("data:"):
-            st.image(base64.b64decode(logo_url.split(",", 1)[1]), **kwargs)
-        else:
-            st.image(logo_url, **kwargs)
-    except Exception:
-        pass  # un logo que no carga nunca debe tumbar el panel
-
-
 def puede_agencia_anadir_local(agencia, locales_actuales):
     """Comprueba si la agencia puede añadir un local más según el límite de su plan.
     Devuelve (True, None) si puede, o (False, "motivo") si no."""
@@ -854,16 +516,11 @@ def redirigir_a_stripe(url_pago):
     el HTML dentro de un iframe interno, y Stripe bloquea la carga con el error
     "not able to run in an iFrame" — por eso aquí usamos JavaScript en vez de meta refresh.
     """
-    # OJO: st.markdown NO ejecuta etiquetas <script> (las inserta con innerHTML y el
-    # navegador las ignora por seguridad) — por eso la redirección "nunca llegaba" y
-    # había que pulsar el enlace manual. components.html sí renderiza un iframe real
-    # del mismo origen donde el script se ejecuta, y desde ahí window.top navega bien.
-    components.html(
-        f"""<script>window.top.location.href = {json.dumps(url_pago)};</script>""",
-        height=0,
+    st.markdown(
+        f"""<script>window.top.location.href = "{url_pago}";</script>""",
+        unsafe_allow_html=True
     )
-    st.link_button("Ir al pago seguro de Stripe →", url_pago, type="primary")
-    st.caption("Te estamos redirigiendo automáticamente... si no ocurre en unos segundos, pulsa el botón.")
+    st.caption(f"Redirigiendo a un pago seguro con Stripe... [haz clic aquí si no ocurre solo]({url_pago})")
 
 
 def render_pagina_planes_upgrade(agencia, color_agencia):
@@ -896,25 +553,17 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
                         redirigir_a_stripe(url_pago)
 
 
-def cargar_perfil_login(email, password_plano):
+def cargar_perfil_login(email):
     """
-    Busca TODOS los usuarios activos con ese email (una misma empresa puede tener
-    varios perfiles compartiendo el correo corporativo) y comprueba la contraseña
-    contra cada uno: la contraseña es la que identifica de qué perfil se trata.
-    Devuelve el perfil completo (usuario + agencia + locales) del que coincida,
-    o None si ninguno coincide.
+    Busca el usuario por email y, si existe y está activo, devuelve también los
+    datos de la agencia a la que pertenece y su cartera de locales.
+    Devuelve None si el email no existe.
     """
-    resultado_usuarios = supabase.table("usuarios").select("*").eq("email", email).eq("activo", True).execute()
-    if not resultado_usuarios.data:
+    resultado_usuario = supabase.table("usuarios").select("*").eq("email", email).eq("activo", True).execute()
+    if not resultado_usuario.data:
         return None
 
-    usuario = None
-    for candidato in resultado_usuarios.data:
-        if verificar_password(password_plano, candidato["password_hash"]):
-            usuario = candidato
-            break
-    if usuario is None:
-        return None
+    usuario = resultado_usuario.data[0]
 
     resultado_agencia = supabase.table("agencias").select("*").eq("id", usuario["agencia_id"]).execute()
     if not resultado_agencia.data:
@@ -1021,18 +670,16 @@ if not st.session_state.sesion_activa:
         .rp-hero-sub { color: #8B95A8; font-size: 1.05rem; margin-bottom: 1.8rem; }
         .rp-card {
             background: #131B2E; border: 1px solid #232C42; border-radius: 14px;
-            padding: 20px 14px; height: 100%;
+            padding: 26px 22px; height: 100%;
         }
         .rp-card-destacado { border: 1px solid #FFB454; box-shadow: 0 0 0 1px #FFB45433; }
-        .rp-plan-nombre { font-family: 'Fraunces', serif; font-size: 1.12rem; color: #F5F7FA;
-            margin-bottom: 2px; white-space: nowrap; }
-        .rp-plan-target { color: #8B95A8; font-size: 0.78rem; margin-bottom: 12px; min-height: 2.3em; }
-        .rp-precio { font-family: 'IBM Plex Sans', monospace; font-size: 1.65rem; font-weight: 600; color: #FFB454; }
-        .rp-precio-periodo { color: #8B95A8; font-size: 0.82rem; }
-        .rp-feature { color: #C7CDDB; font-size: 0.8rem; margin: 5px 0; }
-        .rp-badge { display:inline-block; background:#FFB45422; color:#FFB454; font-size:0.65rem;
-            padding: 3px 8px; border-radius: 20px; margin-bottom: 8px; font-weight:600;
-            letter-spacing: 0.03em; white-space: nowrap; }
+        .rp-plan-nombre { font-family: 'Fraunces', serif; font-size: 1.3rem; color: #F5F7FA; margin-bottom: 2px; }
+        .rp-plan-target { color: #8B95A8; font-size: 0.85rem; margin-bottom: 14px; }
+        .rp-precio { font-family: 'IBM Plex Sans', monospace; font-size: 2rem; font-weight: 600; color: #FFB454; }
+        .rp-precio-periodo { color: #8B95A8; font-size: 0.9rem; }
+        .rp-feature { color: #C7CDDB; font-size: 0.88rem; margin: 6px 0; }
+        .rp-badge { display:inline-block; background:#FFB45422; color:#FFB454; font-size:0.72rem;
+            padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; font-weight:600; letter-spacing: 0.03em; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -1089,7 +736,7 @@ if not st.session_state.sesion_activa:
     # VISTA: PLANES Y PRECIOS
     # -----------------------------------------------------
     if mostrar_planes:
-        col_free, col_individual, col_starter, col_growth, col_ent = st.columns(5)
+        col_free, col_starter, col_growth, col_ent = st.columns(4)
 
         with col_free:
             st.markdown(f"""
@@ -1124,25 +771,6 @@ if not st.session_state.sesion_activa:
                             st.success("Cuenta creada. Ve a la pestaña 'Ya tengo cuenta' para iniciar sesión.")
                         else:
                             st.error(error)
-
-        with col_individual:
-            st.markdown(f"""
-                <div class="rp-card">
-                    <div class="rp-plan-nombre">Individual</div>
-                    <div class="rp-plan-target">Un solo restaurante o negocio local</div>
-                    <div class="rp-precio">29€</div>
-                    <div class="rp-precio-periodo">/ mes</div>
-                    <hr style="border-color:#232C42; margin:14px 0;">
-                    <div class="rp-feature">✓ 1 local (tu negocio)</div>
-                    <div class="rp-feature">✓ Respuestas ilimitadas</div>
-                    <div class="rp-feature">✓ SEO invisible + contenido</div>
-                    <div class="rp-feature">✓ QR de reseñas + informe PDF</div>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("Elegir Individual", key="landing_elegir_individual", use_container_width=True, type="primary"):
-                url_pago_individual = crear_sesion_pago_nueva_agencia("individual", STRIPE_PRICE_ID_INDIVIDUAL)
-                if url_pago_individual:
-                    redirigir_a_stripe(url_pago_individual)
 
         with col_starter:
             st.markdown(f"""
@@ -1220,9 +848,11 @@ if not st.session_state.sesion_activa:
                 email_normalizado = email_usuario.lower().strip()
                 with st.spinner("Verificando credenciales..."):
                     try:
-                        perfil = cargar_perfil_login(email_normalizado, password_usuario)
+                        perfil = cargar_perfil_login(email_normalizado)
 
                         if perfil is None:
+                            st.error("❌ Email o contraseña incorrectos.")
+                        elif not verificar_password(password_usuario, perfil["usuario"]["password_hash"]):
                             st.error("❌ Email o contraseña incorrectos.")
                         else:
                             st.session_state.sesion_activa = True
@@ -1278,7 +908,7 @@ st.markdown(f"""
 # =========================================================
 col_logo, col_titulo, col_cuenta = st.columns([1, 3, 1])
 with col_logo:
-    mostrar_logo(agencia["logo_url"], use_container_width=True)
+    st.image(agencia["logo_url"], use_container_width=True)
 with col_titulo:
     st.markdown(f"<h2 style='margin-bottom:0; padding-top:8px;'>Console | {agencia['nombre_agencia']}</h2>", unsafe_allow_html=True)
 with col_cuenta:
@@ -1295,37 +925,13 @@ st.info(f"Sesión activa: **{usuario['nombre_usuario']}** ({usuario['email']}) �
 # =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
 # =========================================================
-tab_generar, tab_pedir_resenas, tab_seo_extra, tab_auditoria, tab_analitica, tab_cuenta = st.tabs(
-    ["✨ Generar respuesta", "📣 Pedir reseñas", "📝 Contenido SEO extra", "🔍 Auditoría", "📊 Analítica de la agencia", "⚙️ Mi cuenta"]
+tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
+    ["✨ Generar respuesta", "📣 Pedir reseñas", "📝 Contenido SEO extra", "📊 Analítica de la agencia"]
 )
 
 # ---------------------------------------------------------
 # PESTAÑA 1: GENERACIÓN DE RESPUESTAS
 # ---------------------------------------------------------
-def mostrar_barras_simples(conteo, color="#FFB454"):
-    """Barras horizontales en HTML puro, sin pasar por pandas/pyarrow.
-    st.bar_chart serializa los datos con Arrow, y esa pieza está dando un
-    Segmentation fault en este entorno (Python 3.14 + pyarrow, ver logs de
-    despliegue). Esta alternativa evita esa dependencia por completo."""
-    if not conteo:
-        st.caption("Sin datos suficientes todavía.")
-        return
-    maximo = max(conteo.values()) or 1
-    filas_html = ""
-    for etiqueta, valor in sorted(conteo.items(), key=lambda kv: kv[1], reverse=True):
-        ancho_pct = int((valor / maximo) * 100)
-        filas_html += f"""
-        <div style="margin-bottom:8px;">
-            <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#C7CDDB; margin-bottom:2px;">
-                <span>{html_stdlib.escape(str(etiqueta))}</span><span>{valor}</span>
-            </div>
-            <div style="background:#232C42; border-radius:4px; height:10px; width:100%;">
-                <div style="background:{color}; border-radius:4px; height:10px; width:{ancho_pct}%;"></div>
-            </div>
-        </div>"""
-    st.markdown(f'<div>{filas_html}</div>', unsafe_allow_html=True)
-
-
 with tab_generar:
     locales_disponibles = st.session_state.locales_agencia
 
@@ -1333,38 +939,32 @@ with tab_generar:
     limite_locales = LIMITE_LOCALES_POR_PLAN.get(agencia.get("plan", "growth"))
     texto_limite = "sin límite" if limite_locales is None else f"{len(locales_disponibles)}/{limite_locales}"
     with st.expander(f"➕ Añadir establecimiento ({texto_limite})"):
-        # El límite se comprueba ANTES de pintar el formulario. Así, si ya está al tope,
-        # el usuario ve directamente el aviso y un botón de upgrade QUE FUNCIONA.
-        # (Antes el botón "Actualizar plan" estaba anidado dentro del click de
-        # "Crear establecimiento": en Streamlit un botón dentro del if de otro botón
-        # se pinta un instante pero su pulsación se pierde en el rerun — nunca funcionó.)
-        puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
-        if not puede:
-            st.error(f"⚠️ {motivo}")
-            if st.button("💳 Actualizar plan", key="actualizar_plan_limite_locales", type="primary"):
-                st.session_state.mostrar_pagina_planes = True
-                st.rerun()
-        else:
-            nombre_nuevo_local = st.text_input("Nombre del establecimiento", key="nuevo_local_nombre")
-            nicho_nuevo_local = st.text_input("Nicho (ej: hotel, restaurante, clínica dental)", key="nuevo_local_nicho")
-            keywords_nuevo_local = st.text_input("Palabras clave SEO, separadas por comas", key="nuevo_local_keywords")
-            if st.button("Crear establecimiento", key="crear_establecimiento_btn"):
-                if not nombre_nuevo_local.strip() or not nicho_nuevo_local.strip():
-                    st.warning("Rellena al menos el nombre y el nicho.")
-                else:
-                    try:
-                        keywords_lista = [k.strip() for k in keywords_nuevo_local.split(",") if k.strip()]
-                        nuevo = supabase.table("locales").insert({
-                            "agencia_id": agencia["id"],
-                            "nombre": nombre_nuevo_local.strip(),
-                            "nicho": nicho_nuevo_local.strip(),
-                            "seo_keywords": keywords_lista
-                        }).execute()
-                        st.session_state.locales_agencia.append(nuevo.data[0])
-                        st.success(f"'{nombre_nuevo_local}' añadido correctamente.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"No se pudo crear el local: {e}")
+        nombre_nuevo_local = st.text_input("Nombre del establecimiento", key="nuevo_local_nombre")
+        nicho_nuevo_local = st.text_input("Nicho (ej: hotel, restaurante, clínica dental)", key="nuevo_local_nicho")
+        keywords_nuevo_local = st.text_input("Palabras clave SEO, separadas por comas", key="nuevo_local_keywords")
+        if st.button("Crear establecimiento", key="crear_establecimiento_btn"):
+            puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
+            if not puede:
+                st.error(f"⚠️ {motivo}")
+                if st.button("Actualizar plan", key="actualizar_plan_limite_locales"):
+                    st.session_state.mostrar_pagina_planes = True
+                    st.rerun()
+            elif not nombre_nuevo_local.strip() or not nicho_nuevo_local.strip():
+                st.warning("Rellena al menos el nombre y el nicho.")
+            else:
+                try:
+                    keywords_lista = [k.strip() for k in keywords_nuevo_local.split(",") if k.strip()]
+                    nuevo = supabase.table("locales").insert({
+                        "agencia_id": agencia["id"],
+                        "nombre": nombre_nuevo_local.strip(),
+                        "nicho": nicho_nuevo_local.strip(),
+                        "seo_keywords": keywords_lista
+                    }).execute()
+                    st.session_state.locales_agencia.append(nuevo.data[0])
+                    st.success(f"'{nombre_nuevo_local}' añadido correctamente.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"No se pudo crear el local: {e}")
 
     if not locales_disponibles:
         st.info("Añade tu primer establecimiento arriba para empezar a generar respuestas.")
@@ -1381,13 +981,7 @@ with tab_generar:
     if agencia.get("plan") == "free":
         usos_hechos = contar_usos_del_mes(agencia["id"])
         restantes = max(0, LIMITE_USOS_PLAN_GRATIS - usos_hechos)
-        if restantes <= 0:
-            st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite.")
-            if st.button("💳 Ver planes de pago", key="ver_planes_limite_usos_pre", type="primary"):
-                st.session_state.mostrar_pagina_planes = True
-                st.rerun()
-        else:
-            st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}** respuestas este mes.")
+        st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}** respuestas este mes.")
     else:
         usos_local_este_mes = contar_usos_del_mes_por_local(local_activo["id"])
         if usos_local_este_mes >= UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL:
@@ -1406,7 +1000,10 @@ with tab_generar:
         elif not acepta_terminos:
             st.error("⚠️ Es obligatorio aceptar los términos de uso.")
         elif agencia.get("plan") == "free" and contar_usos_del_mes(agencia["id"]) >= LIMITE_USOS_PLAN_GRATIS:
-            st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Usa el botón '💳 Ver planes de pago' de arriba para actualizar tu plan.")
+            st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite.")
+            if st.button("💳 Ver planes de pago", key="ver_planes_limite_usos"):
+                st.session_state.mostrar_pagina_planes = True
+                st.rerun()
         else:
             with st.spinner("Analizando el idioma y el tono de la reseña..."):
                 try:
@@ -1461,16 +1058,12 @@ REGLAS DE REDACCIÓN SEGÚN EL SENTIMIENTO:
 3. SI ES NEGATIVA:
    - Inicio dinámico: prohibido empezar siempre con "Gracias por su comentario" o equivalentes; varía la apertura.
    - BLINDAJE JURÍDICO TOTAL: prohibido admitir negligencias o usar alertas sanitarias ("higiene alimentaria", "intoxicación"); usa perífrasis suaves y naturales, no siempre las mismas palabras.
-   - NUNCA CONFIRMES EL FALLO COMO HECHO OBJETIVO. Valida siempre el sentimiento del cliente, nunca los hechos que describe como ciertos. Prohibido escribir frases que den la razón de forma literal ("no lo vamos a negar", "evidentemente algo se nos escapó", "puede que ese día no saliera con el punto que debería", "la ración no fue la que debía ser"). En su lugar, reformula en términos de la experiencia percibida por el cliente ("sentimos que no fuera la experiencia que esperabas", "está claro que esa noche no dimos la talla que quieres dar siempre"). Esta regla aplica sobre todo a temas sensibles (higiene, plagas, alérgenos, intoxicaciones, discriminación, trato del personal): en esos casos, ni una sola palabra que pueda leerse como una admisión de causa o de responsabilidad, aunque la reseña no use lenguaje de amenaza legal ni mencione abogados o Sanidad. La cautela se aplica por la naturaleza sensible del tema, no por si el cliente amenaza.
-   - NUNCA NOMBRES NI DESCRIBAS A NINGÚN EMPLEADO. Si la reseña da un nombre, apodo o descripción física de un trabajador (rasgos, aspecto, cómo iba vestido), no los repitas ni confirmes en tu respuesta bajo ningún concepto, ni siquiera para decir que vas a "hablar con esa persona". Refiérete siempre en genérico ("el equipo", "el compañero que os atendió", "quien estuviera esa noche en sala"). Señalar públicamente a una persona identificable por una acusación no verificada es un riesgo tanto para esa persona como para el negocio.
    - Filtro de gravedad: si describe algo grave (salubridad severa, insectos, insultos), invita a resolverlo por vía privada, con una frase breve y humana, no un procedimiento formal. Si es un fallo leve (esperas, comida fría, precios), discúlpate cercano y humano, sin exigir contacto privado.
-   - Si la reseña reúne varias quejas distintas (espera, ruido, cobro, trato, limpieza...), NO respondas por categorías ni las vayas enumerando una a una. Elige la que tenga más peso emocional o de riesgo (lo relacionado con salud, alérgenos o trato indebido siempre pesa más que esperas o ruido) y desarróllala con el mismo criterio de "un solo hilo" de la sección anterior; cierra invitando a hablar del resto por privado en vez de darles a todas la misma respuesta genérica.
 
-REGLAS DE LONGITUD (LÍMITE DURO, NO ORIENTATIVO):
-- POSITIVA: entre 60 y 100 palabras. NUNCA superes 120 palabras bajo ningún concepto.
-- NEGATIVA: entre 140 y 200 palabras, desarrollando: (a) reconocimiento genuino de UN aspecto concreto, (b) breve contextualización con perífrasis seguras, (c) qué se está haciendo al respecto, contado como lo contaría una persona, no un comunicado, (d) cierre cordial invitando a otra oportunidad. Sin frases vacías repetidas. NUNCA superes 220 palabras bajo ningún concepto, sea cual sea la cantidad de quejas o temas que mencione la reseña original: elige lo más importante y deja el resto para la conversación privada, nunca alargues el texto para cubrirlo todo.
+REGLAS DE LONGITUD:
+- POSITIVA: entre 60 y 100 palabras.
+- NEGATIVA: entre 140 y 200 palabras, desarrollando: (a) reconocimiento genuino de UN aspecto concreto, (b) breve contextualización con perífrasis seguras, (c) qué se está haciendo al respecto, contado como lo contaría una persona, no un comunicado, (d) cierre cordial invitando a otra oportunidad. Sin frases vacías repetidas.
 - Nunca fuerces el límite superior si la reseña es muy breve y no lo justifica.
-- Antes de devolver el JSON, cuenta mentalmente las palabras de "respuesta_nativa": si te has pasado del límite duro, recórtalo tú mismo antes de responder. Completar el JSON correctamente es más importante que desarrollar cada matiz.
 
 REGLAS COMUNES:
 - Integra el nombre del negocio ({nombre_local_final}) de forma fluida, una sola vez si es posible.
@@ -1484,29 +1077,10 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
 
                     response = client.messages.create(
                         model="claude-sonnet-5",
-                        max_tokens=4000,
+                        max_tokens=1000,
                         system=system_prompt_dinamico,
                         messages=[{"role": "user", "content": f"Nombre del negocio: {nombre_local_final}\nReseña: \"\"\"{resena_cliente}\"\"\""}]
                     )
-
-                    # Con el límite duro de palabras ya reforzado en el prompt, esto no debería
-                    # activarse en uso normal. Si aun así ocurre (el modelo se desboca con
-                    # alguna reseña concreta y entra en un bucle de repetición), reintentamos
-                    # UNA vez con una instrucción extra de brevedad antes de rendirnos, en vez
-                    # de dejar al usuario sin nada.
-                    if response.stop_reason == "max_tokens":
-                        response = client.messages.create(
-                            model="claude-sonnet-5",
-                            max_tokens=4000,
-                            system=system_prompt_dinamico + "\n\nAVISO CRÍTICO: tu intento anterior se cortó por ser demasiado largo. Esta vez sé notablemente más breve, respeta estrictamente el límite duro de palabras y no desarrolles cada matiz.",
-                            messages=[{"role": "user", "content": f"Nombre del negocio: {nombre_local_final}\nReseña: \"\"\"{resena_cliente}\"\"\""}]
-                        )
-                        if response.stop_reason == "max_tokens":
-                            raise ValueError(
-                                "El modelo ha generado una respuesta anormalmente larga dos veces "
-                                "seguidas para esta reseña. Prueba de nuevo o simplifica el texto "
-                                "de la reseña; si se repite con reseñas distintas, revisa el prompt."
-                            )
 
                     texto_bruto = None
                     for bloque in response.content:
@@ -1523,18 +1097,7 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                         if texto_bruto.lower().startswith("json"):
                             texto_bruto = texto_bruto[4:].strip()
 
-                    try:
-                        datos_respuesta = json.loads(texto_bruto)
-                    except json.JSONDecodeError:
-                        # Red de seguridad: a veces el modelo añade alguna palabra suelta antes
-                        # o después del JSON aunque se le pida que no lo haga. Si dentro del
-                        # texto hay un objeto JSON completo, lo recortamos y lo intentamos de
-                        # nuevo antes de rendirnos.
-                        inicio = texto_bruto.find("{")
-                        fin = texto_bruto.rfind("}")
-                        if inicio == -1 or fin == -1 or fin <= inicio:
-                            raise
-                        datos_respuesta = json.loads(texto_bruto[inicio:fin + 1])
+                    datos_respuesta = json.loads(texto_bruto)
 
                     respuesta_nativa = datos_respuesta.get("respuesta_nativa", "").replace("*", "").replace('"', "")
                     traduccion = datos_respuesta.get("traduccion_espanol")
@@ -1563,10 +1126,8 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
 
                 except json.JSONDecodeError:
                     st.error("El modelo devolvió un formato inesperado. Inténtalo de nuevo.")
-                except ValueError as e:
-                    st.error(f"No se pudo generar la respuesta: {e}")
                 except Exception as e:
-                    st.error(f"Error al conectar con el servidor: {type(e).__name__}: {e}")
+                    st.error(f"Error al conectar con el servidor: {e}")
 
 # ---------------------------------------------------------
 # PESTAÑA: PEDIR RESEÑAS (WhatsApp + QR)
@@ -1690,7 +1251,7 @@ with tab_analitica:
                 conteo_por_local[nombre_local] = conteo_por_local.get(nombre_local, 0) + 1
 
             st.markdown("**Actividad por local:**")
-            mostrar_barras_simples(conteo_por_local)
+            st.bar_chart(conteo_por_local)
 
             # Actividad por usuario (visibilidad multi-usuario)
             usuarios_de_la_agencia = supabase.table("usuarios").select("id, nombre_usuario").eq("agencia_id", agencia["id"]).execute().data
@@ -1703,7 +1264,7 @@ with tab_analitica:
 
             st.markdown("**Reparto de trabajo por usuario del equipo:**")
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
-            mostrar_barras_simples(conteo_por_usuario, color="#8BD1F7")
+            st.bar_chart(conteo_por_usuario)
 
             st.divider()
             st.markdown("**📄 Informe de marca blanca para reenviar a tus clientes:**")
@@ -1762,284 +1323,3 @@ st.markdown(f"""
     prohibida la ingeniería inversa, descompilación o extracción de la lógica de negocio de esta plataforma.
 </div>
 """, unsafe_allow_html=True)
-
-# ---------------------------------------------------------
-# PESTAÑA 5: MI CUENTA (logo de empresa + gestión de usuarios)
-# ---------------------------------------------------------
-with tab_cuenta:
-    plan_actual = agencia.get("plan", "free")
-    es_plan_de_pago = plan_actual != "free"
-
-    # =========================
-    # 💳 SUSCRIPCIÓN
-    # =========================
-    st.markdown("#### 💳 Suscripción")
-    st.markdown(f"Plan actual: **{plan_actual.capitalize()}**")
-    if usuario.get("rol") == "admin":
-        st.caption(
-            "El botón consulta el estado real de tu suscripción en Stripe y corrige el plan "
-            "de la cuenta si no coinciden (por ejemplo, tras una cancelación o un impago)."
-        )
-        if st.button("🔄 Sincronizar con Stripe", key="sincronizar_stripe_btn"):
-            with st.spinner("Consultando Stripe..."):
-                estado_sync, mensaje_sync = sincronizar_plan_con_stripe(agencia)
-            if estado_sync == "ok":
-                st.success(mensaje_sync)
-            elif estado_sync == "ajustado":
-                st.warning(mensaje_sync)
-                # Recargar la agencia para que el resto del panel refleje el plan corregido.
-                agencia_recargada = supabase.table("agencias").select("*").eq("id", agencia["id"]).execute()
-                if agencia_recargada.data:
-                    st.session_state.agencia_actual = agencia_recargada.data[0]
-                st.rerun()
-            elif estado_sync == "aviso":
-                st.warning(mensaje_sync)
-                agencia_recargada = supabase.table("agencias").select("*").eq("id", agencia["id"]).execute()
-                if agencia_recargada.data and agencia_recargada.data[0].get("plan") != plan_actual:
-                    st.session_state.agencia_actual = agencia_recargada.data[0]
-                    st.rerun()
-            else:
-                st.error(mensaje_sync)
-
-    st.markdown("---")
-
-    # =========================
-    # 🖼️ LOGO DE LA EMPRESA
-    # =========================
-    st.markdown("#### 🖼️ Logo de tu empresa")
-    if not es_plan_de_pago:
-        st.info("La personalización del logo está disponible en los planes de pago.")
-        if st.button("💳 Ver planes de pago", key="ver_planes_desde_logo", type="primary"):
-            st.session_state.mostrar_pagina_planes = True
-            st.rerun()
-    else:
-        col_logo_actual, col_logo_subida = st.columns([1, 2])
-        with col_logo_actual:
-            st.caption("Logo actual:")
-            mostrar_logo(agencia["logo_url"], width=200)
-        with col_logo_subida:
-            archivo_logo = st.file_uploader(
-                "Sube tu logo (PNG o JPG, máximo 500 KB)",
-                type=["png", "jpg", "jpeg"],
-                key="uploader_logo_empresa"
-            )
-            if archivo_logo is not None:
-                if archivo_logo.size > 500 * 1024:
-                    st.error("El archivo pesa más de 500 KB. Comprime el logo o usa una versión más pequeña.")
-                else:
-                    st.image(archivo_logo, width=200, caption="Vista previa")
-                    if st.button("💾 Guardar logo", key="guardar_logo_btn", type="primary"):
-                        try:
-                            # Guardamos el logo como data URL (base64) en la columna logo_url:
-                            # así no dependemos de configurar Supabase Storage y el logo queda
-                            # dentro de la propia fila de la agencia.
-                            mime = "image/png" if archivo_logo.type == "image/png" else "image/jpeg"
-                            b64 = base64.b64encode(archivo_logo.getvalue()).decode("utf-8")
-                            data_url = f"data:{mime};base64,{b64}"
-                            supabase.table("agencias").update({"logo_url": data_url}).eq("id", agencia["id"]).execute()
-                            st.session_state.agencia_actual["logo_url"] = data_url
-                            st.success("Logo guardado. Ya aparece en tu panel y en los informes PDF.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"No se pudo guardar el logo: {type(e).__name__}: {e}")
-
-    st.markdown("---")
-
-    # =========================
-    # 👥 USUARIOS DE LA CUENTA
-    # =========================
-    st.markdown("#### 👥 Usuarios de la cuenta")
-    if not es_plan_de_pago:
-        st.info("Los perfiles de usuario adicionales están disponibles en los planes de pago.")
-        if st.button("💳 Ver planes de pago", key="ver_planes_desde_usuarios", type="primary"):
-            st.session_state.mostrar_pagina_planes = True
-            st.rerun()
-    else:
-        try:
-            usuarios_agencia = supabase.table("usuarios").select(
-                "id, nombre_usuario, email, rol, activo, creado_en"
-            ).eq("agencia_id", agencia["id"]).order("creado_en").execute().data or []
-        except Exception as e:
-            usuarios_agencia = []
-            st.error(f"No se pudieron cargar los usuarios: {e}")
-
-        for u in usuarios_agencia:
-            etiqueta_estado = "" if u.get("activo") else " · ⛔ desactivado"
-            marcador_tu = " · (tú)" if u["id"] == usuario["id"] else ""
-            st.markdown(f"- **{u['nombre_usuario']}** · {u['email']} · rol: {u['rol']}{marcador_tu}{etiqueta_estado}")
-
-        st.markdown("")
-
-        if usuario.get("rol") != "admin":
-            st.caption("Solo los usuarios con rol admin pueden añadir nuevos perfiles.")
-        else:
-            with st.expander("➕ Añadir un nuevo usuario"):
-                st.caption(
-                    "Puedes usar el mismo correo de la empresa para varios perfiles: en ese caso, "
-                    "cada perfil se distingue por su contraseña al iniciar sesión, así que cada "
-                    "usuario debe tener una contraseña distinta."
-                )
-                nuevo_nombre_usuario = st.text_input("Nombre del usuario (ej: Ana García)", key="nuevo_usuario_nombre")
-                nuevo_email_usuario = st.text_input("Email de acceso", value=usuario["email"], key="nuevo_usuario_email")
-                nueva_password_usuario = st.text_input("Contraseña", type="password", key="nuevo_usuario_pass")
-                nueva_password_usuario_2 = st.text_input("Repite la contraseña", type="password", key="nuevo_usuario_pass2")
-                nuevo_rol_usuario = st.selectbox("Rol", options=["gestor", "admin"], key="nuevo_usuario_rol")
-
-                if st.button("Crear usuario", key="crear_usuario_btn", type="primary"):
-                    email_nuevo_norm = nuevo_email_usuario.lower().strip()
-                    if not nuevo_nombre_usuario.strip():
-                        st.warning("Escribe el nombre del usuario.")
-                    elif not EMAIL_REGEX.match(email_nuevo_norm):
-                        st.warning("El email no tiene un formato válido.")
-                    elif len(nueva_password_usuario) < 8:
-                        st.warning("La contraseña debe tener al menos 8 caracteres.")
-                    elif nueva_password_usuario != nueva_password_usuario_2:
-                        st.warning("Las contraseñas no coinciden.")
-                    else:
-                        try:
-                            # Usuarios ya existentes con ese mismo email (en cualquier agencia):
-                            # 1) no puede repetirse el par email+nombre de usuario, y
-                            # 2) la contraseña nueva no puede coincidir con la de otro perfil del
-                            #    mismo email, porque es lo que identifica a cada perfil al entrar.
-                            existentes = supabase.table("usuarios").select(
-                                "id, nombre_usuario, password_hash"
-                            ).eq("email", email_nuevo_norm).execute().data or []
-
-                            nombre_norm = nuevo_nombre_usuario.strip().lower()
-                            if any(e["nombre_usuario"].strip().lower() == nombre_norm for e in existentes):
-                                st.error("Ya existe un usuario con ese email y ese nombre. Cambia el nombre de usuario.")
-                            elif any(verificar_password(nueva_password_usuario, e["password_hash"]) for e in existentes):
-                                st.error(
-                                    "Esa contraseña ya la usa otro perfil con este mismo email. "
-                                    "Elige una contraseña distinta para poder diferenciarlos al iniciar sesión."
-                                )
-                            else:
-                                supabase.table("usuarios").insert({
-                                    "agencia_id": agencia["id"],
-                                    "email": email_nuevo_norm,
-                                    "password_hash": bcrypt.hashpw(
-                                        nueva_password_usuario.encode("utf-8"), bcrypt.gensalt()
-                                    ).decode("utf-8"),
-                                    "nombre_usuario": nuevo_nombre_usuario.strip(),
-                                    "rol": nuevo_rol_usuario
-                                }).execute()
-                                st.success(f"Usuario '{nuevo_nombre_usuario.strip()}' creado. Ya puede iniciar sesión.")
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"No se pudo crear el usuario: {type(e).__name__}: {e}")
-
-# ---------------------------------------------------------
-# PESTAÑA: AUDITORÍA EXPRESS (prospección de clientes)
-# ---------------------------------------------------------
-with tab_auditoria:
-    st.markdown("#### 🔍 Auditoría express de reputación")
-    st.caption(
-        "Busca cualquier negocio en Google, analiza su reputación con IA y genera un informe "
-        "PDF con tu marca para enseñárselo como propuesta comercial. Perfecto para captar clientes nuevos."
-    )
-
-    if agencia.get("plan", "free") == "free":
-        st.info("La auditoría express está disponible en los planes de pago.")
-        if st.button("💳 Ver planes de pago", key="ver_planes_desde_auditoria", type="primary"):
-            st.session_state.mostrar_pagina_planes = True
-            st.rerun()
-    else:
-        if "auditoria_candidatos" not in st.session_state:
-            st.session_state.auditoria_candidatos = []
-
-        texto_busqueda_aud = st.text_input(
-            "Nombre del negocio y ciudad", placeholder="Ej: Umi Sushi Sevilla", key="auditoria_busqueda"
-        )
-        if st.button("Buscar negocio", key="auditoria_buscar_btn"):
-            if not texto_busqueda_aud.strip():
-                st.warning("Escribe el nombre del negocio (mejor con la ciudad).")
-            else:
-                with st.spinner("Buscando en Google Places..."):
-                    candidatos, error_busqueda = buscar_negocio_google(texto_busqueda_aud.strip())
-                if error_busqueda:
-                    st.error(error_busqueda)
-                    st.session_state.auditoria_candidatos = []
-                else:
-                    st.session_state.auditoria_candidatos = candidatos
-
-        if st.session_state.auditoria_candidatos:
-            opciones = {
-                f"{c['nombre']} — {c['direccion']} ({c.get('rating', '—')}★, {c['total_resenas']} reseñas)": c
-                for c in st.session_state.auditoria_candidatos
-            }
-            eleccion = st.selectbox("Confirma el negocio:", options=list(opciones.keys()), key="auditoria_eleccion")
-            negocio_elegido = opciones[eleccion]
-
-            nivel_respuesta = st.radio(
-                "¿El negocio responde a sus reseñas? (compruébalo en 10 segundos abriendo su ficha de Google Maps)",
-                options=["No responde", "Responde a algunas", "Responde a casi todas"],
-                horizontal=True,
-                key="auditoria_nivel_respuesta",
-            )
-            st.caption(
-                "Este dato se marca a mano porque la API oficial de Google no indica si el propietario "
-                "respondió (solo lo facilita de negocios que gestionas tú)."
-            )
-
-            if st.button("⚡ Generar auditoría", key="auditoria_generar_btn", type="primary"):
-                with st.spinner("Recuperando reseñas de muestra y analizando con IA..."):
-                    resenas_muestra, error_resenas = obtener_resenas_muestra_google(negocio_elegido["place_id"])
-                    analisis = analizar_resenas_auditoria(negocio_elegido["nombre"], resenas_muestra)
-                    score = calcular_score_reputacion(
-                        negocio_elegido.get("rating"), negocio_elegido.get("total_resenas"), nivel_respuesta
-                    )
-                # Guardamos el resultado en session_state y lo pintamos FUERA de este if:
-                # si se renderizara aquí dentro, al pulsar "Descargar PDF" el rerun de
-                # Streamlit haría desaparecer toda la auditoría de la pantalla.
-                st.session_state.auditoria_resultado = {
-                    "negocio": negocio_elegido,
-                    "resenas_muestra": resenas_muestra,
-                    "error_resenas": error_resenas,
-                    "analisis": analisis,
-                    "score": score,
-                    "nivel_respuesta": nivel_respuesta,
-                }
-
-        resultado_aud = st.session_state.get("auditoria_resultado")
-        if resultado_aud:
-            negocio_aud = resultado_aud["negocio"]
-            analisis = resultado_aud["analisis"]
-            score = resultado_aud["score"]
-
-            if resultado_aud["error_resenas"]:
-                st.warning(f"{resultado_aud['error_resenas']} — la auditoría se genera igualmente sin análisis de opiniones.")
-
-            texto_score, _ = etiqueta_score(score)
-            col_m1, col_m2, col_m3 = st.columns(3)
-            col_m1.metric("Nota media", f"{negocio_aud.get('rating', '—')} ★")
-            col_m2.metric("Total reseñas", negocio_aud.get("total_resenas", 0))
-            col_m3.metric("Puntuación de reputación", f"{score}/100", texto_score)
-
-            if analisis:
-                col_f, col_d = st.columns(2)
-                with col_f:
-                    st.markdown("**Lo que elogian los clientes:**")
-                    for f in analisis.get("fortalezas", []):
-                        st.markdown(f"- ✅ {f}")
-                with col_d:
-                    st.markdown("**Puntos débiles detectados:**")
-                    for d in analisis.get("debilidades", []):
-                        st.markdown(f"- ⚠️ {d}")
-                st.info(analisis.get("resumen", ""))
-            elif resultado_aud["resenas_muestra"]:
-                st.warning("No se pudo completar el análisis de IA; el PDF saldrá solo con las métricas.")
-
-            try:
-                pdf_auditoria = generar_pdf_auditoria(
-                    agencia, negocio_aud, resultado_aud["resenas_muestra"], analisis, score, resultado_aud["nivel_respuesta"]
-                )
-                nombre_archivo = f"auditoria_{negocio_aud['nombre'].replace(' ', '_')[:40]}.pdf"
-                st.download_button(
-                    "📄 Descargar auditoría en PDF (con tu marca)",
-                    data=pdf_auditoria,
-                    file_name=nombre_archivo,
-                    mime="application/pdf",
-                    key="auditoria_descarga_pdf",
-                )
-            except Exception as e:
-                st.error(f"No se pudo generar el PDF: {type(e).__name__}: {e}")
