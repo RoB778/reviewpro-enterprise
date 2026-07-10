@@ -63,6 +63,29 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 
+def mostrar_barras_simples(conteo, color="#FFB454"):
+    """Barras horizontales en HTML puro, sin pasar por pandas/pyarrow (evita el
+    Segmentation fault de Python 3.14 + pyarrow en Streamlit Cloud)."""
+    import html as _html
+    if not conteo:
+        st.caption("Sin datos suficientes todavía.")
+        return
+    maximo = max(conteo.values()) or 1
+    filas_html = ""
+    for etiqueta, valor in sorted(conteo.items(), key=lambda kv: kv[1], reverse=True):
+        ancho_pct = int((valor / maximo) * 100)
+        filas_html += f"""
+        <div style="margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#C7CDDB; margin-bottom:2px;">
+                <span>{_html.escape(str(etiqueta))}</span><span>{valor}</span>
+            </div>
+            <div style="background:#232C42; border-radius:4px; height:10px; width:100%;">
+                <div style="background:{color}; border-radius:4px; height:10px; width:{ancho_pct}%;"></div>
+            </div>
+        </div>"""
+    st.markdown(f'<div>{filas_html}</div>', unsafe_allow_html=True)
+
+
 def verificar_password(password_plano, password_hash):
     """Compara una contraseña en texto plano contra su hash bcrypt almacenado."""
     try:
@@ -1251,7 +1274,7 @@ with tab_analitica:
                 conteo_por_local[nombre_local] = conteo_por_local.get(nombre_local, 0) + 1
 
             st.markdown("**Actividad por local:**")
-            st.bar_chart(conteo_por_local)
+            mostrar_barras_simples(conteo_por_local)
 
             # Actividad por usuario (visibilidad multi-usuario)
             usuarios_de_la_agencia = supabase.table("usuarios").select("id, nombre_usuario").eq("agencia_id", agencia["id"]).execute().data
@@ -1264,7 +1287,7 @@ with tab_analitica:
 
             st.markdown("**Reparto de trabajo por usuario del equipo:**")
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
-            st.bar_chart(conteo_por_usuario)
+            mostrar_barras_simples(conteo_por_usuario, color="#8BD1F7")
 
             st.divider()
             st.markdown("**📄 Informe de marca blanca para reenviar a tus clientes:**")
@@ -1322,5 +1345,4 @@ st.markdown(f"""
     revisar, verificar y autorizar cualquier contenido generado antes de su publicación. Queda expresamente
     prohibida la ingeniería inversa, descompilación o extracción de la lógica de negocio de esta plataforma.
 </div>
-
 """, unsafe_allow_html=True)
