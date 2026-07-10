@@ -6,7 +6,3 @@ bcrypt>=4.2
 qrcode>=7.4
 requests>=2.32
 reportlab>=4.2
-pandas>=2.2
-numpy>=1.26
-pyarrow>=17
-pillow>=10.4
