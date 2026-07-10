@@ -18,7 +18,11 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from supabase import create_client
 
 # Configuración de las claves secretas de los servidores
-client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+client = Anthropic(
+    api_key=st.secrets["ANTHROPIC_API_KEY"],
+    max_retries=3,   # reintenta automáticamente ante fallos de red transitorios
+    timeout=60.0,    # más margen que el default, por si la conexión tarda en establecerse
+)
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
 
