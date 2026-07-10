@@ -1150,7 +1150,7 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                 except json.JSONDecodeError:
                     st.error("El modelo devolvió un formato inesperado. Inténtalo de nuevo.")
                 except Exception as e:
-                    st.error(f"Error al conectar con el servidor: {e}")
+                    st.error(f"Error al conectar con el servidor: {type(e).__name__}: {e}")
 
 # ---------------------------------------------------------
 # PESTAÑA: PEDIR RESEÑAS (WhatsApp + QR)
