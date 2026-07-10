@@ -1302,6 +1302,30 @@ tab_generar, tab_pedir_resenas, tab_seo_extra, tab_auditoria, tab_analitica, tab
 # ---------------------------------------------------------
 # PESTAÑA 1: GENERACIÓN DE RESPUESTAS
 # ---------------------------------------------------------
+def mostrar_barras_simples(conteo, color="#FFB454"):
+    """Barras horizontales en HTML puro, sin pasar por pandas/pyarrow.
+    st.bar_chart serializa los datos con Arrow, y esa pieza está dando un
+    Segmentation fault en este entorno (Python 3.14 + pyarrow, ver logs de
+    despliegue). Esta alternativa evita esa dependencia por completo."""
+    if not conteo:
+        st.caption("Sin datos suficientes todavía.")
+        return
+    maximo = max(conteo.values()) or 1
+    filas_html = ""
+    for etiqueta, valor in sorted(conteo.items(), key=lambda kv: kv[1], reverse=True):
+        ancho_pct = int((valor / maximo) * 100)
+        filas_html += f"""
+        <div style="margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#C7CDDB; margin-bottom:2px;">
+                <span>{html_stdlib.escape(str(etiqueta))}</span><span>{valor}</span>
+            </div>
+            <div style="background:#232C42; border-radius:4px; height:10px; width:100%;">
+                <div style="background:{color}; border-radius:4px; height:10px; width:{ancho_pct}%;"></div>
+            </div>
+        </div>"""
+    st.markdown(f'<div>{filas_html}</div>', unsafe_allow_html=True)
+
+
 with tab_generar:
     locales_disponibles = st.session_state.locales_agencia
 
@@ -1666,7 +1690,7 @@ with tab_analitica:
                 conteo_por_local[nombre_local] = conteo_por_local.get(nombre_local, 0) + 1
 
             st.markdown("**Actividad por local:**")
-            st.bar_chart(conteo_por_local)
+            mostrar_barras_simples(conteo_por_local)
 
             # Actividad por usuario (visibilidad multi-usuario)
             usuarios_de_la_agencia = supabase.table("usuarios").select("id, nombre_usuario").eq("agencia_id", agencia["id"]).execute().data
@@ -1679,7 +1703,7 @@ with tab_analitica:
 
             st.markdown("**Reparto de trabajo por usuario del equipo:**")
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
-            st.bar_chart(conteo_por_usuario)
+            mostrar_barras_simples(conteo_por_usuario, color="#8BD1F7")
 
             st.divider()
             st.markdown("**📄 Informe de marca blanca para reenviar a tus clientes:**")
