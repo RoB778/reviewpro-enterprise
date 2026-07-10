@@ -461,7 +461,7 @@ Instrucción específica para este contenido: {instrucciones_por_tipo[tipo_conte
 Devuelve EXCLUSIVAMENTE el texto final, sin comillas, sin explicaciones, sin encabezados, sin markdown."""
 
     response = client.messages.create(
-        model="claude-sonnet-5",
+        model="claude-sonnet-4-6",
         max_tokens=300,
         system=system_prompt,
         messages=[{"role": "user", "content": f"Genera el contenido para {nombre_local}."}]
@@ -1076,7 +1076,7 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
 - La naturalidad del texto y el sonar humano siempre prevalecen sobre la densidad de keywords: si meter una keyword rompe la naturalidad de la frase, prescinde de ella."""
 
                     response = client.messages.create(
-                        model="claude-sonnet-5",
+                        model="claude-sonnet-4-6",
                         max_tokens=1000,
                         system=system_prompt_dinamico,
                         messages=[{"role": "user", "content": f"Nombre del negocio: {nombre_local_final}\nReseña: \"\"\"{resena_cliente}\"\"\""}]
@@ -1322,4 +1322,5 @@ st.markdown(f"""
     revisar, verificar y autorizar cualquier contenido generado antes de su publicación. Queda expresamente
     prohibida la ingeniería inversa, descompilación o extracción de la lógica de negocio de esta plataforma.
 </div>
+
 """, unsafe_allow_html=True)
