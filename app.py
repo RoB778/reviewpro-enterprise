@@ -1,4 +1,5 @@
 import base64
+import html as html_stdlib
 import json
 import re
 import urllib.parse
@@ -82,7 +83,7 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
 # "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
 # aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
-STRIPE_PRICE_ID_INDIVIDUAL = "price_1TrILkKwc34DG74MdoZMStq2"  # crea el producto "Individual" a 29€/mes en Stripe y pega aquí su Price ID
+STRIPE_PRICE_ID_INDIVIDUAL = "price_TODO_individual"  # crea el producto "Individual" a 29€/mes en Stripe y pega aquí su Price ID
 STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
 STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
 STRIPE_PRICE_ID_ENTERPRISE = "price_1Tr1RoKwc34DG74M8L4sjSVL"
@@ -538,6 +539,229 @@ def generar_mensaje_whatsapp(nombre_local, enlace_resena):
     return "https://wa.me/?text=" + urllib.parse.quote(mensaje)
 
 
+# =========================================================
+# 🔍 AUDITORÍA EXPRESS DE REPUTACIÓN (herramienta de prospección)
+# =========================================================
+# Usa la API oficial de Google Places (New). Limitación conocida y aceptada:
+# la API devuelve como máximo 5 reseñas de muestra por negocio y NO indica si
+# el propietario las respondió (ese dato Google solo lo da de negocios propios).
+# Por eso el dato "¿responde a reseñas?" se marca a mano tras mirar su ficha.
+
+def buscar_negocio_google(texto_busqueda):
+    """Busca negocios en Google Places por texto ("Umi Sushi Sevilla").
+    Devuelve (lista_de_candidatos, None) o ([], mensaje_de_error)."""
+    api_key = st.secrets.get("GOOGLE_PLACES_API_KEY")
+    if not api_key:
+        return [], ("Falta GOOGLE_PLACES_API_KEY en los secrets. Créala en Google Cloud Console "
+                    "(APIs y servicios → habilitar 'Places API (New)' → credenciales) y añádela "
+                    "al secrets.toml de Streamlit Cloud.")
+    try:
+        respuesta = requests.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": api_key,
+                "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
+            },
+            json={"textQuery": texto_busqueda, "languageCode": "es"},
+            timeout=10,
+        )
+        datos = respuesta.json()
+        if respuesta.status_code != 200:
+            detalle = (datos.get("error") or {}).get("message", respuesta.text[:200])
+            return [], f"Google Places devolvió un error: {detalle}"
+        candidatos = []
+        for p in datos.get("places", [])[:5]:
+            candidatos.append({
+                "place_id": p.get("id"),
+                "nombre": (p.get("displayName") or {}).get("text", "(sin nombre)"),
+                "direccion": p.get("formattedAddress", ""),
+                "rating": p.get("rating"),
+                "total_resenas": p.get("userRatingCount", 0),
+            })
+        if not candidatos:
+            return [], "No se encontró ningún negocio con ese nombre. Prueba añadiendo la ciudad."
+        return candidatos, None
+    except Exception as e:
+        return [], f"No se pudo consultar Google Places: {type(e).__name__}: {e}"
+
+
+def obtener_resenas_muestra_google(place_id):
+    """Recupera hasta 5 reseñas de muestra del negocio. Devuelve (lista, None) o ([], error)."""
+    api_key = st.secrets.get("GOOGLE_PLACES_API_KEY")
+    try:
+        respuesta = requests.get(
+            f"https://places.googleapis.com/v1/places/{place_id}",
+            headers={
+                "X-Goog-Api-Key": api_key,
+                "X-Goog-FieldMask": "reviews",
+            },
+            params={"languageCode": "es"},
+            timeout=10,
+        )
+        datos = respuesta.json()
+        if respuesta.status_code != 200:
+            detalle = (datos.get("error") or {}).get("message", respuesta.text[:200])
+            return [], f"Google Places devolvió un error: {detalle}"
+        resenas = []
+        for r in datos.get("reviews", []):
+            resenas.append({
+                "rating": r.get("rating"),
+                "texto": ((r.get("text") or {}).get("text") or "").strip(),
+                "cuando": r.get("relativePublishTimeDescription", ""),
+            })
+        return resenas, None
+    except Exception as e:
+        return [], f"No se pudieron recuperar las reseñas: {type(e).__name__}: {e}"
+
+
+def analizar_resenas_auditoria(nombre_negocio, resenas_muestra):
+    """Pide a la IA un diagnóstico comercial breve a partir de la muestra de reseñas.
+    Devuelve un dict con fortalezas, debilidades y resumen, o None si falla."""
+    if not resenas_muestra:
+        return None
+    listado = "\n".join(
+        f"- [{r['rating']}★, {r['cuando']}] {r['texto'][:400]}" for r in resenas_muestra if r["texto"]
+    )
+    prompt_analisis = f"""Eres consultor de reputación online. Analiza esta muestra de reseñas reales de "{nombre_negocio}" y devuelve SOLO un JSON válido (sin backticks ni texto extra) con esta forma exacta:
+{{"fortalezas": ["...", "..."], "debilidades": ["...", "..."], "resumen": "..."}}
+
+- "fortalezas": 2-3 temas concretos que los clientes elogian (con sustancia, no genéricos).
+- "debilidades": 2-3 temas concretos de queja o riesgo detectados. Si la muestra es toda positiva, indica riesgos por ausencia (p. ej. poca variedad de opiniones recientes).
+- "resumen": 2-3 frases en tono comercial y directo, dirigidas al dueño del negocio, sobre el estado de su reputación y el margen de mejora. Sin tecnicismos.
+
+Muestra de reseñas:
+{listado}"""
+    try:
+        respuesta = client.messages.create(
+            model="claude-sonnet-5",
+            max_tokens=1200,
+            messages=[{"role": "user", "content": prompt_analisis}],
+        )
+        texto = ""
+        for bloque in respuesta.content:
+            if getattr(bloque, "type", None) == "text":
+                texto = bloque.text.strip()
+                break
+        inicio, fin = texto.find("{"), texto.rfind("}")
+        if inicio == -1 or fin <= inicio:
+            return None
+        return json.loads(texto[inicio:fin + 1])
+    except Exception:
+        return None
+
+
+def calcular_score_reputacion(rating, total_resenas, nivel_respuesta):
+    """Puntuación 0-100: nota media (hasta 50 pts) + volumen (hasta 20) + hábito de respuesta (hasta 30)."""
+    puntos_rating = (float(rating or 0) / 5.0) * 50
+    puntos_volumen = min((total_resenas or 0) / 500.0, 1.0) * 20
+    puntos_respuesta = {"No responde": 0, "Responde a algunas": 15, "Responde a casi todas": 30}.get(nivel_respuesta, 0)
+    return int(round(puntos_rating + puntos_volumen + puntos_respuesta))
+
+
+def etiqueta_score(score):
+    if score >= 80:
+        return "Excelente", colors.HexColor("#2E7D32")
+    if score >= 60:
+        return "Buena, con margen de mejora", colors.HexColor("#F9A825")
+    if score >= 40:
+        return "Mejorable", colors.HexColor("#EF6C00")
+    return "Crítica", colors.HexColor("#C62828")
+
+
+def generar_pdf_auditoria(agencia, negocio, resenas_muestra, analisis, score, nivel_respuesta):
+    """Genera el PDF de auditoría con la marca de la agencia. Devuelve los bytes del PDF."""
+    buffer = BytesIO()
+    color_hex = (agencia.get("color_marca") or "#635BFF").lstrip("#")
+    color_marca = colors.HexColor(f"#{color_hex}")
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
+    estilos = getSampleStyleSheet()
+    estilo_titulo = ParagraphStyle("TituloAud", parent=estilos["Title"], textColor=color_marca, fontSize=19)
+    estilo_sub = ParagraphStyle("SubAud", parent=estilos["Normal"], textColor=colors.grey, fontSize=11)
+    estilo_seccion = ParagraphStyle("SecAud", parent=estilos["Heading2"], textColor=color_marca, spaceBefore=14)
+    estilo_normal = estilos["Normal"]
+
+    story = []
+    try:
+        logo_url = agencia["logo_url"]
+        if logo_url.startswith("data:"):
+            contenido_logo = base64.b64decode(logo_url.split(",", 1)[1])
+        else:
+            contenido_logo = requests.get(logo_url, timeout=5).content
+        story.append(RLImage(BytesIO(contenido_logo), width=4 * cm, height=1.2 * cm))
+        story.append(Spacer(1, 10))
+    except Exception:
+        pass
+
+    # reportlab interpreta los textos de Paragraph como mini-HTML: un "&" o un "<"
+    # en el nombre del negocio ("Fish & Chips") rompería el PDF si no se escapa.
+    esc = html_stdlib.escape
+    story.append(Paragraph("Auditoría express de reputación online", estilo_titulo))
+    story.append(Paragraph(f"{esc(negocio['nombre'])} · {esc(negocio['direccion'])}", estilo_sub))
+    story.append(Paragraph(f"Elaborada por {esc(agencia['nombre_agencia'])} · {datetime.now().strftime('%d/%m/%Y')}", estilo_sub))
+    story.append(Spacer(1, 12))
+
+    texto_etiqueta, color_etiqueta = etiqueta_score(score)
+    tabla_resumen = Table([
+        ["Nota media en Google", "Total de reseñas", "¿Responde a reseñas?", "Puntuación de reputación"],
+        [f"{negocio.get('rating', '—')} ★", str(negocio.get("total_resenas", 0)), nivel_respuesta, f"{score}/100 · {texto_etiqueta}"],
+    ], colWidths=[4.2 * cm, 3.6 * cm, 4.2 * cm, 5 * cm])
+    tabla_resumen.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), color_marca),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TEXTCOLOR", (3, 1), (3, 1), color_etiqueta),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    story.append(tabla_resumen)
+
+    if analisis:
+        story.append(Paragraph("Qué dicen tus clientes (muestra analizada con IA)", estilo_seccion))
+        for f in analisis.get("fortalezas", []):
+            story.append(Paragraph(f"✓ {esc(str(f))}", estilo_normal))
+        for d in analisis.get("debilidades", []):
+            story.append(Paragraph(f"✗ {esc(str(d))}", estilo_normal))
+        story.append(Spacer(1, 8))
+        story.append(Paragraph(esc(str(analisis.get("resumen", ""))), estilo_normal))
+
+    story.append(Paragraph("La oportunidad", estilo_seccion))
+    partes_oportunidad = []
+    if nivel_respuesta == "No responde":
+        partes_oportunidad.append(
+            f"{esc(negocio['nombre'])} acumula {negocio.get('total_resenas', 0)} reseñas sin una gestión activa de respuestas. "
+            "Google valora la actividad del negocio en su ficha: responder de forma constante y profesional influye en el "
+            "posicionamiento local y en la decisión de compra de quien lee las reseñas antes de visitar."
+        )
+    else:
+        partes_oportunidad.append(
+            "Una gestión constante, rápida y profesional de todas las reseñas —no solo algunas— refuerza el posicionamiento "
+            "local en Google y la confianza de los clientes que leen antes de decidir."
+        )
+    partes_oportunidad.append(
+        "Cada reseña negativa sin respuesta es la última palabra que lee un cliente potencial. Una respuesta bien redactada "
+        "convierte esa misma reseña en una demostración pública de cómo trata el negocio a sus clientes."
+    )
+    for p in partes_oportunidad:
+        story.append(Paragraph(p, estilo_normal))
+        story.append(Spacer(1, 6))
+
+    story.append(Spacer(1, 10))
+    pie = ParagraphStyle("PieAud", parent=estilos["Normal"], textColor=colors.grey, fontSize=8)
+    story.append(Paragraph(
+        "Datos obtenidos de la API oficial de Google Places en la fecha indicada. El análisis de opiniones se basa en la "
+        "muestra de reseñas públicas que Google facilita (máximo 5) y tiene carácter orientativo y comercial, no estadístico.",
+        pie,
+    ))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 def generar_contenido_seo_extra(client, nombre_local, nicho, seo_keywords, tipo_contenido):
     """
     Reutiliza el motor de IA para generar contenido SEO adicional (más allá de
@@ -876,7 +1100,7 @@ if not st.session_state.sesion_activa:
                     <div class="rp-precio-periodo">para siempre</div>
                     <hr style="border-color:#232C42; margin:14px 0;">
                     <div class="rp-feature">✓ 1 local de prueba</div>
-                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas</div>
+                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>
                     <div class="rp-feature">✓ Sin tarjeta de crédito</div>
                     <div class="rp-feature" style="opacity:0.4;">✗ Marca blanca</div>
                     <div class="rp-feature" style="opacity:0.4;">✗ Multi-usuario</div>
@@ -1071,8 +1295,8 @@ st.info(f"Sesión activa: **{usuario['nombre_usuario']}** ({usuario['email']}) �
 # =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
 # =========================================================
-tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica, tab_cuenta = st.tabs(
-    ["✨ Generar respuesta", "📣 Pedir reseñas", "📝 Contenido SEO extra", "📊 Analítica de la agencia", "⚙️ Mi cuenta"]
+tab_generar, tab_pedir_resenas, tab_seo_extra, tab_auditoria, tab_analitica, tab_cuenta = st.tabs(
+    ["✨ Generar respuesta", "📣 Pedir reseñas", "📝 Contenido SEO extra", "🔍 Auditoría", "📊 Analítica de la agencia", "⚙️ Mi cuenta"]
 )
 
 # ---------------------------------------------------------
@@ -1679,3 +1903,119 @@ with tab_cuenta:
                                 st.rerun()
                         except Exception as e:
                             st.error(f"No se pudo crear el usuario: {type(e).__name__}: {e}")
+
+# ---------------------------------------------------------
+# PESTAÑA: AUDITORÍA EXPRESS (prospección de clientes)
+# ---------------------------------------------------------
+with tab_auditoria:
+    st.markdown("#### 🔍 Auditoría express de reputación")
+    st.caption(
+        "Busca cualquier negocio en Google, analiza su reputación con IA y genera un informe "
+        "PDF con tu marca para enseñárselo como propuesta comercial. Perfecto para captar clientes nuevos."
+    )
+
+    if agencia.get("plan", "free") == "free":
+        st.info("La auditoría express está disponible en los planes de pago.")
+        if st.button("💳 Ver planes de pago", key="ver_planes_desde_auditoria", type="primary"):
+            st.session_state.mostrar_pagina_planes = True
+            st.rerun()
+    else:
+        if "auditoria_candidatos" not in st.session_state:
+            st.session_state.auditoria_candidatos = []
+
+        texto_busqueda_aud = st.text_input(
+            "Nombre del negocio y ciudad", placeholder="Ej: Umi Sushi Sevilla", key="auditoria_busqueda"
+        )
+        if st.button("Buscar negocio", key="auditoria_buscar_btn"):
+            if not texto_busqueda_aud.strip():
+                st.warning("Escribe el nombre del negocio (mejor con la ciudad).")
+            else:
+                with st.spinner("Buscando en Google Places..."):
+                    candidatos, error_busqueda = buscar_negocio_google(texto_busqueda_aud.strip())
+                if error_busqueda:
+                    st.error(error_busqueda)
+                    st.session_state.auditoria_candidatos = []
+                else:
+                    st.session_state.auditoria_candidatos = candidatos
+
+        if st.session_state.auditoria_candidatos:
+            opciones = {
+                f"{c['nombre']} — {c['direccion']} ({c.get('rating', '—')}★, {c['total_resenas']} reseñas)": c
+                for c in st.session_state.auditoria_candidatos
+            }
+            eleccion = st.selectbox("Confirma el negocio:", options=list(opciones.keys()), key="auditoria_eleccion")
+            negocio_elegido = opciones[eleccion]
+
+            nivel_respuesta = st.radio(
+                "¿El negocio responde a sus reseñas? (compruébalo en 10 segundos abriendo su ficha de Google Maps)",
+                options=["No responde", "Responde a algunas", "Responde a casi todas"],
+                horizontal=True,
+                key="auditoria_nivel_respuesta",
+            )
+            st.caption(
+                "Este dato se marca a mano porque la API oficial de Google no indica si el propietario "
+                "respondió (solo lo facilita de negocios que gestionas tú)."
+            )
+
+            if st.button("⚡ Generar auditoría", key="auditoria_generar_btn", type="primary"):
+                with st.spinner("Recuperando reseñas de muestra y analizando con IA..."):
+                    resenas_muestra, error_resenas = obtener_resenas_muestra_google(negocio_elegido["place_id"])
+                    analisis = analizar_resenas_auditoria(negocio_elegido["nombre"], resenas_muestra)
+                    score = calcular_score_reputacion(
+                        negocio_elegido.get("rating"), negocio_elegido.get("total_resenas"), nivel_respuesta
+                    )
+                # Guardamos el resultado en session_state y lo pintamos FUERA de este if:
+                # si se renderizara aquí dentro, al pulsar "Descargar PDF" el rerun de
+                # Streamlit haría desaparecer toda la auditoría de la pantalla.
+                st.session_state.auditoria_resultado = {
+                    "negocio": negocio_elegido,
+                    "resenas_muestra": resenas_muestra,
+                    "error_resenas": error_resenas,
+                    "analisis": analisis,
+                    "score": score,
+                    "nivel_respuesta": nivel_respuesta,
+                }
+
+        resultado_aud = st.session_state.get("auditoria_resultado")
+        if resultado_aud:
+            negocio_aud = resultado_aud["negocio"]
+            analisis = resultado_aud["analisis"]
+            score = resultado_aud["score"]
+
+            if resultado_aud["error_resenas"]:
+                st.warning(f"{resultado_aud['error_resenas']} — la auditoría se genera igualmente sin análisis de opiniones.")
+
+            texto_score, _ = etiqueta_score(score)
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Nota media", f"{negocio_aud.get('rating', '—')} ★")
+            col_m2.metric("Total reseñas", negocio_aud.get("total_resenas", 0))
+            col_m3.metric("Puntuación de reputación", f"{score}/100", texto_score)
+
+            if analisis:
+                col_f, col_d = st.columns(2)
+                with col_f:
+                    st.markdown("**Lo que elogian los clientes:**")
+                    for f in analisis.get("fortalezas", []):
+                        st.markdown(f"- ✅ {f}")
+                with col_d:
+                    st.markdown("**Puntos débiles detectados:**")
+                    for d in analisis.get("debilidades", []):
+                        st.markdown(f"- ⚠️ {d}")
+                st.info(analisis.get("resumen", ""))
+            elif resultado_aud["resenas_muestra"]:
+                st.warning("No se pudo completar el análisis de IA; el PDF saldrá solo con las métricas.")
+
+            try:
+                pdf_auditoria = generar_pdf_auditoria(
+                    agencia, negocio_aud, resultado_aud["resenas_muestra"], analisis, score, resultado_aud["nivel_respuesta"]
+                )
+                nombre_archivo = f"auditoria_{negocio_aud['nombre'].replace(' ', '_')[:40]}.pdf"
+                st.download_button(
+                    "📄 Descargar auditoría en PDF (con tu marca)",
+                    data=pdf_auditoria,
+                    file_name=nombre_archivo,
+                    mime="application/pdf",
+                    key="auditoria_descarga_pdf",
+                )
+            except Exception as e:
+                st.error(f"No se pudo generar el PDF: {type(e).__name__}: {e}")
