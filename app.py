@@ -1955,6 +1955,70 @@ st.markdown(f"<hr style='border-top:3px solid {color_agencia}; margin-top:4px;'>
 st.info(f"Sesión activa: **{usuario['nombre_usuario']}** ({usuario['email']}) · Rol: {usuario['rol']}")
 
 # =========================================================
+# 🔧 DIAGNÓSTICO TEMPORAL DE CONEXIÓN CON ANTHROPIC
+# (Quitar este bloque una vez resuelto el APIConnectionError)
+# =========================================================
+with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
+    st.caption(
+        "Aísla si el fallo es de RED (DNS/TLS/firewall saliente de Streamlit Cloud) "
+        "o del SDK de Anthropic en sí, haciendo una petición HTTP cruda sin pasar "
+        "por la librería `anthropic`."
+    )
+    if st.button("Probar conexión cruda a api.anthropic.com"):
+        try:
+            r = httpx.get("https://api.anthropic.com/v1/models", timeout=15.0)
+            st.success(f"✅ Conexión HTTP cruda OK — status code {r.status_code}")
+            st.code(r.text[:500])
+        except Exception as e:
+            causa_raiz = log_error_completo("test de red crudo con httpx", e)
+            st.error(redactar_secretos(f"❌ Falla incluso la petición cruda: {type(e).__name__}: {e}"))
+            st.caption(f"🔍 Causa raíz: {causa_raiz}")
+            st.warning(
+                "Si esto falla, el problema NO es del SDK de anthropic ni del modelo: "
+                "es de red saliente en esta instancia de Streamlit Cloud (DNS, TLS o "
+                "firewall). Prueba un reboot completo de la app (Manage app → ⋮ → Reboot), "
+                "no solo un redeploy de código."
+            )
+
+    if st.button("Probar llamada real vía SDK de Anthropic (mensaje mínimo)"):
+        try:
+            r = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "di 'ok'"}]
+            )
+            st.success(f"✅ SDK OK — respuesta: {r.content[0].text}")
+        except Exception as e:
+            causa_raiz = log_error_completo("test mínimo vía SDK anthropic", e)
+            st.error(redactar_secretos(f"❌ {type(e).__name__}: {e}"))
+            st.caption(f"🔍 Causa raíz (mira también Manage app → Logs): {causa_raiz}")
+
+    import anthropic as _anthropic_mod
+    st.caption(f"Versión del SDK `anthropic` instalada: {_anthropic_mod.__version__}")
+
+    st.divider()
+    st.caption("Higiene de la API key (sin mostrarla completa):")
+    _key_check = _anthropic_api_key_raw
+    if isinstance(_key_check, str):
+        _tiene_whitespace_extra = _key_check != _key_check.strip()
+        _no_ascii = any(ord(c) > 126 or ord(c) < 32 for c in _key_check.strip())
+        st.write({
+            "longitud_original": len(_key_check),
+            "longitud_tras_strip": len(_key_check.strip()),
+            "tenia_espacios_o_saltos_de_linea": _tiene_whitespace_extra,
+            "tiene_caracteres_no_ascii_ocultos": _no_ascii,
+            "empieza_por": _key_check.strip()[:12] + "...",
+            "termina_por": "..." + _key_check.strip()[-4:],
+        })
+        if _tiene_whitespace_extra:
+            st.warning(
+                "⚠️ La key en Secrets tenía espacios/saltos de línea al principio o al "
+                "final. Ya se limpia automáticamente con .strip(), pero te recomiendo "
+                "corregirla también en Manage app → Secrets: debe estar en una sola línea, "
+                "como `ANTHROPIC_API_KEY = \"sk-ant-api03-...\"`, sin comillas triples."
+            )
+
+# =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
 # =========================================================
 tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
@@ -2011,7 +2075,42 @@ with tab_generar:
     local_activo = next(local for local in locales_disponibles if local["nombre"] == nombre_local_elegido)
     st.session_state.local_activo = local_activo
 
-    st.caption(f"Nicho: **{local_activo['nicho']}** · {len(local_activo['seo_keywords'])} keywords SEO cargadas.")
+    ciudad_display = f" · 📍 {local_activo.get('ciudad')}" if local_activo.get("ciudad") else ""
+    st.caption(f"Nicho: **{local_activo['nicho']}**{ciudad_display} · {len(local_activo['seo_keywords'])} keywords SEO cargadas.")
+    
+    # --- Editar info del local (ciudad, nicho, keywords) ---
+    with st.expander("⚙️ Editar info del local", expanded=False):
+        st.caption("Actualiza la ciudad, nicho y palabras clave del local para mejorar la potencia SEO del contenido generado.")
+        col_edit1, col_edit2 = st.columns(2)
+        with col_edit1:
+            nicho_edit = st.text_input("Nicho", value=local_activo.get("nicho", ""), key=f"edit_nicho_{local_activo['id']}")
+        with col_edit2:
+            ciudad_edit = st.text_input("Ciudad o zona (ej: Sevilla, o Triana, Sevilla)",
+                                        value=local_activo.get("ciudad") or "",
+                                        key=f"edit_ciudad_{local_activo['id']}",
+                                        help="Clave para SEO local: permite generar 'mejor [nicho] en [ciudad]'.")
+        keywords_edit = st.text_input("Palabras clave SEO, separadas por comas",
+                                      value=", ".join(local_activo.get("seo_keywords", [])),
+                                      key=f"edit_keywords_{local_activo['id']}")
+        if st.button("💾 Guardar cambios", key=f"guardar_edit_local_{local_activo['id']}"):
+            try:
+                keywords_lista_edit = [k.strip() for k in keywords_edit.split(",") if k.strip()]
+                supabase.table("locales").update({
+                    "nicho": nicho_edit.strip() or local_activo["nicho"],
+                    "ciudad": ciudad_edit.strip() or None,
+                    "seo_keywords": keywords_lista_edit
+                }).eq("id", local_activo["id"]).execute()
+                # Actualizar en memoria
+                for l in st.session_state.locales_agencia:
+                    if l["id"] == local_activo["id"]:
+                        l["nicho"] = nicho_edit.strip() or local_activo["nicho"]
+                        l["ciudad"] = ciudad_edit.strip() or None
+                        l["seo_keywords"] = keywords_lista_edit
+                        break
+                st.success("Cambios guardados.")
+                st.rerun()
+            except Exception as e:
+                st.error(redactar_secretos(f"Error al guardar: {e}"))
 
     plan_actual = agencia.get("plan", "growth")
     limite_usos_plan = LIMITE_USOS_POR_PLAN.get(plan_actual, None)
