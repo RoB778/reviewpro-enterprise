@@ -531,17 +531,6 @@ def _redondear_bonito(n):
         return n
     return int(round(n / 1.0) - 10)
 
-def _redondear_bonito(n):
-    """Redondea un importe a una cifra 'comercial' agradable.
-    < 100 → sin tocar (25, 79...). >= 100 → al múltiplo de 10 más cercano
-    (1908 → 1910... y si cae en 1905-1914 lo deja en 1910; 1900 se queda 1900).
-    Esto evita precios feos tipo 1908€ en la facturación anual."""
-    n = round(n)
-    if n < 50:
-        return n+2
-    
-
-
 def _precio_anual_mensualizado(precio_mensual):
     """Precio equivalente por mes cuando se paga el año con el descuento anual."""
     return round(precio_mensual * (1 - DESCUENTO_ANUAL))
