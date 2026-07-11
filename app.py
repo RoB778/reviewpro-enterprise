@@ -1225,7 +1225,8 @@ REGLAS DE REDACCIÓN SEGÚN EL SENTIMIENTO:
 3. SI ES NEGATIVA:
    - Inicio dinámico: prohibido empezar siempre con "Gracias por su comentario" o equivalentes; varía la apertura.
    - BLINDAJE JURÍDICO TOTAL: prohibido admitir negligencias o usar alertas sanitarias ("higiene alimentaria", "intoxicación"); usa perífrasis suaves y naturales, no siempre las mismas palabras.
-   - Filtro de gravedad: si describe algo grave (salubridad severa, insectos, insultos), invita a resolverlo por vía privada, con una frase breve y humana, no un procedimiento formal. Si es un fallo leve (esperas, comida fría, precios), discúlpate cercano y humano, sin exigir contacto privado.
+   - Nunca invites al cliente a escribir, contactar o resolverlo por otra vía (nada de "escríbenos", "contáctanos", "cuéntanoslo por privado" ni fórmulas parecidas, ni siquiera suavizadas): la respuesta la gestiona una agencia externa, no el propio negocio, así que abrir esa puerta genera una expectativa de seguimiento que luego nadie puede cumplir. La respuesta se queda siempre en una disculpa sincera y humana.
+   - Filtro de gravedad: si describe algo grave (salubridad severa, insectos, insultos), la disculpa debe ser más contundente y concreta, reconociendo la gravedad con perífrasis seguras — pero sigue sin invitar a contacto privado. Si es un fallo leve (esperas, comida fría, precios), basta una disculpa cercana y humana, sin más.
 
 REGLAS DE LONGITUD:
 - POSITIVA: entre 60 y 100 palabras.
