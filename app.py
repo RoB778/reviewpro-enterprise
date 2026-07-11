@@ -177,6 +177,222 @@ def verificar_password(password_plano, password_hash):
         return False
 
 
+# =========================================================
+# 🏆 REVIEWPRO REPUTATION SCORE
+# Índice propio 0-100 que resume la salud reputacional de un local o de toda
+# la agencia en un solo número, para que la agencia lo enseñe a su cliente.
+# Se calcula como una media ponderada de 4 factores, todos derivables de datos
+# que YA guardamos en Supabase (historico_respuestas). Los pesos siguen el
+# patrón habitual del sector (el sentimiento manda; el resto lo matiza).
+# =========================================================
+PESOS_REPUTATION_SCORE = {
+    "sentimiento": 50,   # % de reseñas positivas — el factor dominante
+    "volumen": 20,       # cuántas reseñas se gestionan (normalizado)
+    "constancia": 20,    # gestión sostenida en el tiempo, no a rachas
+    "tendencia": 10,     # mejora o empeora respecto al periodo anterior
+}
+VOLUMEN_OBJETIVO_MENSUAL = 30  # nº de reseñas/mes a partir del cual el factor volumen puntúa al máximo
+
+
+def calcular_reputation_score(historico_actual, historico_anterior, dias_periodo):
+    """
+    Devuelve un dict con el score global (0-100) y el desglose por factor.
+    No usa pandas/numpy — solo aritmética con listas, seguro para Streamlit Cloud.
+
+    historico_actual / historico_anterior: listas de filas de historico_respuestas.
+    dias_periodo: nº de días del periodo (para normalizar volumen y constancia).
+    """
+    total = len(historico_actual)
+
+    # Sin datos suficientes: no inventamos un score, lo indicamos.
+    if total == 0:
+        return {
+            "score": None,
+            "total": 0,
+            "factores": {},
+            "detalle": {},
+        }
+
+    # --- Factor 1: sentimiento (% de positivas) ---
+    positivas = sum(1 for r in historico_actual if r.get("sentimiento") == "positivo")
+    pct_positivas = positivas / total
+    pts_sentimiento = pct_positivas * PESOS_REPUTATION_SCORE["sentimiento"]
+
+    # --- Factor 2: volumen (respuestas gestionadas, normalizado a un objetivo mensual) ---
+    # Escalamos el objetivo según la duración real del periodo.
+    dias_ref = max(dias_periodo, 1)
+    objetivo_periodo = VOLUMEN_OBJETIVO_MENSUAL * (dias_ref / 30.0)
+    ratio_volumen = min(total / objetivo_periodo, 1.0) if objetivo_periodo > 0 else 0
+    pts_volumen = ratio_volumen * PESOS_REPUTATION_SCORE["volumen"]
+
+    # --- Factor 3: constancia (en cuántos días distintos hubo actividad) ---
+    # Premia la gestión sostenida frente a hacerlo todo un día y desaparecer.
+    dias_con_actividad = set()
+    for r in historico_actual:
+        fecha = r.get("creado_en")
+        if fecha:
+            dias_con_actividad.add(str(fecha)[:10])  # YYYY-MM-DD
+    # Referencia: se espera actividad en, como mucho, ~60% de los días del periodo
+    # (nadie gestiona reseñas todos los días). Acotamos para no penalizar de más.
+    dias_esperados = max(1, round(dias_ref * 0.6))
+    ratio_constancia = min(len(dias_con_actividad) / dias_esperados, 1.0)
+    pts_constancia = ratio_constancia * PESOS_REPUTATION_SCORE["constancia"]
+
+    # --- Factor 4: tendencia (mejora del % de positivas respecto al periodo anterior) ---
+    total_ant = len(historico_anterior)
+    if total_ant == 0:
+        # Sin periodo anterior con el que comparar: puntuación neutra (mitad del peso).
+        pts_tendencia = PESOS_REPUTATION_SCORE["tendencia"] * 0.5
+        delta_pct_positivas = None
+    else:
+        pct_positivas_ant = sum(1 for r in historico_anterior if r.get("sentimiento") == "positivo") / total_ant
+        delta_pct_positivas = pct_positivas - pct_positivas_ant
+        # Mapear un delta de [-100%, +100%] a [0, 1], con 0.5 = sin cambios.
+        factor_tendencia = max(0.0, min(1.0, 0.5 + delta_pct_positivas))
+        pts_tendencia = factor_tendencia * PESOS_REPUTATION_SCORE["tendencia"]
+
+    score = round(pts_sentimiento + pts_volumen + pts_constancia + pts_tendencia)
+    score = max(0, min(100, score))
+
+    return {
+        "score": score,
+        "total": total,
+        "factores": {
+            "Sentimiento": round(pts_sentimiento, 1),
+            "Volumen": round(pts_volumen, 1),
+            "Constancia": round(pts_constancia, 1),
+            "Tendencia": round(pts_tendencia, 1),
+        },
+        "detalle": {
+            "pct_positivas": round(pct_positivas * 100),
+            "total_respuestas": total,
+            "dias_con_actividad": len(dias_con_actividad),
+            "delta_pct_positivas": None if delta_pct_positivas is None else round(delta_pct_positivas * 100),
+        },
+    }
+
+
+def etiqueta_reputation_score(score):
+    """Traduce el número a una banda con nombre y color, estilo semáforo."""
+    if score is None:
+        return ("Sin datos", "#8A94A6")
+    if score >= 80:
+        return ("Excelente", "#2ECC71")
+    if score >= 60:
+        return ("Buena", "#8BD1F7")
+    if score >= 40:
+        return ("Mejorable", "#FFB454")
+    return ("En riesgo", "#E74C3C")
+
+
+def generar_interpretacion_score_ia(cliente_ia, resultado_score, nombre_contexto):
+    """Frase interpretativa del score, generada por IA con fallback en plantilla.
+    nombre_contexto: 'tu agencia' o el nombre de un local concreto."""
+    score = resultado_score.get("score")
+    if score is None:
+        return "Todavía no hay suficientes respuestas gestionadas en este periodo para calcular una puntuación fiable."
+
+    detalle = resultado_score.get("detalle", {})
+    banda, _ = etiqueta_reputation_score(score)
+
+    # Identificar el factor más flojo para sugerir la palanca de mejora.
+    factores = resultado_score.get("factores", {})
+    pesos = {"Sentimiento": 50, "Volumen": 20, "Constancia": 20, "Tendencia": 10}
+    factor_flojo = None
+    peor_ratio = 1.1
+    for nombre, pts in factores.items():
+        tope = pesos.get(nombre, 1)
+        ratio = pts / tope if tope else 1
+        if ratio < peor_ratio:
+            peor_ratio = ratio
+            factor_flojo = nombre
+
+    resumen_generico = (
+        f"La puntuación de reputación de {nombre_contexto} es {score}/100 ({banda.lower()}). "
+        f"El {detalle.get('pct_positivas', 0)}% de las reseñas gestionadas fueron positivas"
+        + (f", y el punto con más margen de mejora es «{factor_flojo.lower()}»." if factor_flojo else ".")
+    )
+    if cliente_ia is None:
+        return resumen_generico
+    try:
+        prompt = (
+            f"Puntuación de reputación de {nombre_contexto}: {score}/100 (banda: {banda}). "
+            f"Datos: {detalle.get('pct_positivas', 0)}% de reseñas positivas, "
+            f"{detalle.get('total_respuestas', 0)} respuestas gestionadas, "
+            f"actividad en {detalle.get('dias_con_actividad', 0)} días distintos"
+            + (f", cambio de {detalle.get('delta_pct_positivas')} puntos en % positivas respecto al periodo anterior"
+               if detalle.get('delta_pct_positivas') is not None else "")
+            + (f". El factor con menor puntuación relativa es «{factor_flojo}»." if factor_flojo else ".")
+            + " Escribe 2 frases (máximo 45 palabras en total) explicando el score de forma clara y "
+              "accionable para el dueño de un negocio local, con UNA recomendación concreta para subirlo. "
+              "Tono profesional y directo, nada de plantilla corporativa. Devuelve solo el texto, sin comillas."
+        )
+        respuesta = cliente_ia.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=120,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        for bloque in respuesta.content:
+            if getattr(bloque, "type", None) == "text":
+                texto = bloque.text.strip().strip('"')
+                if texto:
+                    return texto
+        return resumen_generico
+    except Exception:
+        return resumen_generico
+
+
+def mostrar_medidor_score(resultado_score, titulo, interpretacion):
+    """Renderiza el score como un medidor visual en HTML puro (sin librerías de
+    gráficos), con número grande, banda de color, barra de progreso y desglose
+    de factores. Mismo enfoque HTML que mostrar_barras_simples para evitar el
+    segfault de pyarrow."""
+    import html as _html
+    score = resultado_score.get("score")
+    banda, color = etiqueta_reputation_score(score)
+
+    if score is None:
+        st.info(interpretacion)
+        return
+
+    # Cabecera: número grande + banda
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#1B2233,#232C42); border-radius:14px; padding:20px 24px; margin-bottom:14px;">
+        <div style="font-size:0.9rem; color:#8A94A6; margin-bottom:4px;">{_html.escape(titulo)}</div>
+        <div style="display:flex; align-items:baseline; gap:12px;">
+            <span style="font-size:3.2rem; font-weight:700; color:{color}; line-height:1;">{score}</span>
+            <span style="font-size:1.1rem; color:#C7CDDB;">/ 100</span>
+            <span style="margin-left:auto; background:{color}; color:#0E1117; font-weight:700; font-size:0.85rem; padding:4px 12px; border-radius:20px;">{banda}</span>
+        </div>
+        <div style="background:#0E1117; border-radius:6px; height:12px; width:100%; margin-top:14px;">
+            <div style="background:{color}; border-radius:6px; height:12px; width:{score}%;"></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"<div style='color:#C7CDDB; font-size:0.95rem; margin-bottom:14px;'>{_html.escape(interpretacion)}</div>", unsafe_allow_html=True)
+
+    # Desglose de factores
+    factores = resultado_score.get("factores", {})
+    if factores:
+        st.caption("Cómo se compone la puntuación:")
+        topes = {"Sentimiento": 50, "Volumen": 20, "Constancia": 20, "Tendencia": 10}
+        filas_html = ""
+        for nombre, pts in factores.items():
+            tope = topes.get(nombre, 1)
+            ancho_pct = int((pts / tope) * 100) if tope else 0
+            filas_html += f"""
+            <div style="margin-bottom:8px;">
+                <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#C7CDDB; margin-bottom:2px;">
+                    <span>{_html.escape(nombre)}</span><span>{pts} / {tope} pts</span>
+                </div>
+                <div style="background:#232C42; border-radius:4px; height:9px; width:100%;">
+                    <div style="background:{color}; border-radius:4px; height:9px; width:{ancho_pct}%;"></div>
+                </div>
+            </div>"""
+        st.markdown(f'<div>{filas_html}</div>', unsafe_allow_html=True)
+
+
 LIMITE_USOS_PLAN_GRATIS = 10  # respuestas por mes incluidas en el plan Free
 LIMITE_LOCALES_POR_PLAN = {"free": 1, "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
@@ -516,12 +732,13 @@ def generar_resumen_ejecutivo_ia(cliente_ia, total, positivas, negativas, pct_po
 
 
 def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_agencia,
-                                 id_a_nombre_usuario, contenido_seo_periodo, periodo_texto, cliente_ia=None):
+                                 id_a_nombre_usuario, contenido_seo_periodo, periodo_texto,
+                                 cliente_ia=None, resultado_score=None, dias_periodo=30):
     """
-    Genera el informe PDF de marca blanca (v2): resumen ejecutivo, comparación
-    con el periodo anterior, actividad por local con gráfico, reparto por
-    usuario del equipo, un caso destacado real y la actividad de contenido
-    SEO generado. Devuelve los bytes del PDF.
+    Genera el informe PDF de marca blanca (v2): Reputation Score, resumen
+    ejecutivo, comparación con el periodo anterior, actividad por local con
+    gráfico, reparto por usuario del equipo, un caso destacado real y la
+    actividad de contenido SEO generado. Devuelve los bytes del PDF.
     """
     buffer = BytesIO()
     color_hex = agencia.get("color_marca", "#635BFF").lstrip("#")
@@ -592,6 +809,36 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
                                       key=lambda n: conteo_local_pos.get(n, 0) + conteo_local_neg.get(n, 0),
                                       reverse=True)
     local_principal = nombres_locales_activos[0] if nombres_locales_activos else None
+
+    # --- Reputation Score (titular del informe, si se ha calculado) ---
+    if resultado_score is None:
+        resultado_score = calcular_reputation_score(historico, historico_anterior, dias_periodo)
+    score_valor = resultado_score.get("score")
+    if score_valor is not None:
+        banda_score, color_banda_hex = etiqueta_reputation_score(score_valor)
+        color_banda = colors.HexColor(color_banda_hex)
+        estilo_score_num = ParagraphStyle(
+            "ScoreNum", parent=estilos["Normal"], fontSize=30, leading=32,
+            textColor=color_banda, alignment=1
+        )
+        estilo_score_label = ParagraphStyle(
+            "ScoreLabel", parent=estilos["Normal"], fontSize=9, textColor=colors.white, alignment=1
+        )
+        celda_score = [
+            [Paragraph(f"<b>{score_valor}</b> <font size=12>/ 100</font>", estilo_score_num)],
+            [Paragraph(f"REPUTATION SCORE · {banda_score.upper()}", estilo_score_label)],
+        ]
+        tabla_score = Table(celda_score, colWidths=[16 * cm])
+        tabla_score.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#1B2233")),
+            ("TOPPADDING", (0, 0), (-1, 0), 12),
+            ("BOTTOMPADDING", (0, 1), (-1, 1), 10),
+            ("TOPPADDING", (0, 1), (-1, 1), 0),
+            ("LINEBELOW", (0, 0), (-1, 0), 0, colors.HexColor("#1B2233")),
+            ("BOX", (0, 0), (-1, -1), 1, color_banda),
+        ]))
+        story.append(tabla_score)
+        story.append(Spacer(1, 12))
 
     # --- Resumen ejecutivo (IA con fallback en plantilla) ---
     resumen_texto = generar_resumen_ejecutivo_ia(
@@ -1652,6 +1899,57 @@ with tab_analitica:
             positivas = sum(1 for r in historico if r["sentimiento"] == "positivo")
             negativas = total_respuestas - positivas
 
+            id_a_nombre_local = {l["id"]: l["nombre"] for l in st.session_state.locales_agencia}
+
+            # Periodo anterior equivalente (para tendencia del score y comparación del informe).
+            # No aplica a "Todo el histórico": no hay un "periodo anterior" con sentido.
+            historico_anterior = []
+            dias_periodo = 30
+            if rango != "Todo el histórico":
+                dias_periodo = max(1, (fecha_hasta_dt - fecha_desde_dt).days)
+                try:
+                    duracion = fecha_hasta_dt - fecha_desde_dt
+                    fecha_desde_anterior = fecha_desde_dt - duracion
+                    historico_anterior = supabase.table("historico_respuestas") \
+                        .select("*") \
+                        .eq("agencia_id", agencia["id"]) \
+                        .gte("creado_en", fecha_desde_anterior.isoformat()) \
+                        .lt("creado_en", fecha_desde_dt.isoformat()) \
+                        .execute().data
+                except Exception:
+                    historico_anterior = []
+            else:
+                # Para "todo el histórico" estimamos los días transcurridos desde la
+                # primera respuesta, para que volumen/constancia tengan sentido.
+                fechas = [str(r.get("creado_en", ""))[:10] for r in historico if r.get("creado_en")]
+                if fechas:
+                    try:
+                        primera = min(datetime.fromisoformat(f) for f in fechas if f)
+                        dias_periodo = max(1, (fecha_hasta_dt - primera).days)
+                    except Exception:
+                        dias_periodo = 90
+
+            # ---------- 🏆 REVIEWPRO REPUTATION SCORE (protagonista) ----------
+            st.markdown("### 🏆 Reputation Score")
+            opciones_score = ["Toda la agencia"] + [l["nombre"] for l in st.session_state.locales_agencia]
+            local_score_sel = st.selectbox("Calcular para:", opciones_score, key="selector_score")
+
+            if local_score_sel == "Toda la agencia":
+                hist_score = historico
+                hist_score_ant = historico_anterior
+                nombre_ctx = "tu agencia"
+            else:
+                local_id_sel = next((l["id"] for l in st.session_state.locales_agencia if l["nombre"] == local_score_sel), None)
+                hist_score = [r for r in historico if r.get("local_id") == local_id_sel]
+                hist_score_ant = [r for r in historico_anterior if r.get("local_id") == local_id_sel]
+                nombre_ctx = local_score_sel
+
+            resultado_score = calcular_reputation_score(hist_score, hist_score_ant, dias_periodo)
+            interpretacion = generar_interpretacion_score_ia(client, resultado_score, nombre_ctx)
+            mostrar_medidor_score(resultado_score, f"Puntuación de {nombre_ctx} · {rango}", interpretacion)
+
+            st.divider()
+            st.markdown("**Actividad del periodo**")
             col1, col2, col3 = st.columns(3)
             col1.metric("Respuestas generadas", total_respuestas)
             col2.metric("Reseñas positivas", positivas, f"{round(positivas/total_respuestas*100)}%")
@@ -1659,7 +1957,6 @@ with tab_analitica:
 
             # Actividad por local
             conteo_por_local = {}
-            id_a_nombre_local = {l["id"]: l["nombre"] for l in st.session_state.locales_agencia}
             for fila in historico:
                 nombre_local = id_a_nombre_local.get(fila["local_id"], "Local desconocido")
                 conteo_por_local[nombre_local] = conteo_por_local.get(nombre_local, 0) + 1
@@ -1680,22 +1977,6 @@ with tab_analitica:
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
             mostrar_barras_simples(conteo_por_usuario, color="#8BD1F7")
 
-            # Periodo anterior equivalente, para la comparación en el informe
-            # (no aplica a "Todo el histórico": no hay un "periodo anterior" con sentido)
-            historico_anterior = []
-            if rango != "Todo el histórico":
-                try:
-                    duracion = fecha_hasta_dt - fecha_desde_dt
-                    fecha_desde_anterior = fecha_desde_dt - duracion
-                    historico_anterior = supabase.table("historico_respuestas") \
-                        .select("*") \
-                        .eq("agencia_id", agencia["id"]) \
-                        .gte("creado_en", fecha_desde_anterior.isoformat()) \
-                        .lt("creado_en", fecha_desde_dt.isoformat()) \
-                        .execute().data
-                except Exception:
-                    historico_anterior = []
-
             # Contenido SEO generado en el periodo (tabla nueva — si aún no se ha
             # ejecutado la migración, esto falla en silencio y el informe lo indica)
             try:
@@ -1710,9 +1991,13 @@ with tab_analitica:
             st.divider()
             st.markdown("**📄 Informe de marca blanca para reenviar a tus clientes:**")
             try:
+                # El informe usa siempre el score de toda la agencia (no el del
+                # local seleccionado arriba en pantalla).
+                score_agencia = calcular_reputation_score(historico, historico_anterior, dias_periodo)
                 pdf_bytes = generar_informe_pdf_mensual(
                     agencia, historico, historico_anterior, st.session_state.locales_agencia,
-                    id_a_nombre_usuario, contenido_seo_periodo, periodo_texto, cliente_ia=client
+                    id_a_nombre_usuario, contenido_seo_periodo, periodo_texto,
+                    cliente_ia=client, resultado_score=score_agencia, dias_periodo=dias_periodo
                 )
                 st.download_button(
                     "⬇️ Descargar informe PDF",
