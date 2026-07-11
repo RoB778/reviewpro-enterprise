@@ -1,10 +1,13 @@
 import json
 import re
+import sys
+import traceback
 import urllib.parse
 from datetime import datetime, timedelta
 from io import BytesIO
 
 import bcrypt
+import httpx
 import qrcode
 import requests
 import stripe
@@ -25,6 +28,29 @@ client = Anthropic(
 )
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
+
+
+def log_error_completo(contexto, e):
+    """
+    Escribe en stderr (visible en Manage app -> Logs de Streamlit Cloud) el
+    traceback COMPLETO y toda la cadena de excepciones (__cause__/__context__),
+    no solo el texto resumido que se muestra con st.error(). Para errores de
+    red tipo APIConnectionError, la excepción real (DNS, TLS, timeout, conexión
+    rechazada...) casi siempre va colgada en e.__cause__, no en str(e).
+    Devuelve un string corto con la causa raíz para mostrar en pantalla.
+    """
+    print(f"\n===== ERROR EN: {contexto} =====", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+
+    causa = e
+    cadena = []
+    while causa is not None:
+        cadena.append(f"{type(causa).__name__}: {causa}")
+        causa = causa.__cause__ or causa.__context__
+    print("Cadena de causas: " + " -> ".join(cadena), file=sys.stderr)
+    print("=====================================\n", file=sys.stderr)
+
+    return cadena[-1] if cadena else f"{type(e).__name__}: {e}"
 
 # URL pública de la app, necesaria para que Stripe sepa a dónde devolver al usuario tras
 # el pago. OBLIGATORIA: si falta o está mal puesta, Stripe redirige a una URL que no existe
@@ -950,6 +976,48 @@ st.markdown(f"<hr style='border-top:3px solid {color_agencia}; margin-top:4px;'>
 st.info(f"Sesión activa: **{usuario['nombre_usuario']}** ({usuario['email']}) · Rol: {usuario['rol']}")
 
 # =========================================================
+# 🔧 DIAGNÓSTICO TEMPORAL DE CONEXIÓN CON ANTHROPIC
+# (Quitar este bloque una vez resuelto el APIConnectionError)
+# =========================================================
+with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
+    st.caption(
+        "Aísla si el fallo es de RED (DNS/TLS/firewall saliente de Streamlit Cloud) "
+        "o del SDK de Anthropic en sí, haciendo una petición HTTP cruda sin pasar "
+        "por la librería `anthropic`."
+    )
+    if st.button("Probar conexión cruda a api.anthropic.com"):
+        try:
+            r = httpx.get("https://api.anthropic.com/v1/models", timeout=15.0)
+            st.success(f"✅ Conexión HTTP cruda OK — status code {r.status_code}")
+            st.code(r.text[:500])
+        except Exception as e:
+            causa_raiz = log_error_completo("test de red crudo con httpx", e)
+            st.error(f"❌ Falla incluso la petición cruda: {type(e).__name__}: {e}")
+            st.caption(f"🔍 Causa raíz: {causa_raiz}")
+            st.warning(
+                "Si esto falla, el problema NO es del SDK de anthropic ni del modelo: "
+                "es de red saliente en esta instancia de Streamlit Cloud (DNS, TLS o "
+                "firewall). Prueba un reboot completo de la app (Manage app → ⋮ → Reboot), "
+                "no solo un redeploy de código."
+            )
+
+    if st.button("Probar llamada real vía SDK de Anthropic (mensaje mínimo)"):
+        try:
+            r = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "di 'ok'"}]
+            )
+            st.success(f"✅ SDK OK — respuesta: {r.content[0].text}")
+        except Exception as e:
+            causa_raiz = log_error_completo("test mínimo vía SDK anthropic", e)
+            st.error(f"❌ {type(e).__name__}: {e}")
+            st.caption(f"🔍 Causa raíz (mira también Manage app → Logs): {causa_raiz}")
+
+    import anthropic as _anthropic_mod
+    st.caption(f"Versión del SDK `anthropic` instalada: {_anthropic_mod.__version__}")
+
+# =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
 # =========================================================
 tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
@@ -1154,7 +1222,9 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                 except json.JSONDecodeError:
                     st.error("El modelo devolvió un formato inesperado. Inténtalo de nuevo.")
                 except Exception as e:
+                    causa_raiz = log_error_completo("generar respuesta a reseña", e)
                     st.error(f"Error al conectar con el servidor: {type(e).__name__}: {e}")
+                    st.caption(f"🔍 Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
 # ---------------------------------------------------------
 # PESTAÑA: PEDIR RESEÑAS (WhatsApp + QR)
@@ -1235,7 +1305,9 @@ with tab_seo_extra:
                     if tipo_contenido == "Meta descripción SEO":
                         st.caption(f"Longitud: {len(texto_generado)} caracteres (recomendado: máx. 155).")
                 except Exception as e:
+                    causa_raiz = log_error_completo("generar contenido SEO extra", e)
                     st.error(f"Error al generar el contenido: {e}")
+                    st.caption(f"🔍 Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
 # ---------------------------------------------------------
 # PESTAÑA 2: ANALÍTICA DE LA AGENCIA
