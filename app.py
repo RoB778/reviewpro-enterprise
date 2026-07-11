@@ -21,13 +21,58 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from supabase import create_client
 
 # Configuración de las claves secretas de los servidores
+# .strip() es crítico: un salto de línea o espacio colado en Secrets de
+# Streamlit Cloud (p.ej. pegando la key con """triple comillas""" en el
+# secrets.toml) provoca httpx.LocalProtocolError ("Illegal header value"),
+# que el SDK de Anthropic enmascara como APIConnectionError.
+_anthropic_api_key_raw = st.secrets["ANTHROPIC_API_KEY"]
+_anthropic_api_key = _anthropic_api_key_raw.strip() if isinstance(_anthropic_api_key_raw, str) else _anthropic_api_key_raw
+
 client = Anthropic(
-    api_key=st.secrets["ANTHROPIC_API_KEY"],
+    api_key=_anthropic_api_key,
     max_retries=3,   # reintenta automáticamente ante fallos de red transitorios
     timeout=60.0,    # más margen que el default, por si la conexión tarda en establecerse
 )
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
+
+# -----------------------------------------------------------------------
+# Redacción de secretos en mensajes de error.
+# Excepciones como httpx.LocalProtocolError incluyen el VALOR CRUDO de la
+# cabecera rechazada dentro de str(e) — si esa cabecera es el Authorization
+# con la API key, la key entera queda expuesta en pantalla y en logs.
+# Por eso nunca se debe mostrar/loguear str(e) sin pasar por aquí antes.
+# -----------------------------------------------------------------------
+_SECRETOS_A_OCULTAR = [
+    s for s in [
+        _anthropic_api_key_raw,
+        _anthropic_api_key,
+        st.secrets.get("SUPABASE_KEY"),
+        st.secrets.get("STRIPE_SECRET_KEY"),
+    ] if isinstance(s, str) and s
+]
+
+_PATRONES_SECRETOS = [
+    re.compile(r"sk-ant-api03-[A-Za-z0-9_\-]+"),  # Anthropic
+    re.compile(r"sk_live_[A-Za-z0-9]+"),           # Stripe live secret
+    re.compile(r"sk_test_[A-Za-z0-9]+"),           # Stripe test secret
+    re.compile(r"rk_live_[A-Za-z0-9]+"),           # Stripe restricted key
+    re.compile(r"eyJ[A-Za-z0-9_\-\.]{20,}"),        # JWT-like (Supabase)
+]
+
+
+def redactar_secretos(texto):
+    """Sustituye cualquier secreto conocido (por valor exacto o por patrón)
+    por un marcador, para que nunca se muestre ni se loguee en claro."""
+    if not isinstance(texto, str):
+        return texto
+    resultado = texto
+    for secreto in _SECRETOS_A_OCULTAR:
+        resultado = resultado.replace(secreto, "[SECRETO_OCULTO]")
+        resultado = resultado.replace(secreto.strip(), "[SECRETO_OCULTO]")
+    for patron in _PATRONES_SECRETOS:
+        resultado = patron.sub("[SECRETO_OCULTO]", resultado)
+    return resultado
 
 
 def log_error_completo(contexto, e):
@@ -37,20 +82,25 @@ def log_error_completo(contexto, e):
     no solo el texto resumido que se muestra con st.error(). Para errores de
     red tipo APIConnectionError, la excepción real (DNS, TLS, timeout, conexión
     rechazada...) casi siempre va colgada en e.__cause__, no en str(e).
-    Devuelve un string corto con la causa raíz para mostrar en pantalla.
+
+    IMPORTANTE: algunas excepciones (p.ej. httpx.LocalProtocolError cuando
+    rechaza una cabecera) incluyen el VALOR CRUDO de esa cabecera en su
+    mensaje — si es el Authorization, ahí va la API key en claro. Por eso
+    todo lo que se imprime o se devuelve aquí pasa por redactar_secretos().
     """
+    tb_redactado = redactar_secretos(traceback.format_exc())
     print(f"\n===== ERROR EN: {contexto} =====", file=sys.stderr)
-    traceback.print_exc(file=sys.stderr)
+    print(tb_redactado, file=sys.stderr)
 
     causa = e
     cadena = []
     while causa is not None:
-        cadena.append(f"{type(causa).__name__}: {causa}")
+        cadena.append(redactar_secretos(f"{type(causa).__name__}: {causa}"))
         causa = causa.__cause__ or causa.__context__
     print("Cadena de causas: " + " -> ".join(cadena), file=sys.stderr)
     print("=====================================\n", file=sys.stderr)
 
-    return cadena[-1] if cadena else f"{type(e).__name__}: {e}"
+    return cadena[-1] if cadena else redactar_secretos(f"{type(e).__name__}: {e}")
 
 # URL pública de la app, necesaria para que Stripe sepa a dónde devolver al usuario tras
 # el pago. OBLIGATORIA: si falta o está mal puesta, Stripe redirige a una URL que no existe
@@ -166,7 +216,7 @@ def crear_sesion_pago_stripe(agencia_id, plan_nombre, price_id):
         )
         return session.url
     except Exception as e:
-        st.error(f"No se pudo iniciar el proceso de pago: {e}")
+        st.error(redactar_secretos(f"No se pudo iniciar el proceso de pago: {e}"))
         return None
 
 
@@ -189,7 +239,7 @@ def crear_sesion_pago_nueva_agencia(plan_nombre, price_id):
         )
         return session.url
     except Exception as e:
-        st.error(f"No se pudo iniciar el proceso de pago: {e}")
+        st.error(redactar_secretos(f"No se pudo iniciar el proceso de pago: {e}"))
         return None
 
 
@@ -686,7 +736,7 @@ if parametros_url.get("pago_exito") == "1" and "session_id" in parametros_url:
                 st.session_state.agencia_actual["plan"] = resultado_pago
             st.success(f"✅ ¡Pago confirmado! Tu plan '{resultado_pago}' ya está activo.")
         else:
-            st.error(f"No se pudo confirmar el pago automáticamente: {resultado_pago}. Escríbenos si el cargo sí se realizó.")
+            st.error(redactar_secretos(f"No se pudo confirmar el pago automáticamente: {resultado_pago}. Escríbenos si el cargo sí se realizó."))
     st.query_params.clear()
 elif parametros_url.get("alta_nueva") == "1" and "session_id" in parametros_url:
     session_id_alta = parametros_url["session_id"]
@@ -696,7 +746,7 @@ elif parametros_url.get("alta_nueva") == "1" and "session_id" in parametros_url:
             if ok_alta:
                 st.session_state.alta_pendiente = datos_alta
             else:
-                st.error(f"No se pudo verificar el pago: {datos_alta}. Escríbenos si el cargo sí se realizó.")
+                st.error(redactar_secretos(f"No se pudo verificar el pago: {datos_alta}. Escríbenos si el cargo sí se realizó."))
     st.query_params.clear()
 elif parametros_url.get("pago_cancelado") == "1":
     st.info("Has cancelado el proceso de pago. No se ha realizado ningún cargo.")
@@ -915,7 +965,7 @@ if not st.session_state.sesion_activa:
                             st.success(f"🔋 Bienvenido, {perfil['usuario']['nombre_usuario']}.")
                             st.rerun()
                     except Exception as e:
-                        st.error(f"Error de conexión con la base de datos: {e}")
+                        st.error(redactar_secretos(f"Error de conexión con la base de datos: {e}"))
 
     st.stop()
 
@@ -992,7 +1042,7 @@ with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
             st.code(r.text[:500])
         except Exception as e:
             causa_raiz = log_error_completo("test de red crudo con httpx", e)
-            st.error(f"❌ Falla incluso la petición cruda: {type(e).__name__}: {e}")
+            st.error(redactar_secretos(f"❌ Falla incluso la petición cruda: {type(e).__name__}: {e}"))
             st.caption(f"🔍 Causa raíz: {causa_raiz}")
             st.warning(
                 "Si esto falla, el problema NO es del SDK de anthropic ni del modelo: "
@@ -1011,11 +1061,33 @@ with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
             st.success(f"✅ SDK OK — respuesta: {r.content[0].text}")
         except Exception as e:
             causa_raiz = log_error_completo("test mínimo vía SDK anthropic", e)
-            st.error(f"❌ {type(e).__name__}: {e}")
+            st.error(redactar_secretos(f"❌ {type(e).__name__}: {e}"))
             st.caption(f"🔍 Causa raíz (mira también Manage app → Logs): {causa_raiz}")
 
     import anthropic as _anthropic_mod
     st.caption(f"Versión del SDK `anthropic` instalada: {_anthropic_mod.__version__}")
+
+    st.divider()
+    st.caption("Higiene de la API key (sin mostrarla completa):")
+    _key_check = _anthropic_api_key_raw
+    if isinstance(_key_check, str):
+        _tiene_whitespace_extra = _key_check != _key_check.strip()
+        _no_ascii = any(ord(c) > 126 or ord(c) < 32 for c in _key_check.strip())
+        st.write({
+            "longitud_original": len(_key_check),
+            "longitud_tras_strip": len(_key_check.strip()),
+            "tenia_espacios_o_saltos_de_linea": _tiene_whitespace_extra,
+            "tiene_caracteres_no_ascii_ocultos": _no_ascii,
+            "empieza_por": _key_check.strip()[:12] + "...",
+            "termina_por": "..." + _key_check.strip()[-4:],
+        })
+        if _tiene_whitespace_extra:
+            st.warning(
+                "⚠️ La key en Secrets tenía espacios/saltos de línea al principio o al "
+                "final. Ya se limpia automáticamente con .strip(), pero te recomiendo "
+                "corregirla también en Manage app → Secrets: debe estar en una sola línea, "
+                "como `ANTHROPIC_API_KEY = \"sk-ant-api03-...\"`, sin comillas triples."
+            )
 
 # =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
@@ -1040,7 +1112,7 @@ with tab_generar:
         if st.button("Crear establecimiento", key="crear_establecimiento_btn"):
             puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
             if not puede:
-                st.error(f"⚠️ {motivo}")
+                st.error(redactar_secretos(f"⚠️ {motivo}"))
                 if st.button("Actualizar plan", key="actualizar_plan_limite_locales"):
                     st.session_state.mostrar_pagina_planes = True
                     st.rerun()
@@ -1059,7 +1131,7 @@ with tab_generar:
                     st.success(f"'{nombre_nuevo_local}' añadido correctamente.")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"No se pudo crear el local: {e}")
+                    st.error(redactar_secretos(f"No se pudo crear el local: {e}"))
 
     if not locales_disponibles:
         st.info("Añade tu primer establecimiento arriba para empezar a generar respuestas.")
@@ -1095,7 +1167,7 @@ with tab_generar:
         elif not acepta_terminos:
             st.error("⚠️ Es obligatorio aceptar los términos de uso.")
         elif agencia.get("plan") == "free" and contar_usos_del_mes(agencia["id"]) >= LIMITE_USOS_PLAN_GRATIS:
-            st.error(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite.")
+            st.error(redactar_secretos(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite."))
             if st.button("💳 Ver planes de pago", key="ver_planes_limite_usos"):
                 st.session_state.mostrar_pagina_planes = True
                 st.rerun()
@@ -1223,7 +1295,7 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                     st.error("El modelo devolvió un formato inesperado. Inténtalo de nuevo.")
                 except Exception as e:
                     causa_raiz = log_error_completo("generar respuesta a reseña", e)
-                    st.error(f"Error al conectar con el servidor: {type(e).__name__}: {e}")
+                    st.error(redactar_secretos(f"Error al conectar con el servidor: {type(e).__name__}: {e}"))
                     st.caption(f"🔍 Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
 # ---------------------------------------------------------
@@ -1256,7 +1328,7 @@ with tab_pedir_resenas:
                 local_pr["enlace_resena_google"] = nuevo_enlace.strip()
                 st.success("Enlace guardado.")
             except Exception as e:
-                st.error(f"No se pudo guardar: {e}")
+                st.error(redactar_secretos(f"No se pudo guardar: {e}"))
 
         if not nuevo_enlace.strip():
             st.warning("Guarda primero el enlace de reseña de Google para generar el mensaje y el QR.")
@@ -1306,7 +1378,7 @@ with tab_seo_extra:
                         st.caption(f"Longitud: {len(texto_generado)} caracteres (recomendado: máx. 155).")
                 except Exception as e:
                     causa_raiz = log_error_completo("generar contenido SEO extra", e)
-                    st.error(f"Error al generar el contenido: {e}")
+                    st.error(redactar_secretos(f"Error al generar el contenido: {e}"))
                     st.caption(f"🔍 Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
 # ---------------------------------------------------------
@@ -1378,10 +1450,10 @@ with tab_analitica:
                     mime="application/pdf"
                 )
             except Exception as e:
-                st.error(f"No se pudo generar el informe: {e}")
+                st.error(redactar_secretos(f"No se pudo generar el informe: {e}"))
 
     except Exception as e:
-        st.error(f"No se pudo cargar la analítica: {e}")
+        st.error(redactar_secretos(f"No se pudo cargar la analítica: {e}"))
 
 # =========================================================
 # 🗑️ ZONA DE BAJA — solo visible para el usuario admin de la agencia
@@ -1409,7 +1481,7 @@ if usuario.get("rol") == "admin":
                     st.success("Tu agencia y todos sus datos han sido eliminados.")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"No se pudo completar el borrado: {e}")
+                    st.error(redactar_secretos(f"No se pudo completar el borrado: {e}"))
 
 st.divider()
 st.markdown(f"""
