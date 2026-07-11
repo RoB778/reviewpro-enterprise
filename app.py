@@ -529,7 +529,7 @@ def _redondear_bonito(n):
     n = round(n)
     if n < 100:
         return n
-    return int(round(n / 10.0) * 10)
+    return int(round(n / 1.0) - 10)
 
 
 def _precio_anual_mensualizado(precio_mensual):
