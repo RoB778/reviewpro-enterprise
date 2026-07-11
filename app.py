@@ -18,6 +18,9 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics.charts.legends import Legend
 from supabase import create_client
 
 # Configuración de las claves secretas de los servidores
@@ -438,10 +441,87 @@ def render_formulario_alta_pendiente():
                 st.error(resultado)
 
 
-def generar_informe_pdf_mensual(agencia, historico, locales_agencia, id_a_nombre_usuario, periodo_texto):
+def grafico_barras_pos_neg(categorias, valores_positivas, valores_negativas,
+                            color_positivas=colors.HexColor("#2ECC71"),
+                            color_negativas=colors.HexColor("#E74C3C"),
+                            ancho=16 * cm, alto=6 * cm):
+    """Gráfico de barras agrupadas (positivas vs. negativas) hecho con
+    reportlab.graphics puro — sin pandas ni numpy, para no repetir el
+    segfault que ya tuvimos con pyarrow en Streamlit Cloud."""
+    dibujo = Drawing(ancho, alto)
+    grafico = VerticalBarChart()
+    grafico.x = 40
+    grafico.y = 25
+    grafico.width = ancho - 90
+    grafico.height = alto - 55
+    grafico.data = [valores_positivas, valores_negativas]
+    grafico.categoryAxis.categoryNames = categorias
+    grafico.categoryAxis.labels.fontSize = 7.5
+    grafico.categoryAxis.labels.boxAnchor = "n"
+    grafico.valueAxis.valueMin = 0
+    grafico.bars[0].fillColor = color_positivas
+    grafico.bars[1].fillColor = color_negativas
+    grafico.groupSpacing = 12
+    grafico.barSpacing = 2
+    dibujo.add(grafico)
+
+    leyenda = Legend()
+    leyenda.x = ancho - 55
+    leyenda.y = alto - 8
+    leyenda.dx = 7
+    leyenda.dy = 7
+    leyenda.fontSize = 7.5
+    leyenda.colorNamePairs = [(color_positivas, "Positivas"), (color_negativas, "Negativas")]
+    dibujo.add(leyenda)
+
+    return dibujo
+
+
+def generar_resumen_ejecutivo_ia(cliente_ia, total, positivas, negativas, pct_positivas, local_principal, num_locales):
+    """Genera la frase-titular del informe con IA. Si la llamada falla por
+    cualquier motivo (red, límite, lo que sea), cae a una plantilla fija —
+    el informe nunca debe quedarse sin esta sección por un fallo de la API."""
+    resumen_generico = (
+        f"Durante este periodo se gestionaron {total} reseña{'s' if total != 1 else ''} para "
+        f"{'tu local' if num_locales <= 1 else f'tus {num_locales} locales'}"
+        + (f", con {local_principal} como el de mayor actividad" if local_principal and num_locales > 1 else "")
+        + f". El {pct_positivas}% de las respuestas correspondieron a reseñas positivas."
+    )
+    if cliente_ia is None or total == 0:
+        return resumen_generico
+    try:
+        prompt = (
+            f"Datos de un periodo de gestión de reseñas: {total} respuestas generadas en total, "
+            f"{positivas} a reseñas positivas y {negativas} a negativas ({pct_positivas}% positivas), "
+            f"repartidas entre {num_locales} local(es)"
+            + (f", el de más actividad es {local_principal}" if local_principal else "")
+            + ". Escribe UNA sola frase (máximo 30 palabras) a modo de titular ejecutivo para la cabecera "
+              "de un informe que una agencia de marketing reenvía a su cliente. Tono profesional pero "
+              "natural, nada de plantilla corporativa ('estimado cliente', 'nos complace informar'...). "
+              "Devuelve EXCLUSIVAMENTE la frase, sin comillas ni explicación."
+        )
+        respuesta = cliente_ia.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=80,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        for bloque in respuesta.content:
+            if getattr(bloque, "type", None) == "text":
+                texto = bloque.text.strip().strip('"')
+                if texto:
+                    return texto
+        return resumen_generico
+    except Exception:
+        return resumen_generico
+
+
+def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_agencia,
+                                 id_a_nombre_usuario, contenido_seo_periodo, periodo_texto, cliente_ia=None):
     """
-    Genera un informe PDF de marca blanca con el logo y color de la agencia,
-    resumiendo la actividad de un periodo concreto. Devuelve los bytes del PDF.
+    Genera el informe PDF de marca blanca (v2): resumen ejecutivo, comparación
+    con el periodo anterior, actividad por local con gráfico, reparto por
+    usuario del equipo, un caso destacado real y la actividad de contenido
+    SEO generado. Devuelve los bytes del PDF.
     """
     buffer = BytesIO()
     color_hex = agencia.get("color_marca", "#635BFF").lstrip("#")
@@ -452,6 +532,15 @@ def generar_informe_pdf_mensual(agencia, historico, locales_agencia, id_a_nombre
     estilo_titulo = ParagraphStyle("TituloInforme", parent=estilos["Title"], textColor=color_rl, fontSize=20)
     estilo_subtitulo = ParagraphStyle("Subtitulo", parent=estilos["Normal"], textColor=colors.grey, fontSize=11)
     estilo_seccion = ParagraphStyle("Seccion", parent=estilos["Heading2"], textColor=color_rl, spaceBefore=14)
+    estilo_resumen_ejecutivo = ParagraphStyle(
+        "ResumenEjecutivo", parent=estilos["Normal"], fontSize=11.5, leading=16,
+        textColor=colors.HexColor("#1A1A1A"), spaceBefore=2, spaceAfter=2
+    )
+    estilo_caso = ParagraphStyle(
+        "Caso", parent=estilos["Normal"], fontSize=9.5, leading=13.5,
+        textColor=colors.HexColor("#333333"), leftIndent=8, spaceAfter=4
+    )
+    estilo_nota = ParagraphStyle("Nota", parent=estilos["Normal"], fontSize=8, textColor=colors.grey, spaceBefore=4)
 
     story = []
 
@@ -464,20 +553,59 @@ def generar_informe_pdf_mensual(agencia, historico, locales_agencia, id_a_nombre
     except Exception:
         pass
 
-    story.append(Paragraph(f"Informe de reputación online", estilo_titulo))
+    story.append(Paragraph("Informe de reputación online", estilo_titulo))
     story.append(Paragraph(f"{agencia['nombre_agencia']} · {periodo_texto}", estilo_subtitulo))
-    story.append(Spacer(1, 16))
+    story.append(Spacer(1, 14))
 
+    # --- Métricas del periodo actual y del anterior (para la comparación) ---
     total = len(historico)
     positivas = sum(1 for r in historico if r["sentimiento"] == "positivo")
     negativas = total - positivas
     pct_positivas = round(positivas / total * 100) if total else 0
 
+    total_ant = len(historico_anterior)
+    pct_positivas_ant = round(sum(1 for r in historico_anterior if r["sentimiento"] == "positivo") / total_ant * 100) if total_ant else None
+
+    def texto_delta(actual, anterior, sufijo=""):
+        if anterior is None:
+            return ""
+        delta = actual - anterior
+        if delta > 0:
+            return f" (▲ +{delta}{sufijo})"
+        elif delta < 0:
+            return f" (▼ {delta}{sufijo})"
+        return " (=)"
+
+    delta_total = texto_delta(total, total_ant if historico_anterior else None)
+    delta_pct = texto_delta(pct_positivas, pct_positivas_ant, sufijo=" pts")
+
+    # --- Desglose por local (para la tabla, el gráfico y el resumen ejecutivo) ---
+    id_a_nombre_local = {l["id"]: l["nombre"] for l in locales_agencia}
+    conteo_local_pos, conteo_local_neg = {}, {}
+    for fila in historico:
+        nombre = id_a_nombre_local.get(fila["local_id"], "Local desconocido")
+        if fila["sentimiento"] == "positivo":
+            conteo_local_pos[nombre] = conteo_local_pos.get(nombre, 0) + 1
+        else:
+            conteo_local_neg[nombre] = conteo_local_neg.get(nombre, 0) + 1
+    nombres_locales_activos = sorted(set(conteo_local_pos) | set(conteo_local_neg),
+                                      key=lambda n: conteo_local_pos.get(n, 0) + conteo_local_neg.get(n, 0),
+                                      reverse=True)
+    local_principal = nombres_locales_activos[0] if nombres_locales_activos else None
+
+    # --- Resumen ejecutivo (IA con fallback en plantilla) ---
+    resumen_texto = generar_resumen_ejecutivo_ia(
+        cliente_ia, total, positivas, negativas, pct_positivas, local_principal, len(locales_agencia)
+    )
+    story.append(Paragraph(resumen_texto, estilo_resumen_ejecutivo))
+    story.append(Spacer(1, 12))
+
+    # --- Resumen del periodo, con comparación al periodo anterior ---
     story.append(Paragraph("Resumen del periodo", estilo_seccion))
     tabla_resumen = Table([
         ["Respuestas generadas", "Reseñas positivas", "Reseñas negativas", "% positivas"],
-        [str(total), str(positivas), str(negativas), f"{pct_positivas}%"]
-    ], colWidths=[4 * cm, 4 * cm, 4 * cm, 3 * cm])
+        [f"{total}{delta_total}", str(positivas), str(negativas), f"{pct_positivas}%{delta_pct}"]
+    ], colWidths=[4 * cm, 4 * cm, 4 * cm, 5 * cm])
     tabla_resumen.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), color_rl),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -488,26 +616,90 @@ def generar_informe_pdf_mensual(agencia, historico, locales_agencia, id_a_nombre
         ("TOPPADDING", (0, 0), (-1, -1), 8),
     ]))
     story.append(tabla_resumen)
+    if not historico_anterior:
+        story.append(Paragraph("Sin datos del periodo anterior todavía para comparar.", estilo_nota))
     story.append(Spacer(1, 16))
 
+    # --- Actividad por local: tabla + gráfico ---
     story.append(Paragraph("Actividad por local", estilo_seccion))
-    id_a_nombre_local = {l["id"]: l["nombre"] for l in locales_agencia}
-    conteo_local = {}
-    for fila in historico:
-        nombre = id_a_nombre_local.get(fila["local_id"], "Local desconocido")
-        conteo_local[nombre] = conteo_local.get(nombre, 0) + 1
-
-    filas_tabla_local = [["Local", "Respuestas generadas"]] + [[nombre, str(n)] for nombre, n in conteo_local.items()]
-    tabla_locales = Table(filas_tabla_local, colWidths=[10 * cm, 5 * cm])
+    filas_tabla_local = [["Local", "Positivas", "Negativas", "Total"]]
+    categorias, serie_pos, serie_neg = [], [], []
+    for nombre in nombres_locales_activos:
+        p, n = conteo_local_pos.get(nombre, 0), conteo_local_neg.get(nombre, 0)
+        filas_tabla_local.append([nombre, str(p), str(n), str(p + n)])
+        categorias.append(nombre)
+        serie_pos.append(p)
+        serie_neg.append(n)
+    tabla_locales = Table(filas_tabla_local, colWidths=[7 * cm, 3 * cm, 3 * cm, 3 * cm])
     tabla_locales.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A3448")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 6),
     ]))
     story.append(tabla_locales)
+    story.append(Spacer(1, 10))
+    if categorias:
+        story.append(grafico_barras_pos_neg(categorias, serie_pos, serie_neg))
+    story.append(Spacer(1, 16))
+
+    # --- Reparto de trabajo por usuario del equipo (antes se calculaba y no se usaba) ---
+    story.append(Paragraph("Reparto de trabajo por usuario del equipo", estilo_seccion))
+    conteo_usuario = {}
+    for fila in historico:
+        nombre_u = id_a_nombre_usuario.get(fila.get("usuario_id"), "Usuario eliminado")
+        conteo_usuario[nombre_u] = conteo_usuario.get(nombre_u, 0) + 1
+    if conteo_usuario:
+        filas_usuario = [["Usuario", "Respuestas generadas"]] + \
+                         [[u, str(n)] for u, n in sorted(conteo_usuario.items(), key=lambda x: -x[1])]
+        tabla_usuarios = Table(filas_usuario, colWidths=[10 * cm, 5 * cm])
+        tabla_usuarios.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A3448")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(tabla_usuarios)
+    else:
+        story.append(Paragraph("Sin datos de usuario para este periodo.", estilo_nota))
+    story.append(Spacer(1, 16))
+
+    # --- Caso destacado del periodo (requiere la migración de extracto_resena/extracto_respuesta) ---
+    casos_con_extracto = [r for r in historico if r["sentimiento"] == "negativo" and r.get("extracto_resena")]
+    if casos_con_extracto:
+        caso = max(casos_con_extracto, key=lambda r: r.get("longitud_palabras", 0))
+        story.append(Paragraph("Caso destacado del periodo", estilo_seccion))
+        story.append(Paragraph(f"<b>Lo que dijo el cliente:</b> «{caso['extracto_resena']}»", estilo_caso))
+        if caso.get("extracto_respuesta"):
+            story.append(Paragraph(f"<b>Cómo se respondió:</b> «{caso['extracto_respuesta']}»", estilo_caso))
+        story.append(Spacer(1, 16))
+
+    # --- Contenido SEO y redes generado en el periodo ---
+    story.append(Paragraph("Contenido SEO y redes generado", estilo_seccion))
+    if contenido_seo_periodo:
+        conteo_tipo = {}
+        for fila in contenido_seo_periodo:
+            tipo = fila.get("tipo_contenido", "Otro")
+            conteo_tipo[tipo] = conteo_tipo.get(tipo, 0) + 1
+        filas_seo = [["Tipo de contenido", "Piezas generadas"]] + \
+                    [[t, str(n)] for t, n in sorted(conteo_tipo.items(), key=lambda x: -x[1])]
+        tabla_seo = Table(filas_seo, colWidths=[10 * cm, 5 * cm])
+        tabla_seo.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A3448")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(tabla_seo)
+    else:
+        story.append(Paragraph("No se generó contenido SEO adicional en este periodo.", estilo_nota))
     story.append(Spacer(1, 20))
 
     story.append(Paragraph(
@@ -682,19 +874,46 @@ def cargar_perfil_login(email):
     }
 
 
-def registrar_respuesta_en_historico(agencia_id, local_id, usuario_id, sentimiento, idioma_detectado, longitud_palabras):
-    """Guarda una fila en historico_respuestas cada vez que se genera una respuesta con éxito."""
+def registrar_respuesta_en_historico(agencia_id, local_id, usuario_id, sentimiento, idioma_detectado,
+                                      longitud_palabras, resena_cliente=None, respuesta_generada=None):
+    """Guarda una fila en historico_respuestas cada vez que se genera una respuesta con éxito.
+
+    resena_cliente / respuesta_generada se guardan truncados a 300 caracteres como
+    extracto, solo para poder mostrar un "caso destacado" real en el informe PDF
+    — no es un archivo completo de todas las reseñas, es solo un resumen corto.
+    """
     try:
-        supabase.table("historico_respuestas").insert({
+        fila = {
             "agencia_id": agencia_id,
             "local_id": local_id,
             "usuario_id": usuario_id,
             "sentimiento": sentimiento,
             "idioma_detectado": idioma_detectado,
-            "longitud_palabras": longitud_palabras
-        }).execute()
+            "longitud_palabras": longitud_palabras,
+        }
+        if resena_cliente:
+            fila["extracto_resena"] = resena_cliente.strip()[:300]
+        if respuesta_generada:
+            fila["extracto_respuesta"] = respuesta_generada.strip()[:300]
+        supabase.table("historico_respuestas").insert(fila).execute()
     except Exception:
         # Si falla el registro de analítica, no debe romper la generación de la respuesta.
+        pass
+
+
+def registrar_contenido_seo_generado(agencia_id, local_id, usuario_id, tipo_contenido):
+    """Guarda un evento cada vez que se genera una pieza de contenido SEO extra
+    (post de Google Business, descripción para redes, meta descripción), para
+    que el informe PDF pueda mostrar esa actividad. Nunca debe romper la
+    generación de contenido si falla."""
+    try:
+        supabase.table("historico_contenido_seo").insert({
+            "agencia_id": agencia_id,
+            "local_id": local_id,
+            "usuario_id": usuario_id,
+            "tipo_contenido": tipo_contenido,
+        }).execute()
+    except Exception:
         pass
 
 
@@ -1296,7 +1515,9 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                         usuario_id=usuario["id"],
                         sentimiento=sentimiento,
                         idioma_detectado=idioma_detectado,
-                        longitud_palabras=len(respuesta_nativa.split())
+                        longitud_palabras=len(respuesta_nativa.split()),
+                        resena_cliente=resena_cliente,
+                        respuesta_generada=respuesta_nativa
                     )
 
                 except json.JSONDecodeError:
@@ -1384,6 +1605,13 @@ with tab_seo_extra:
                     st.code(texto_generado, language=None, wrap_lines=True)
                     if tipo_contenido == "Meta descripción SEO":
                         st.caption(f"Longitud: {len(texto_generado)} caracteres (recomendado: máx. 155).")
+
+                    registrar_contenido_seo_generado(
+                        agencia_id=agencia["id"],
+                        local_id=local_seo["id"],
+                        usuario_id=usuario["id"],
+                        tipo_contenido=tipo_contenido
+                    )
                 except Exception as e:
                     causa_raiz = log_error_completo("generar contenido SEO extra", e)
                     st.error(redactar_secretos(f"Error al generar el contenido: {e}"))
@@ -1396,12 +1624,19 @@ with tab_analitica:
     st.subheader("📊 Actividad de tu agencia")
 
     rango = st.radio("Periodo:", ["Últimos 7 días", "Últimos 30 días", "Todo el histórico"], horizontal=True)
+    fecha_hasta_dt = datetime.utcnow()
     if rango == "Últimos 7 días":
-        fecha_desde = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        fecha_desde_dt = fecha_hasta_dt - timedelta(days=7)
     elif rango == "Últimos 30 días":
-        fecha_desde = (datetime.utcnow() - timedelta(days=30)).isoformat()
+        fecha_desde_dt = fecha_hasta_dt - timedelta(days=30)
     else:
-        fecha_desde = "1970-01-01T00:00:00"
+        fecha_desde_dt = datetime(1970, 1, 1)
+    fecha_desde = fecha_desde_dt.isoformat()
+
+    if rango == "Todo el histórico":
+        periodo_texto = f"Todo el histórico (hasta el {fecha_hasta_dt.strftime('%d/%m/%Y')})"
+    else:
+        periodo_texto = f"{rango} · {fecha_desde_dt.strftime('%d/%m/%Y')} – {fecha_hasta_dt.strftime('%d/%m/%Y')}"
 
     try:
         historico = supabase.table("historico_respuestas") \
@@ -1445,20 +1680,50 @@ with tab_analitica:
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
             mostrar_barras_simples(conteo_por_usuario, color="#8BD1F7")
 
+            # Periodo anterior equivalente, para la comparación en el informe
+            # (no aplica a "Todo el histórico": no hay un "periodo anterior" con sentido)
+            historico_anterior = []
+            if rango != "Todo el histórico":
+                try:
+                    duracion = fecha_hasta_dt - fecha_desde_dt
+                    fecha_desde_anterior = fecha_desde_dt - duracion
+                    historico_anterior = supabase.table("historico_respuestas") \
+                        .select("*") \
+                        .eq("agencia_id", agencia["id"]) \
+                        .gte("creado_en", fecha_desde_anterior.isoformat()) \
+                        .lt("creado_en", fecha_desde_dt.isoformat()) \
+                        .execute().data
+                except Exception:
+                    historico_anterior = []
+
+            # Contenido SEO generado en el periodo (tabla nueva — si aún no se ha
+            # ejecutado la migración, esto falla en silencio y el informe lo indica)
+            try:
+                contenido_seo_periodo = supabase.table("historico_contenido_seo") \
+                    .select("*") \
+                    .eq("agencia_id", agencia["id"]) \
+                    .gte("creado_en", fecha_desde) \
+                    .execute().data
+            except Exception:
+                contenido_seo_periodo = []
+
             st.divider()
             st.markdown("**📄 Informe de marca blanca para reenviar a tus clientes:**")
             try:
                 pdf_bytes = generar_informe_pdf_mensual(
-                    agencia, historico, st.session_state.locales_agencia, id_a_nombre_usuario, rango
+                    agencia, historico, historico_anterior, st.session_state.locales_agencia,
+                    id_a_nombre_usuario, contenido_seo_periodo, periodo_texto, cliente_ia=client
                 )
                 st.download_button(
                     "⬇️ Descargar informe PDF",
                     data=pdf_bytes,
-                    file_name=f"informe_{agencia['nombre_agencia'].replace(' ', '_')}.pdf",
+                    file_name=f"informe_{agencia['nombre_agencia'].replace(' ', '_')}_{fecha_hasta_dt.strftime('%Y%m%d')}.pdf",
                     mime="application/pdf"
                 )
             except Exception as e:
+                causa_raiz = log_error_completo("generar informe PDF", e)
                 st.error(redactar_secretos(f"No se pudo generar el informe: {e}"))
+                st.caption(f"🔍 Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
     except Exception as e:
         st.error(redactar_secretos(f"No se pudo cargar la analítica: {e}"))
