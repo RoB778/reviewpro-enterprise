@@ -529,7 +529,8 @@ def _redondear_bonito(n):
     n = round(n)
     if n < 100:
         return n
-    return int(round(n / 1.0) - 10)
+    return int(round(n / 10.0) * 10)
+
 
 def _precio_anual_mensualizado(precio_mensual):
     """Precio equivalente por mes cuando se paga el año con el descuento anual."""
@@ -1182,39 +1183,117 @@ def generar_mensaje_whatsapp(nombre_local, enlace_resena):
     return "https://wa.me/?text=" + urllib.parse.quote(mensaje)
 
 
-def generar_contenido_seo_extra(client, nombre_local, nicho, seo_keywords, tipo_contenido):
+def generar_contenido_seo_extra(client, nombre_local, nicho, seo_keywords, tipo_contenido, ciudad=None):
     """
-    Reutiliza el motor de IA para generar contenido SEO adicional (más allá de
-    respuestas a reseñas): publicaciones de Google Business o descripciones
-    para redes sociales, usando las mismas keywords ya cargadas del local.
+    Genera contenido SEO de alto impacto (posts de Google Business, descripciones de
+    servicios, Q&A, ofertas, meta descripciones, descripciones para redes), aplicando
+    las mejores prácticas de posicionamiento local de 2026: intención de búsqueda local,
+    ubicación explícita, y estructura pensada para que Google (y las AI overviews) usen
+    el contenido como material de verificación de la entidad.
+
+    Devuelve una LISTA de 2-3 variantes (para test A/B), no una sola cadena. Si algo
+    falla, devuelve una lista con un único elemento de reserva para no romper la UI.
     """
     keywords_texto = ", ".join(seo_keywords) if seo_keywords else "sin keywords específicas cargadas"
+    zona = (ciudad or "").strip()
+    referencia_local = f"{nombre_local} en {zona}" if zona else nombre_local
 
+    # Instrucciones por tipo, alineadas con lo que Google premia en 2026.
     instrucciones_por_tipo = {
-        "Publicación de Google Business": "Escribe una publicación breve (40-60 palabras) para la sección de novedades de Google Business Profile. Debe sonar natural, cercana y con una llamada a la acción sutil (visitar, reservar, preguntar).",
-        "Descripción para redes sociales": "Escribe una descripción corta (25-40 palabras) pensada para el pie de una publicación de Instagram o Facebook. Tono cercano, sin hashtags excesivos (máximo 3 al final).",
-        "Meta descripción SEO": "Escribe una meta descripción SEO de máximo 155 caracteres para la página web de este negocio, pensada para aparecer en los resultados de Google. Debe incluir una llamada a la acción."
+        "Publicación de Google Business": (
+            "Escribe una publicación de novedades (What's New) de 45-70 palabras para Google Business Profile. "
+            "En 2026 Google premia las publicaciones que aportan un DATO FRESCO Y CONCRETO (un plato nuevo, un "
+            "horario de temporada, un producto específico, una novedad real), no promoción genérica. "
+            "Ancla el contenido a la búsqueda local: menciona el tipo de negocio y la zona como lo buscaría un "
+            "cliente ('mejor {nicho} en {zona}'). Cierra con una acción concreta (reservar, pasar, preguntar)."
+        ),
+        "Descripción de servicio/producto": (
+            "Escribe una descripción de 50-80 palabras para un servicio o producto estrella, pensada para la "
+            "pestaña de Servicios/Productos de Google Business Profile. Esta sección es de las más infravaloradas "
+            "y en 2026 alimenta directamente las respuestas de las AI overviews de Google. Sé específico y "
+            "descriptivo (qué es, qué incluye, para quién), integra la intención de búsqueda ('{nicho} en {zona}') "
+            "y transmite experiencia real, no adjetivos vacíos."
+        ),
+        "Pregunta y respuesta (Q&A)": (
+            "Escribe UNA pregunta frecuente real que un cliente haría antes de visitar este negocio, y su "
+            "respuesta (respuesta de 40-60 palabras). El bloque Q&A de Google se indexa y alimenta las AI "
+            "overviews. La pregunta debe reflejar una duda real de intención alta (reservas, parking, opciones "
+            "para alérgicos/veganos, grupos, horarios). La respuesta debe ser útil, concreta e integrar de forma "
+            "natural el tipo de negocio y la zona. Formato: 'P: ...' en una línea y 'R: ...' debajo."
+        ),
+        "Oferta / promoción": (
+            "Escribe una publicación de tipo Oferta de 40-60 palabras para Google Business Profile. Debe sonar a "
+            "oferta real y con gancho (no genérica), dejar claro el beneficio concreto para el cliente y crear un "
+            "motivo para actuar pronto sin caer en urgencia falsa. Ancla a la búsqueda local ('{nicho} en {zona}')."
+        ),
+        "Descripción para redes sociales": (
+            "Escribe una descripción corta (25-45 palabras) para el pie de una publicación de Instagram o "
+            "Facebook. Tono cercano y con personalidad de marca. Puedes cerrar con un máximo de 3 hashtags "
+            "relevantes, incluyendo uno geolocalizado (p.ej. #{zona_hashtag}) si hay zona."
+        ),
+        "Meta descripción SEO": (
+            "Escribe una meta descripción SEO de MÁXIMO 155 caracteres para la web de este negocio. Debe incluir "
+            "la keyword principal de intención local ('{nicho} en {zona}' o similar) lo antes posible, transmitir "
+            "una propuesta de valor clara y terminar con una llamada a la acción. Cuenta los caracteres: no te pases."
+        ),
     }
 
-    system_prompt = f"""Eres la persona que lleva las redes y la ficha de Google de "{nombre_local}" (nicho: "{nicho}"), escribiendo como lo haría el propio negocio, no una agencia externa ni un redactor genérico. Evita sonar a plantilla: nada de "no te lo pierdas", "descúbrelo ya" ni llamadas a la acción intercambiables entre cualquier negocio.
+    zona_hashtag = zona.replace(" ", "").replace(",", "") if zona else "local"
+    instruccion = instrucciones_por_tipo.get(tipo_contenido, instrucciones_por_tipo["Publicación de Google Business"])
+    instruccion = instruccion.replace("{nicho}", nicho).replace("{zona}", zona or "tu zona").replace("{zona_hashtag}", zona_hashtag)
 
-Integra de forma natural, sin forzar, al menos 1-2 de estas palabras clave si el contexto lo permite: {keywords_texto}. Si forzar una keyword rompe la naturalidad de la frase, prescinde de ella.
-
-Instrucción específica para este contenido: {instrucciones_por_tipo[tipo_contenido]}
-
-Devuelve EXCLUSIVAMENTE el texto final, sin comillas, sin explicaciones, sin encabezados, sin markdown."""
-
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=300,
-        system=system_prompt,
-        messages=[{"role": "user", "content": f"Genera el contenido para {nombre_local}."}]
+    contexto_zona = (
+        f"El negocio está en {zona}. Usa esta ubicación para reforzar el posicionamiento local: "
+        f"la gente busca '{nicho} en {zona}', 'mejor {nicho} cerca', etc."
+        if zona else
+        "No se ha especificado la ciudad/zona del negocio. Refuerza igualmente la intención local con el tipo "
+        "de negocio, pero NO te inventes un nombre de ciudad concreto."
     )
 
-    for bloque in response.content:
-        if getattr(bloque, "type", None) == "text":
-            return bloque.text.strip().strip('"')
-    return ""
+    system_prompt = f"""Eres un especialista en SEO local y en Generative Engine Optimization (GEO) que además escribe con la voz auténtica del propio negocio "{referencia_local}" (nicho: "{nicho}"). No eres una agencia externa ni un redactor genérico: suenas al negocio hablando de sí mismo.
+
+CONTEXTO DE UBICACIÓN: {contexto_zona}
+
+PRINCIPIOS SEO 2026 QUE DEBES APLICAR:
+- La INTENCIÓN DE BÚSQUEDA LOCAL manda: integra de forma natural cómo la gente busca de verdad este tipo de negocio ("{nicho} en {zona or 'la zona'}", "mejor {nicho} cerca de mí").
+- Google cruza este contenido con la web y la ficha para VERIFICAR la entidad y lo usa como material para sus AI overviews. Por eso el contenido debe ser específico, concreto y verificable, no relleno bonito.
+- Integra 1-2 de estas keywords SOLO si encajan con naturalidad (nunca a la fuerza, el keyword-stuffing penaliza en 2026): {keywords_texto}.
+- Prohibido sonar a plantilla: nada de "no te lo pierdas", "descúbrelo ya", "ven a disfrutar" ni llamadas a la acción intercambiables entre cualquier negocio.
+
+TAREA: {instruccion}
+
+Genera EXACTAMENTE 3 variantes distintas entre sí (diferente ángulo o gancho, no la misma frase reordenada), para que el negocio elija o haga test A/B.
+
+Devuelve tu respuesta EXCLUSIVAMENTE como un array JSON de 3 strings, sin ningún texto antes ni después, sin markdown, sin comillas triples. Ejemplo de formato exacto: ["variante 1", "variante 2", "variante 3"]"""
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=900,
+            system=system_prompt,
+            messages=[{"role": "user", "content": f"Genera las 3 variantes para {referencia_local}."}]
+        )
+        texto_bruto = ""
+        for bloque in response.content:
+            if getattr(bloque, "type", None) == "text":
+                texto_bruto += bloque.text
+        texto_bruto = texto_bruto.strip()
+
+        # Limpiar posibles vallas de código y parsear el JSON.
+        limpio = texto_bruto.replace("```json", "").replace("```", "").strip()
+        try:
+            variantes = json.loads(limpio)
+            if isinstance(variantes, list) and variantes:
+                return [str(v).strip() for v in variantes if str(v).strip()]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Si no vino como JSON válido, devolvemos el texto tal cual como única variante.
+        if texto_bruto:
+            return [texto_bruto]
+        return ["No se pudo generar el contenido. Inténtalo de nuevo."]
+    except Exception:
+        return ["Hubo un problema al generar el contenido. Inténtalo de nuevo en un momento."]
 
 
 def contar_usos_del_mes(agencia_id):
@@ -1875,7 +1954,69 @@ with col_cuenta:
 st.markdown(f"<hr style='border-top:3px solid {color_agencia}; margin-top:4px;'>", unsafe_allow_html=True)
 st.info(f"Sesión activa: **{usuario['nombre_usuario']}** ({usuario['email']}) · Rol: {usuario['rol']}")
 
+# =========================================================
+# 🔧 DIAGNÓSTICO TEMPORAL DE CONEXIÓN CON ANTHROPIC
+# (Quitar este bloque una vez resuelto el APIConnectionError)
+# =========================================================
+with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
+    st.caption(
+        "Aísla si el fallo es de RED (DNS/TLS/firewall saliente de Streamlit Cloud) "
+        "o del SDK de Anthropic en sí, haciendo una petición HTTP cruda sin pasar "
+        "por la librería `anthropic`."
+    )
+    if st.button("Probar conexión cruda a api.anthropic.com"):
+        try:
+            r = httpx.get("https://api.anthropic.com/v1/models", timeout=15.0)
+            st.success(f"✅ Conexión HTTP cruda OK — status code {r.status_code}")
+            st.code(r.text[:500])
+        except Exception as e:
+            causa_raiz = log_error_completo("test de red crudo con httpx", e)
+            st.error(redactar_secretos(f"❌ Falla incluso la petición cruda: {type(e).__name__}: {e}"))
+            st.caption(f"🔍 Causa raíz: {causa_raiz}")
+            st.warning(
+                "Si esto falla, el problema NO es del SDK de anthropic ni del modelo: "
+                "es de red saliente en esta instancia de Streamlit Cloud (DNS, TLS o "
+                "firewall). Prueba un reboot completo de la app (Manage app → ⋮ → Reboot), "
+                "no solo un redeploy de código."
+            )
 
+    if st.button("Probar llamada real vía SDK de Anthropic (mensaje mínimo)"):
+        try:
+            r = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "di 'ok'"}]
+            )
+            st.success(f"✅ SDK OK — respuesta: {r.content[0].text}")
+        except Exception as e:
+            causa_raiz = log_error_completo("test mínimo vía SDK anthropic", e)
+            st.error(redactar_secretos(f"❌ {type(e).__name__}: {e}"))
+            st.caption(f"🔍 Causa raíz (mira también Manage app → Logs): {causa_raiz}")
+
+    import anthropic as _anthropic_mod
+    st.caption(f"Versión del SDK `anthropic` instalada: {_anthropic_mod.__version__}")
+
+    st.divider()
+    st.caption("Higiene de la API key (sin mostrarla completa):")
+    _key_check = _anthropic_api_key_raw
+    if isinstance(_key_check, str):
+        _tiene_whitespace_extra = _key_check != _key_check.strip()
+        _no_ascii = any(ord(c) > 126 or ord(c) < 32 for c in _key_check.strip())
+        st.write({
+            "longitud_original": len(_key_check),
+            "longitud_tras_strip": len(_key_check.strip()),
+            "tenia_espacios_o_saltos_de_linea": _tiene_whitespace_extra,
+            "tiene_caracteres_no_ascii_ocultos": _no_ascii,
+            "empieza_por": _key_check.strip()[:12] + "...",
+            "termina_por": "..." + _key_check.strip()[-4:],
+        })
+        if _tiene_whitespace_extra:
+            st.warning(
+                "⚠️ La key en Secrets tenía espacios/saltos de línea al principio o al "
+                "final. Ya se limpia automáticamente con .strip(), pero te recomiendo "
+                "corregirla también en Manage app → Secrets: debe estar en una sola línea, "
+                "como `ANTHROPIC_API_KEY = \"sk-ant-api03-...\"`, sin comillas triples."
+            )
 
 # =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
@@ -1896,6 +2037,8 @@ with tab_generar:
     with st.expander(f"➕ Añadir establecimiento ({texto_limite})"):
         nombre_nuevo_local = st.text_input("Nombre del establecimiento", key="nuevo_local_nombre")
         nicho_nuevo_local = st.text_input("Nicho (ej: hotel, restaurante, clínica dental)", key="nuevo_local_nicho")
+        ciudad_nuevo_local = st.text_input("Ciudad o zona (ej: Sevilla, o Triana, Sevilla)", key="nuevo_local_ciudad",
+                                            help="Clave para el SEO local: permite generar contenido tipo 'mejor restaurante en Sevilla'.")
         keywords_nuevo_local = st.text_input("Palabras clave SEO, separadas por comas", key="nuevo_local_keywords")
         if st.button("Crear establecimiento", key="crear_establecimiento_btn"):
             puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
@@ -1913,6 +2056,7 @@ with tab_generar:
                         "agencia_id": agencia["id"],
                         "nombre": nombre_nuevo_local.strip(),
                         "nicho": nicho_nuevo_local.strip(),
+                        "ciudad": ciudad_nuevo_local.strip() or None,
                         "seo_keywords": keywords_lista
                     }).execute()
                     st.session_state.locales_agencia.append(nuevo.data[0])
@@ -2156,7 +2300,7 @@ with tab_pedir_resenas:
 # ---------------------------------------------------------
 with tab_seo_extra:
     st.subheader("📝 Contenido SEO adicional para el local")
-    st.caption("Aprovecha las mismas palabras clave del local para generar contenido más allá de las respuestas a reseñas.")
+    st.caption("Contenido optimizado para posicionamiento local 2026: intención de búsqueda, ubicación y estructura pensada para las AI overviews de Google. Cada generación te da 3 variantes para elegir o hacer test A/B.")
 
     locales_disponibles_seo = st.session_state.locales_agencia
     if not locales_disponibles_seo:
@@ -2167,21 +2311,47 @@ with tab_seo_extra:
         )
         local_seo = next(l for l in locales_disponibles_seo if l["nombre"] == nombre_local_seo)
 
+        ciudad_local = (local_seo.get("ciudad") or "").strip()
+        if ciudad_local:
+            st.caption(f"📍 Ubicación para SEO local: **{ciudad_local}**")
+        else:
+            st.warning("Este local no tiene ciudad/zona configurada. El contenido saldrá bien, pero para máxima potencia SEO local, edita el local y añade su ciudad o zona (p.ej. 'Sevilla' o 'Triana, Sevilla').")
+
         tipo_contenido = st.radio(
             "Tipo de contenido:",
-            ["Publicación de Google Business", "Descripción para redes sociales", "Meta descripción SEO"],
-            horizontal=True
+            [
+                "Publicación de Google Business",
+                "Descripción de servicio/producto",
+                "Pregunta y respuesta (Q&A)",
+                "Oferta / promoción",
+                "Descripción para redes sociales",
+                "Meta descripción SEO",
+            ],
+            horizontal=False
         )
+        ayudas_tipo = {
+            "Descripción de servicio/producto": "La pestaña de Servicios/Productos es de las más infravaloradas y en 2026 alimenta las AI overviews de Google.",
+            "Pregunta y respuesta (Q&A)": "El bloque Q&A de tu ficha se indexa en Google y responde dudas de alta intención de compra.",
+            "Oferta / promoción": "Las publicaciones de Oferta destacan en el panel local y suben el porcentaje de clics.",
+        }
+        if tipo_contenido in ayudas_tipo:
+            st.caption(f"💡 {ayudas_tipo[tipo_contenido]}")
 
-        if st.button("✨ Generar contenido", key="generar_seo_extra"):
-            with st.spinner("Redactando el contenido..."):
+        if st.button("✨ Generar 3 variantes", key="generar_seo_extra"):
+            with st.spinner("Redactando contenido optimizado para SEO local..."):
                 try:
-                    texto_generado = generar_contenido_seo_extra(
-                        client, local_seo["nombre"], local_seo["nicho"], local_seo["seo_keywords"], tipo_contenido
+                    variantes = generar_contenido_seo_extra(
+                        client, local_seo["nombre"], local_seo["nicho"],
+                        local_seo["seo_keywords"], tipo_contenido, ciudad=ciudad_local or None
                     )
-                    st.code(texto_generado, language=None, wrap_lines=True)
-                    if tipo_contenido == "Meta descripción SEO":
-                        st.caption(f"Longitud: {len(texto_generado)} caracteres (recomendado: máx. 155).")
+                    st.markdown("**Elige la variante que más te guste** (o genera de nuevo para más opciones):")
+                    for i, variante in enumerate(variantes, start=1):
+                        st.markdown(f"**Variante {i}**")
+                        st.code(variante, language=None, wrap_lines=True)
+                        if tipo_contenido == "Meta descripción SEO":
+                            n_car = len(variante)
+                            color = "🟢" if n_car <= 155 else "🔴"
+                            st.caption(f"{color} {n_car} caracteres (recomendado: máx. 155).")
 
                     registrar_contenido_seo_generado(
                         agencia_id=agencia["id"],
