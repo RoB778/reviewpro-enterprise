@@ -393,27 +393,175 @@ def mostrar_medidor_score(resultado_score, titulo, interpretacion):
         st.markdown(f'<div>{filas_html}</div>', unsafe_allow_html=True)
 
 
-LIMITE_USOS_PLAN_GRATIS = 10  # respuestas por mes incluidas en el plan Free
-LIMITE_LOCALES_POR_PLAN = {"free": 1, "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
+def calcular_roi_estrellas(facturacion_mensual, estrellas_actuales, estrellas_objetivo):
+    """
+    Traduce una mejora de valoración (en estrellas) a un rango de ingresos extra,
+    usando el hallazgo del estudio de Luca (Harvard): +1 estrella ≈ +5-9% de ingresos
+    en negocios independientes. Devuelve un dict con los importes mensuales y anuales.
+
+    facturacion_mensual: € que factura el negocio al mes (aprox.).
+    estrellas_actuales / estrellas_objetivo: valoración media (0-5), p.ej. 3.8 y 4.3.
+    """
+    if not facturacion_mensual or facturacion_mensual <= 0:
+        return None
+    delta_estrellas = max(0.0, estrellas_objetivo - estrellas_actuales)
+    if delta_estrellas <= 0:
+        return {
+            "delta_estrellas": 0,
+            "mensual_min": 0, "mensual_max": 0,
+            "anual_min": 0, "anual_max": 0,
+        }
+    # El efecto del estudio es "por estrella"; escalamos linealmente al delta real.
+    inc_min = facturacion_mensual * ROI_INCREMENTO_POR_ESTRELLA_MIN * delta_estrellas
+    inc_max = facturacion_mensual * ROI_INCREMENTO_POR_ESTRELLA_MAX * delta_estrellas
+    return {
+        "delta_estrellas": round(delta_estrellas, 2),
+        "mensual_min": round(inc_min),
+        "mensual_max": round(inc_max),
+        "anual_min": round(inc_min * 12),
+        "anual_max": round(inc_max * 12),
+    }
+
+
+def _fmt_eur(n):
+    """Formatea un entero como euros con separador de miles estilo español (1.234 €)."""
+    try:
+        return f"{int(round(n)):,}".replace(",", ".") + " €"
+    except Exception:
+        return f"{n} €"
+
+
+def mostrar_calculadora_roi(roi, estrellas_actuales, estrellas_objetivo):
+    """Renderiza el resultado de la calculadora de ROI en HTML puro (sin librerías
+    de gráficos). Muestra el rango de ingresos extra mensual y anual, con la cita
+    al estudio de Harvard como respaldo."""
+    import html as _html
+    if roi is None:
+        st.caption("Introduce la facturación mensual aproximada para estimar el retorno.")
+        return
+    if roi["delta_estrellas"] <= 0:
+        st.info("Pon una valoración objetivo mayor que la actual para ver el impacto potencial en ingresos.")
+        return
+
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#10241B,#15321F); border:1px solid #2ECC71; border-radius:14px; padding:20px 24px; margin:10px 0;">
+        <div style="font-size:0.9rem; color:#8FE3B0; margin-bottom:6px;">
+            Si subes de {estrellas_actuales}★ a {estrellas_objetivo}★ (+{roi['delta_estrellas']}★)
+        </div>
+        <div style="display:flex; gap:28px; flex-wrap:wrap;">
+            <div>
+                <div style="font-size:0.8rem; color:#8A94A6;">Ingresos extra / mes</div>
+                <div style="font-size:1.9rem; font-weight:700; color:#2ECC71; line-height:1.2;">
+                    {_html.escape(_fmt_eur(roi['mensual_min']))} – {_html.escape(_fmt_eur(roi['mensual_max']))}
+                </div>
+            </div>
+            <div>
+                <div style="font-size:0.8rem; color:#8A94A6;">Ingresos extra / año</div>
+                <div style="font-size:1.9rem; font-weight:700; color:#2ECC71; line-height:1.2;">
+                    {_html.escape(_fmt_eur(roi['anual_min']))} – {_html.escape(_fmt_eur(roi['anual_max']))}
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.caption(f"Estimación basada en el estudio de Harvard Business School: +1★ ≈ +5-9% de ingresos en negocios independientes. {ROI_FUENTE}")
+
+
+
+LIMITE_USOS_PLAN_GRATIS = 10  # respuestas por mes incluidas en el plan Free (referenciado en la landing)
+# Límite de respuestas/mes por plan. None = ilimitado.
+# El plan 'individual' es ahora ilimitado (1 local, sin tope de reseñas); el
+# blindaje anti-abuso se hace por VELOCIDAD (rate limit por hora/día), no por cupo mensual.
+LIMITE_USOS_POR_PLAN = {
+    "free": 10,
+    "individual": None,        # 1 local, respuestas ilimitadas
+    "starter": None,
+    "growth": None,
+    "enterprise": None,
+}
+LIMITE_LOCALES_POR_PLAN = {"free": 1, "individual": 1,
+                            "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# --- Constantes de la calculadora de ROI ---
+# Basadas en el estudio de Michael Luca (Harvard Business School), "Reviews,
+# Reputation, and Revenue: The Case of Yelp.com": una subida de 1 estrella en la
+# valoración se asocia a un aumento del 5-9% de ingresos en negocios independientes.
+ROI_INCREMENTO_POR_ESTRELLA_MIN = 0.05  # 5%
+ROI_INCREMENTO_POR_ESTRELLA_MAX = 0.09  # 9%
+ROI_FUENTE = "Estudio de Michael Luca, Harvard Business School (Reviews, Reputation, and Revenue)."
 
 # Price IDs de Stripe (NO Product ID) — cópialos de tu Dashboard de Stripe:
 # entra en Producto → apartado "Pricing" → pulsa en el precio recurrente → copia el
 # "API ID" que empieza por "price_...". El Product ID empieza por "prod_..." y NO sirve
 # aquí (es la causa exacta del error "No such price: 'prod_...'" que has visto).
-STRIPE_PRICE_ID_STARTER = "price_1TqCVYKwc34DG74MpaWMOaKt"
-STRIPE_PRICE_ID_GROWTH = "price_1TqCZFKwc34DG74Mpw8r8lfi"
-STRIPE_PRICE_ID_ENTERPRISE = "price_1Tr1RoKwc34DG74M8L4sjSVL"
+#
+# ⚠️ IMPORTANTE: ahora hay DOS precios por plan (mensual y anual con -20%).
+# Tienes que crear en Stripe los precios ANUALES nuevos y pegar aquí sus IDs.
+# Sugerencia de importe anual = mensual × 12 × 0,8 (dos meses gratis largos).
+STRIPE_PRICES = {
+    "individual": {
+        "mensual": "price_TODO_INDIVIDUAL_25EUR_MES",   # ⚠️ crear en Stripe (25€/mes)
+        "anual":   "price_TODO_INDIVIDUAL_240EUR_ANO",   # ⚠️ crear en Stripe (240€/año = 25×12×0,8)
+    },
+    "starter": {
+        "mensual": "price_1TqCVYKwc34DG74MpaWMOaKt",     # existente (ajusta el importe a 79€ en Stripe)
+        "anual":   "price_TODO_STARTER_758EUR_ANO",       # ⚠️ crear en Stripe (758€/año = 79×12×0,8)
+    },
+    "growth": {
+        "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 199€ en Stripe)
+        "anual":   "price_TODO_GROWTH_1910EUR_ANO",       # ⚠️ crear en Stripe (1.910€/año = 199×12×0,8)
+    },
+    "enterprise": {
+        "mensual": "price_1Tr1RoKwc34DG74M8L4sjSVL",     # existente (ajusta el importe a 449€ en Stripe)
+        "anual":   "price_TODO_ENTERPRISE_4310EUR_ANO",   # ⚠️ crear en Stripe (4.310€/año = 449×12×0,8)
+    },
+}
+
+DESCUENTO_ANUAL = 0.20  # -20% al pagar por año
+
+def _precio_anual_mensualizado(precio_mensual):
+    """Precio equivalente por mes cuando se paga el año con el descuento anual."""
+    return round(precio_mensual * (1 - DESCUENTO_ANUAL))
 
 PLANES_AUTOSERVICIO = {
-    "starter": {"nombre": "Starter", "precio_texto": "49€/mes", "price_id": STRIPE_PRICE_ID_STARTER,
-                "features": ["Hasta 10 locales", "Respuestas ilimitadas", "Marca blanca completa", "SEO invisible por local"]},
-    "growth": {"nombre": "Growth", "precio_texto": "129€/mes", "price_id": STRIPE_PRICE_ID_GROWTH,
-               "features": ["Hasta 30 locales", "Respuestas ilimitadas", "Marca blanca completa", "Multi-usuario + analítica"]},
-    "enterprise": {"nombre": "Enterprise", "precio_texto": "299€/mes", "price_id": STRIPE_PRICE_ID_ENTERPRISE,
-                   "features": ["Locales ilimitados", "Soporte prioritario", "Marca blanca completa", "Multi-usuario + analítica"]},
+    "individual": {
+        "nombre": "Individual", "target": "Un solo local · sin límite de reseñas",
+        "precio_mensual": 25, "price_ids": STRIPE_PRICES["individual"],
+        "features": ["1 local", "Respuestas ILIMITADAS", "Reputation Score + calculadora de ROI",
+                     "Blindaje legal + informe PDF de marca"],
+        "gancho": "Para el bar, restaurante o camping que gestiona sus propias reseñas.",
+    },
+    "starter": {
+        "nombre": "Starter", "target": "Agencias pequeñas · hasta 10 locales",
+        "precio_mensual": 79, "price_ids": STRIPE_PRICES["starter"],
+        "features": ["Hasta 10 locales", "Respuestas ilimitadas", "Marca blanca completa",
+                     "SEO invisible por local"],
+        "gancho": "Desde 7,90€ por local al mes.",
+    },
+    "growth": {
+        "nombre": "Growth", "target": "Agencias medianas · hasta 30 locales",
+        "precio_mensual": 199, "price_ids": STRIPE_PRICES["growth"],
+        "features": ["Hasta 30 locales", "Respuestas ilimitadas", "Marca blanca completa",
+                     "Multi-usuario + analítica + ROI"],
+        "gancho": "Solo 6,60€ por local — el favorito de las agencias.",
+        "destacado": True,
+    },
+    "enterprise": {
+        "nombre": "Enterprise", "target": "Agencias grandes · locales ilimitados",
+        "precio_mensual": 449, "price_ids": STRIPE_PRICES["enterprise"],
+        "features": ["Locales ilimitados", "Soporte prioritario", "Marca blanca completa",
+                     "Multi-usuario + analítica + ROI"],
+        "gancho": "Sin techo de crecimiento. Cuantos más locales, más barato sale cada uno.",
+    },
 }
+
+# Compatibilidad hacia atrás: algunas partes del código antiguo referencian estos nombres.
+STRIPE_PRICE_ID_INDIVIDUAL = STRIPE_PRICES["individual"]["mensual"]
+STRIPE_PRICE_ID_STARTER = STRIPE_PRICES["starter"]["mensual"]
+STRIPE_PRICE_ID_GROWTH = STRIPE_PRICES["growth"]["mensual"]
+STRIPE_PRICE_ID_ENTERPRISE = STRIPE_PRICES["enterprise"]["mensual"]
 
 
 def crear_sesion_pago_stripe(agencia_id, plan_nombre, price_id):
@@ -733,7 +881,8 @@ def generar_resumen_ejecutivo_ia(cliente_ia, total, positivas, negativas, pct_po
 
 def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_agencia,
                                  id_a_nombre_usuario, contenido_seo_periodo, periodo_texto,
-                                 cliente_ia=None, resultado_score=None, dias_periodo=30):
+                                 cliente_ia=None, resultado_score=None, dias_periodo=30,
+                                 roi=None, roi_estrellas_actuales=None, roi_estrellas_objetivo=None):
     """
     Genera el informe PDF de marca blanca (v2): Reputation Score, resumen
     ejecutivo, comparación con el periodo anterior, actividad por local con
@@ -846,6 +995,43 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     )
     story.append(Paragraph(resumen_texto, estilo_resumen_ejecutivo))
     story.append(Spacer(1, 12))
+
+    # --- Calculadora de ROI (si se han pasado datos de facturación/estrellas) ---
+    if roi and roi.get("delta_estrellas", 0) > 0:
+        estilo_roi_titulo = ParagraphStyle(
+            "RoiTitulo", parent=estilos["Normal"], fontSize=10, textColor=colors.HexColor("#1E7A46"),
+            spaceBefore=2, spaceAfter=4
+        )
+        estilo_roi_cifra = ParagraphStyle(
+            "RoiCifra", parent=estilos["Normal"], fontSize=13, leading=16,
+            textColor=colors.HexColor("#1E7A46"), alignment=1
+        )
+        estilo_roi_label = ParagraphStyle(
+            "RoiLabel", parent=estilos["Normal"], fontSize=8, textColor=colors.HexColor("#4A5568"), alignment=1
+        )
+        story.append(Paragraph(
+            f"Potencial de ingresos: subir de {roi_estrellas_actuales}★ a {roi_estrellas_objetivo}★",
+            estilo_roi_titulo
+        ))
+        tabla_roi = Table([
+            [Paragraph("INGRESOS EXTRA / MES", estilo_roi_label), Paragraph("INGRESOS EXTRA / AÑO", estilo_roi_label)],
+            [Paragraph(f"<b>{_fmt_eur(roi['mensual_min'])} – {_fmt_eur(roi['mensual_max'])}</b>", estilo_roi_cifra),
+             Paragraph(f"<b>{_fmt_eur(roi['anual_min'])} – {_fmt_eur(roi['anual_max'])}</b>", estilo_roi_cifra)],
+        ], colWidths=[8 * cm, 8 * cm])
+        tabla_roi.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EAF7EF")),
+            ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#2ECC71")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#C7E8D3")),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(tabla_roi)
+        story.append(Paragraph(
+            "Estimación según el estudio de Harvard Business School (Michael Luca): cada estrella de más "
+            "supone entre un 5% y un 9% más de ingresos en negocios independientes.",
+            estilo_nota
+        ))
+        story.append(Spacer(1, 14))
 
     # --- Resumen del periodo, con comparación al periodo anterior ---
     story.append(Paragraph("Resumen del periodo", estilo_seccion))
@@ -1051,6 +1237,91 @@ def puede_agencia_anadir_local(agencia, locales_actuales):
     return True, None
 
 
+# =========================================================
+# 🛡️ BLINDAJE ANTI-ABUSO POR VELOCIDAD (no por cupo mensual)
+# El plan Individual es ilimitado, así que el tope mensual no sirve para frenar a
+# quien quiera exprimirlo (p.ej. una agencia metiendo cientos de respuestas en el
+# plan de 1 local). Pero un negocio REAL —aunque tenga 2.000 reseñas— responde a
+# ritmo humano: nunca genera 60 respuestas en 10 minutos. Así que limitamos la
+# VELOCIDAD, no el volumen total. Un bufet legítimo con mucho tráfico ni lo nota;
+# un script abusador choca contra el tope enseguida.
+# Los límites se leen de historico_respuestas (creado_en), sin tabla nueva.
+# =========================================================
+LIMITES_VELOCIDAD_POR_PLAN = {
+    # (respuestas/hora, respuestas/día). None = sin límite (planes de agencia grandes,
+    # que legítimamente gestionan muchos locales a la vez).
+    "free":       (10, 10),      # el cupo mensual (10) ya es el límite real
+    "individual": (30, 150),     # 1 local: 30/h y 150/día es holgadísimo para un humano,
+                                 # pero frena en seco el uso como si fuera multi-local
+    "starter":    (80, None),    # varios locales; límite/hora alto para picos legítimos
+    "growth":     (150, None),
+    "enterprise": (None, None),  # sin límite
+}
+
+
+def _contar_respuestas_desde(agencia_id, desde_iso):
+    """Cuenta respuestas de una agencia desde un instante ISO dado."""
+    try:
+        resultado = supabase.table("historico_respuestas") \
+            .select("id", count="exact") \
+            .eq("agencia_id", agencia_id) \
+            .gte("creado_en", desde_iso) \
+            .execute()
+        return resultado.count or 0
+    except Exception:
+        # Si la comprobación falla, no bloqueamos (preferimos no cortar a un cliente real
+        # por un fallo puntual de red; el resto de límites siguen aplicando).
+        return 0
+
+
+def verificar_velocidad(agencia):
+    """
+    Comprueba que la agencia no está generando respuestas a una velocidad impropia
+    de un negocio real. Devuelve un dict:
+      {"permitido": bool, "razon": str|None, "advertencia": str|None}
+    No usa tablas nuevas: se apoya en historico_respuestas.
+    """
+    plan = agencia.get("plan", "growth")
+    limite_hora, limite_dia = LIMITES_VELOCIDAD_POR_PLAN.get(plan, (None, None))
+    if limite_hora is None and limite_dia is None:
+        return {"permitido": True, "razon": None, "advertencia": None}
+
+    ahora = datetime.utcnow()
+    advertencia = None
+
+    # --- Límite por hora ---
+    if limite_hora is not None:
+        hace_una_hora = (ahora - timedelta(hours=1)).isoformat()
+        en_la_ultima_hora = _contar_respuestas_desde(agencia["id"], hace_una_hora)
+        if en_la_ultima_hora >= limite_hora:
+            return {
+                "permitido": False,
+                "razon": ("Has generado muchas respuestas en muy poco tiempo. Para evitar usos indebidos, "
+                          "espera unos minutos y vuelve a intentarlo. Si gestionas un negocio con mucho "
+                          "volumen real, escríbenos y ampliamos tu límite sin problema."),
+                "advertencia": None,
+            }
+        if en_la_ultima_hora >= limite_hora * 0.8:
+            advertencia = "Estás cerca del límite de velocidad por hora. Ve con calma para no tener que esperar."
+
+    # --- Límite por día ---
+    if limite_dia is not None:
+        hace_un_dia = (ahora - timedelta(days=1)).isoformat()
+        en_las_ultimas_24h = _contar_respuestas_desde(agencia["id"], hace_un_dia)
+        if en_las_ultimas_24h >= limite_dia:
+            return {
+                "permitido": False,
+                "razon": ("Has alcanzado el máximo de respuestas de las últimas 24 horas para tu plan. "
+                          "Esto protege el servicio frente a usos automatizados. Vuelve mañana o "
+                          "escríbenos si tu negocio necesita un volumen mayor de forma legítima."),
+                "advertencia": None,
+            }
+        if en_las_ultimas_24h >= limite_dia * 0.85:
+            advertencia = "Te acercas al máximo diario de tu plan."
+
+    return {"permitido": True, "razon": None, "advertencia": advertencia}
+
+
 def redirigir_a_stripe(url_pago):
     """
     Redirige el navegador a la URL de pago de Stripe forzando el nivel superior de la
@@ -1067,7 +1338,7 @@ def redirigir_a_stripe(url_pago):
 
 def render_pagina_planes_upgrade(agencia, color_agencia):
     """
-    Página de actualización de plan para usuarios ya logueados. Muestra las tres tarjetas
+    Página de actualización de plan para usuarios ya logueados. Muestra las tarjetas
     de plan (igual que en la landing) en formato compacto; solo al elegir uno se genera la
     sesión de pago, ya ligada a la agencia.
     """
@@ -1077,6 +1348,14 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
 
     st.markdown(f"### Tu plan actual: {agencia.get('plan', 'free').capitalize()}")
 
+    ciclo_up = st.radio(
+        "Facturación:", ["Mensual", f"Anual (−{int(DESCUENTO_ANUAL*100)}%)"],
+        horizontal=True, key="ciclo_upgrade"
+    )
+    es_anual_up = ciclo_up.startswith("Anual")
+    if es_anual_up:
+        st.caption(f"💚 Pagando por año te ahorras un {int(DESCUENTO_ANUAL*100)}%.")
+
     columnas = st.columns(len(PLANES_AUTOSERVICIO))
 
     for columna, (clave_plan, datos_plan) in zip(columnas, PLANES_AUTOSERVICIO.items()):
@@ -1084,13 +1363,19 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
             with st.container(border=True):
                 es_plan_actual = agencia.get("plan") == clave_plan
                 st.markdown(f"**{datos_plan['nombre']}**")
-                st.markdown(f"## {datos_plan['precio_texto']}")
+                if es_anual_up:
+                    mensualizado = _precio_anual_mensualizado(datos_plan["precio_mensual"])
+                    st.markdown(f"## {mensualizado}€/mes")
+                    st.caption(f"~~{datos_plan['precio_mensual']}€~~ · facturado {mensualizado*12}€/año")
+                else:
+                    st.markdown(f"## {datos_plan['precio_mensual']}€/mes")
                 for feature in datos_plan["features"]:
                     st.caption(f"✓ {feature}")
                 if es_plan_actual:
                     st.success("Tu plan actual")
                 elif st.button(f"Elegir {datos_plan['nombre']}", key=f"elegir_{clave_plan}", use_container_width=True, type="primary"):
-                    url_pago = crear_sesion_pago_stripe(agencia["id"], clave_plan, datos_plan["price_id"])
+                    price_id = datos_plan["price_ids"]["anual" if es_anual_up else "mensual"]
+                    url_pago = crear_sesion_pago_stripe(agencia["id"], clave_plan, price_id)
                     if url_pago:
                         redirigir_a_stripe(url_pago)
 
@@ -1249,6 +1534,18 @@ if not st.session_state.sesion_activa:
         .rp-feature { color: #C7CDDB; font-size: 0.88rem; margin: 6px 0; }
         .rp-badge { display:inline-block; background:#FFB45422; color:#FFB454; font-size:0.72rem;
             padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; font-weight:600; letter-spacing: 0.03em; }
+        .rp-badge-verde { display:inline-block; background:#2ECC7122; color:#2ECC71; font-size:0.72rem;
+            padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; font-weight:600; letter-spacing: 0.03em; }
+        .rp-precio-tachado { color:#6B7488; font-size:1rem; text-decoration:line-through; margin-right:6px; }
+        .rp-precio-ahorro { color:#2ECC71; font-size:0.8rem; font-weight:600; margin-top:2px; }
+        .rp-por-local { color:#8BD1F7; font-size:0.82rem; font-weight:600; margin-top:6px; }
+        .rp-gancho { color:#9AA4B8; font-size:0.82rem; font-style:italic; margin-top:10px; min-height:34px; }
+        .rp-roi-banner {
+            background:linear-gradient(135deg,#10241B,#15321F); border:1px solid #2ECC71;
+            border-radius:14px; padding:16px 22px; margin:6px 0 20px 0;
+        }
+        .rp-roi-banner strong { color:#2ECC71; }
+        .rp-garantia { color:#8B95A8; font-size:0.85rem; text-align:center; margin-top:14px; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -1305,7 +1602,53 @@ if not st.session_state.sesion_activa:
     # VISTA: PLANES Y PRECIOS
     # -----------------------------------------------------
     if mostrar_planes:
-        col_free, col_starter, col_growth, col_ent = st.columns(4)
+        # --- Gancho de valor: el ROI antes que el precio ---
+        st.markdown("""
+            <div class="rp-roi-banner">
+                Una sola estrella de más en Google puede suponer entre un <strong>5% y un 9% más de ingresos</strong>
+                para un negocio (estudio de Harvard Business School). Para un local que factura 60.000&nbsp;€/mes,
+                eso son hasta <strong>32.000&nbsp;€ más al año</strong>. Gestionar bien tus reseñas cuesta, aquí,
+                desde 25&nbsp;€ al mes.
+            </div>
+        """, unsafe_allow_html=True)
+
+        # --- Toggle mensual / anual ---
+        col_toggle, _ = st.columns([1, 2])
+        with col_toggle:
+            ciclo = st.radio(
+                "Facturación:",
+                ["Mensual", f"Anual (−{int(DESCUENTO_ANUAL*100)}%)"],
+                horizontal=True, key="ciclo_facturacion", label_visibility="collapsed"
+            )
+        es_anual = ciclo.startswith("Anual")
+        if es_anual:
+            st.caption(f"💚 Pagando por año te ahorras un {int(DESCUENTO_ANUAL*100)}% — equivale a llevarte más de 2 meses gratis.")
+
+        def _bloque_precio(precio_mensual):
+            """Devuelve el HTML del precio según el ciclo elegido, con anclaje visual."""
+            if es_anual:
+                mensualizado = _precio_anual_mensualizado(precio_mensual)
+                anual_total = mensualizado * 12
+                ahorro_anual = precio_mensual * 12 - anual_total
+                return (
+                    f'<span class="rp-precio-tachado">{precio_mensual}€</span>'
+                    f'<span class="rp-precio">{mensualizado}€</span>'
+                    f'<span class="rp-precio-periodo"> / mes</span>'
+                    f'<div class="rp-precio-ahorro">Facturado {anual_total}€/año · ahorras {ahorro_anual}€</div>'
+                )
+            return f'<span class="rp-precio">{precio_mensual}€</span><span class="rp-precio-periodo"> / mes</span>'
+
+        def _por_local(clave_plan, datos_plan):
+            """Texto '€/local' para reforzar lo barato que sale en planes multi-local."""
+            limite = LIMITE_LOCALES_POR_PLAN.get(clave_plan)
+            if not limite or limite <= 1:
+                return ""
+            base = _precio_anual_mensualizado(datos_plan["precio_mensual"]) if es_anual else datos_plan["precio_mensual"]
+            return f'<div class="rp-por-local">≈ {base/limite:.1f}€ por local / mes</div>'
+
+        # --- Fila 1: Free + Individual (el negocio suelto) ---
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        col_free, col_individual = st.columns(2)
 
         with col_free:
             st.markdown(f"""
@@ -1319,7 +1662,7 @@ if not st.session_state.sesion_activa:
                     <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>
                     <div class="rp-feature">✓ Sin tarjeta de crédito</div>
                     <div class="rp-feature" style="opacity:0.4;">✗ Marca blanca</div>
-                    <div class="rp-feature" style="opacity:0.4;">✗ Multi-usuario</div>
+                    <div class="rp-gancho">Ideal para ver la calidad de las respuestas sin compromiso.</div>
                 </div>
             """, unsafe_allow_html=True)
             with st.popover("Empezar gratis", use_container_width=True):
@@ -1341,65 +1684,67 @@ if not st.session_state.sesion_activa:
                         else:
                             st.error(error)
 
-        with col_starter:
+        with col_individual:
+            plan_ind = PLANES_AUTOSERVICIO["individual"]
+            features_ind = "".join(f'<div class="rp-feature">✓ {f}</div>' for f in plan_ind["features"])
             st.markdown(f"""
                 <div class="rp-card">
-                    <div class="rp-plan-nombre">Starter</div>
-                    <div class="rp-plan-target">Agencias pequeñas · hasta 10 locales</div>
-                    <div class="rp-precio">49€</div>
-                    <div class="rp-precio-periodo">/ mes</div>
+                    <span class="rp-badge-verde">PARA UN SOLO LOCAL</span>
+                    <div class="rp-plan-nombre">{plan_ind['nombre']}</div>
+                    <div class="rp-plan-target">{plan_ind['target']}</div>
+                    {_bloque_precio(plan_ind['precio_mensual'])}
                     <hr style="border-color:#232C42; margin:14px 0;">
-                    <div class="rp-feature">✓ Hasta 10 locales</div>
-                    <div class="rp-feature">✓ Respuestas ilimitadas</div>
-                    <div class="rp-feature">✓ Marca blanca completa</div>
-                    <div class="rp-feature">✓ SEO invisible por local</div>
+                    {features_ind}
+                    <div class="rp-gancho">{plan_ind['gancho']}</div>
                 </div>
             """, unsafe_allow_html=True)
-            if st.button("Elegir Starter", key="landing_elegir_starter", use_container_width=True, type="primary"):
-                url_pago_starter = crear_sesion_pago_nueva_agencia("starter", STRIPE_PRICE_ID_STARTER)
-                if url_pago_starter:
-                    redirigir_a_stripe(url_pago_starter)
+            if st.button("Empezar con Individual", key="landing_elegir_individual", use_container_width=True, type="primary"):
+                price_id_ind = plan_ind["price_ids"]["anual" if es_anual else "mensual"]
+                url_pago = crear_sesion_pago_nueva_agencia("individual", price_id_ind)
+                if url_pago:
+                    redirigir_a_stripe(url_pago)
 
-        with col_growth:
-            st.markdown(f"""
-                <div class="rp-card rp-card-destacado">
-                    <span class="rp-badge">MÁS ELEGIDO</span>
-                    <div class="rp-plan-nombre">Growth</div>
-                    <div class="rp-plan-target">Agencias medianas · hasta 30 locales</div>
-                    <div class="rp-precio">129€</div>
-                    <div class="rp-precio-periodo">/ mes</div>
-                    <hr style="border-color:#232C42; margin:14px 0;">
-                    <div class="rp-feature">✓ Hasta 30 locales</div>
-                    <div class="rp-feature">✓ Respuestas ilimitadas</div>
-                    <div class="rp-feature">✓ Marca blanca completa</div>
-                    <div class="rp-feature">✓ Multi-usuario + analítica</div>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("Elegir Growth", key="landing_elegir_growth", use_container_width=True, type="primary"):
-                url_pago_growth = crear_sesion_pago_nueva_agencia("growth", STRIPE_PRICE_ID_GROWTH)
-                if url_pago_growth:
-                    redirigir_a_stripe(url_pago_growth)
+        # --- Fila 2: planes de agencia ---
+        st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
+        st.markdown('<div class="rp-plan-target" style="font-size:0.95rem; margin-bottom:8px;">¿Gestionas varios locales? Planes para agencias:</div>', unsafe_allow_html=True)
+        col_starter, col_growth, col_ent = st.columns(3)
 
-        with col_ent:
-            st.markdown(f"""
-                <div class="rp-card">
-                    <div class="rp-plan-nombre">Enterprise</div>
-                    <div class="rp-plan-target">Agencias grandes · locales ilimitados</div>
-                    <div class="rp-precio">299€</div>
-                    <div class="rp-precio-periodo">/ mes</div>
-                    <hr style="border-color:#232C42; margin:14px 0;">
-                    <div class="rp-feature">✓ Locales ilimitados</div>
-                    <div class="rp-feature">✓ Soporte prioritario</div>
-                    <div class="rp-feature">✓ Marca blanca completa</div>
-                    <div class="rp-feature">✓ Multi-usuario + analítica</div>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("Elegir Enterprise", key="landing_elegir_enterprise", use_container_width=True, type="primary"):
-                url_pago_enterprise = crear_sesion_pago_nueva_agencia("enterprise", STRIPE_PRICE_ID_ENTERPRISE)
-                if url_pago_enterprise:
-                    redirigir_a_stripe(url_pago_enterprise)
+        planes_agencia = [
+            ("starter", col_starter, "landing_elegir_starter"),
+            ("growth", col_growth, "landing_elegir_growth"),
+            ("enterprise", col_ent, "landing_elegir_enterprise"),
+        ]
+        for clave_plan, columna, boton_key in planes_agencia:
+            datos = PLANES_AUTOSERVICIO[clave_plan]
+            with columna:
+                clase_card = "rp-card rp-card-destacado" if datos.get("destacado") else "rp-card"
+                badge = '<span class="rp-badge">MÁS ELEGIDO</span>' if datos.get("destacado") else ""
+                features = "".join(f'<div class="rp-feature">✓ {f}</div>' for f in datos["features"])
+                st.markdown(f"""
+                    <div class="{clase_card}">
+                        {badge}
+                        <div class="rp-plan-nombre">{datos['nombre']}</div>
+                        <div class="rp-plan-target">{datos['target']}</div>
+                        {_bloque_precio(datos['precio_mensual'])}
+                        {_por_local(clave_plan, datos)}
+                        <hr style="border-color:#232C42; margin:14px 0;">
+                        {features}
+                        <div class="rp-gancho">{datos['gancho']}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+                tipo_boton = "primary" if datos.get("destacado") else "secondary"
+                if st.button(f"Elegir {datos['nombre']}", key=boton_key, use_container_width=True, type=tipo_boton):
+                    price_id = datos["price_ids"]["anual" if es_anual else "mensual"]
+                    url_pago = crear_sesion_pago_nueva_agencia(clave_plan, price_id)
+                    if url_pago:
+                        redirigir_a_stripe(url_pago)
 
-        st.caption("Al pagar cualquier plan, vuelves aquí mismo para crear tu contraseña y tu cuenta queda activa al instante — sin esperas ni llamadas.")
+        st.markdown("""
+            <div class="rp-garantia">
+                Sin permanencia · Cancela cuando quieras · Al pagar vuelves aquí para crear tu cuenta al instante,
+                sin esperas ni llamadas comerciales.
+            </div>
+        """, unsafe_allow_html=True)
 
     # -----------------------------------------------------
     # VISTA: LOGIN
@@ -1611,10 +1956,13 @@ with tab_generar:
 
     st.caption(f"Nicho: **{local_activo['nicho']}** · {len(local_activo['seo_keywords'])} keywords SEO cargadas.")
 
-    if agencia.get("plan") == "free":
+    plan_actual = agencia.get("plan", "growth")
+    limite_usos_plan = LIMITE_USOS_POR_PLAN.get(plan_actual, None)
+    if limite_usos_plan is not None:
         usos_hechos = contar_usos_del_mes(agencia["id"])
-        restantes = max(0, LIMITE_USOS_PLAN_GRATIS - usos_hechos)
-        st.info(f"🎁 Plan Free: te quedan **{restantes} de {LIMITE_USOS_PLAN_GRATIS}** respuestas este mes.")
+        restantes = max(0, limite_usos_plan - usos_hechos)
+        nombre_plan_legible = PLANES_AUTOSERVICIO.get(plan_actual, {}).get("nombre", plan_actual.capitalize())
+        st.info(f"Plan {nombre_plan_legible}: te quedan **{restantes} de {limite_usos_plan}** respuestas este mes.")
     else:
         usos_local_este_mes = contar_usos_del_mes_por_local(local_activo["id"])
         if usos_local_este_mes >= UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL:
@@ -1632,12 +1980,17 @@ with tab_generar:
             st.warning("Por favor, pega la reseña del cliente.")
         elif not acepta_terminos:
             st.error("⚠️ Es obligatorio aceptar los términos de uso.")
-        elif agencia.get("plan") == "free" and contar_usos_del_mes(agencia["id"]) >= LIMITE_USOS_PLAN_GRATIS:
-            st.error(redactar_secretos(f"⚠️ Has usado tus {LIMITE_USOS_PLAN_GRATIS} respuestas gratuitas de este mes. Actualiza tu plan para seguir generando sin límite."))
+        elif limite_usos_plan is not None and contar_usos_del_mes(agencia["id"]) >= limite_usos_plan:
+            st.error(redactar_secretos(f"⚠️ Has usado tus {limite_usos_plan} respuestas de este mes en tu plan actual. Actualiza tu plan para seguir generando sin límite."))
             if st.button("💳 Ver planes de pago", key="ver_planes_limite_usos"):
                 st.session_state.mostrar_pagina_planes = True
                 st.rerun()
+        elif not verificar_velocidad(agencia)["permitido"]:
+            st.error(redactar_secretos(f"⚠️ {verificar_velocidad(agencia)['razon']}"))
         else:
+            _adv_velocidad = verificar_velocidad(agencia).get("advertencia")
+            if _adv_velocidad:
+                st.info(_adv_velocidad)
             with st.spinner("Analizando el idioma y el tono de la reseña..."):
                 try:
                     nombre_local_final = local_activo["nombre"]
@@ -1948,6 +2301,19 @@ with tab_analitica:
             interpretacion = generar_interpretacion_score_ia(client, resultado_score, nombre_ctx)
             mostrar_medidor_score(resultado_score, f"Puntuación de {nombre_ctx} · {rango}", interpretacion)
 
+            # ---------- 💶 CALCULADORA DE ROI (score → ingresos) ----------
+            with st.expander("💶 Calculadora de retorno: ¿cuánto vale subir de estrellas?", expanded=False):
+                st.caption(
+                    "Estima cuánto más podría facturar este negocio si mejora su valoración media. "
+                    "Basado en el estudio de Harvard: cada estrella de más sube los ingresos un 5-9% en negocios independientes."
+                )
+                colr1, colr2, colr3 = st.columns(3)
+                facturacion = colr1.number_input("Facturación al mes (€)", min_value=0, value=20000, step=1000, key="roi_facturacion")
+                estrellas_act = colr2.number_input("Valoración actual (★)", min_value=0.0, max_value=5.0, value=3.8, step=0.1, key="roi_estrellas_act")
+                estrellas_obj = colr3.number_input("Valoración objetivo (★)", min_value=0.0, max_value=5.0, value=4.3, step=0.1, key="roi_estrellas_obj")
+                roi = calcular_roi_estrellas(facturacion, estrellas_act, estrellas_obj)
+                mostrar_calculadora_roi(roi, estrellas_act, estrellas_obj)
+
             st.divider()
             st.markdown("**Actividad del periodo**")
             col1, col2, col3 = st.columns(3)
@@ -1994,10 +2360,21 @@ with tab_analitica:
                 # El informe usa siempre el score de toda la agencia (no el del
                 # local seleccionado arriba en pantalla).
                 score_agencia = calcular_reputation_score(historico, historico_anterior, dias_periodo)
+
+                # Si el usuario ha usado la calculadora de ROI arriba, incluimos ese
+                # cálculo en el informe. Los valores viven en session_state por sus keys.
+                roi_informe = None
+                fact_roi = st.session_state.get("roi_facturacion", 0)
+                est_act_roi = st.session_state.get("roi_estrellas_act", 0.0)
+                est_obj_roi = st.session_state.get("roi_estrellas_obj", 0.0)
+                if fact_roi and est_obj_roi > est_act_roi:
+                    roi_informe = calcular_roi_estrellas(fact_roi, est_act_roi, est_obj_roi)
+
                 pdf_bytes = generar_informe_pdf_mensual(
                     agencia, historico, historico_anterior, st.session_state.locales_agencia,
                     id_a_nombre_usuario, contenido_seo_periodo, periodo_texto,
-                    cliente_ia=client, resultado_score=score_agencia, dias_periodo=dias_periodo
+                    cliente_ia=client, resultado_score=score_agencia, dias_periodo=dias_periodo,
+                    roi=roi_informe, roi_estrellas_actuales=est_act_roi, roi_estrellas_objetivo=est_obj_roi
                 )
                 st.download_button(
                     "⬇️ Descargar informe PDF",
