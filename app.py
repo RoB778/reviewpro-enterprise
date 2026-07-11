@@ -521,9 +521,26 @@ STRIPE_PRICES = {
 
 DESCUENTO_ANUAL = 0.20  # -20% al pagar por año
 
+def _redondear_bonito(n):
+    """Redondea un importe a una cifra 'comercial' agradable.
+    < 100 → sin tocar (25, 79...). >= 100 → al múltiplo de 10 más cercano
+    (1908 → 1910... y si cae en 1905-1914 lo deja en 1910; 1900 se queda 1900).
+    Esto evita precios feos tipo 1908€ en la facturación anual."""
+    n = round(n)
+    if n < 100:
+        return n
+    return int(round(n / 10.0) * 10)
+
+
 def _precio_anual_mensualizado(precio_mensual):
     """Precio equivalente por mes cuando se paga el año con el descuento anual."""
     return round(precio_mensual * (1 - DESCUENTO_ANUAL))
+
+
+def _precio_anual_total(precio_mensual):
+    """Precio total del año con descuento, redondeado a una cifra bonita.
+    Es lo que realmente se cobra de una vez al elegir facturación anual."""
+    return _redondear_bonito(precio_mensual * 12 * (1 - DESCUENTO_ANUAL))
 
 PLANES_AUTOSERVICIO = {
     "individual": {
@@ -1324,16 +1341,30 @@ def verificar_velocidad(agencia):
 
 def redirigir_a_stripe(url_pago):
     """
-    Redirige el navegador a la URL de pago de Stripe forzando el nivel superior de la
-    ventana (window.top). Un simple <meta refresh> se queda atrapado si Streamlit renderiza
-    el HTML dentro de un iframe interno, y Stripe bloquea la carga con el error
-    "not able to run in an iFrame" — por eso aquí usamos JavaScript en vez de meta refresh.
+    Lleva al usuario a la pasarela de pago de Stripe. Intenta un salto automático
+    (window.top para escapar del iframe interno de Streamlit; Stripe bloquea la carga
+    dentro de iframes con "not able to run in an iFrame"). Si el navegador bloquea el
+    salto automático, mostramos un botón grande y llamativo con el enlace, en vez del
+    típico enlace de texto pequeño que pasa desapercibido.
     """
+    # Intento de salto automático al nivel superior de la ventana.
     st.markdown(
         f"""<script>window.top.location.href = "{url_pago}";</script>""",
         unsafe_allow_html=True
     )
-    st.caption(f"Redirigiendo a un pago seguro con Stripe... [haz clic aquí si no ocurre solo]({url_pago})")
+    # Botón-enlace bonito como respaldo (y como acción principal si el salto se bloquea).
+    boton_pago_html = (
+        '<div style="margin:14px 0; text-align:center;">'
+        f'<a href="{url_pago}" target="_top" '
+        'style="display:inline-block; background:linear-gradient(135deg,#635BFF,#8B7BFF); '
+        'color:#FFFFFF; font-weight:700; font-size:1.05rem; text-decoration:none; '
+        'padding:14px 32px; border-radius:12px; box-shadow:0 4px 14px rgba(99,91,255,0.45); '
+        'letter-spacing:0.01em;">🔒 Continuar al pago seguro con Stripe →</a>'
+        '<div style="color:#8B95A8; font-size:0.8rem; margin-top:8px;">'
+        'Se abre la pasarela cifrada de Stripe. Si no salta sola, pulsa el botón.</div>'
+        '</div>'
+    )
+    st.markdown(boton_pago_html, unsafe_allow_html=True)
 
 
 def render_pagina_planes_upgrade(agencia, color_agencia):
@@ -1364,9 +1395,10 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
                 es_plan_actual = agencia.get("plan") == clave_plan
                 st.markdown(f"**{datos_plan['nombre']}**")
                 if es_anual_up:
-                    mensualizado = _precio_anual_mensualizado(datos_plan["precio_mensual"])
-                    st.markdown(f"## {mensualizado}€/mes")
-                    st.caption(f"~~{datos_plan['precio_mensual']}€~~ · facturado {mensualizado*12}€/año")
+                    anual_total = _precio_anual_total(datos_plan["precio_mensual"])
+                    equivalente_mes = round(anual_total / 12)
+                    st.markdown(f"## {anual_total}€/año")
+                    st.caption(f"~~{datos_plan['precio_mensual']*12}€~~ · equivale a {equivalente_mes}€/mes")
                 else:
                     st.markdown(f"## {datos_plan['precio_mensual']}€/mes")
                 for feature in datos_plan["features"]:
@@ -1625,16 +1657,18 @@ if not st.session_state.sesion_activa:
             st.caption(f"💚 Pagando por año te ahorras un {int(DESCUENTO_ANUAL*100)}% — equivale a llevarte más de 2 meses gratis.")
 
         def _bloque_precio(precio_mensual):
-            """Devuelve el HTML del precio según el ciclo elegido, con anclaje visual."""
+            """Devuelve el HTML del precio según el ciclo elegido, con anclaje visual.
+            En anual, el número grande es el TOTAL del año (lo que se paga de una vez)."""
             if es_anual:
-                mensualizado = _precio_anual_mensualizado(precio_mensual)
-                anual_total = mensualizado * 12
-                ahorro_anual = precio_mensual * 12 - anual_total
+                anual_total = _precio_anual_total(precio_mensual)
+                anual_sin_dto = precio_mensual * 12
+                ahorro_anual = anual_sin_dto - anual_total
+                equivalente_mes = round(anual_total / 12)
                 return (
-                    f'<span class="rp-precio-tachado">{precio_mensual}€</span>'
-                    f'<span class="rp-precio">{mensualizado}€</span>'
-                    f'<span class="rp-precio-periodo"> / mes</span>'
-                    f'<div class="rp-precio-ahorro">Facturado {anual_total}€/año · ahorras {ahorro_anual}€</div>'
+                    f'<span class="rp-precio-tachado">{anual_sin_dto}€</span>'
+                    f'<span class="rp-precio">{anual_total}€</span>'
+                    f'<span class="rp-precio-periodo"> / año</span>'
+                    f'<div class="rp-precio-ahorro">Equivale a {equivalente_mes}€/mes · ahorras {ahorro_anual}€ al año</div>'
                 )
             return f'<span class="rp-precio">{precio_mensual}€</span><span class="rp-precio-periodo"> / mes</span>'
 
@@ -1643,7 +1677,10 @@ if not st.session_state.sesion_activa:
             limite = LIMITE_LOCALES_POR_PLAN.get(clave_plan)
             if not limite or limite <= 1:
                 return ""
-            base = _precio_anual_mensualizado(datos_plan["precio_mensual"]) if es_anual else datos_plan["precio_mensual"]
+            if es_anual:
+                base = round(_precio_anual_total(datos_plan["precio_mensual"]) / 12)
+            else:
+                base = datos_plan["precio_mensual"]
             return f'<div class="rp-por-local">≈ {base/limite:.1f}€ por local / mes</div>'
 
         # --- Fila 1: Free + Individual (el negocio suelto) ---
@@ -1651,20 +1688,21 @@ if not st.session_state.sesion_activa:
         col_free, col_individual = st.columns(2)
 
         with col_free:
-            st.markdown(f"""
-                <div class="rp-card">
-                    <div class="rp-plan-nombre">Free</div>
-                    <div class="rp-plan-target">Para probar antes de decidir</div>
-                    <div class="rp-precio">0€</div>
-                    <div class="rp-precio-periodo">para siempre</div>
-                    <hr style="border-color:#232C42; margin:14px 0;">
-                    <div class="rp-feature">✓ 1 local de prueba</div>
-                    <div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>
-                    <div class="rp-feature">✓ Sin tarjeta de crédito</div>
-                    <div class="rp-feature" style="opacity:0.4;">✗ Marca blanca</div>
-                    <div class="rp-gancho">Ideal para ver la calidad de las respuestas sin compromiso.</div>
-                </div>
-            """, unsafe_allow_html=True)
+            free_html = (
+                '<div class="rp-card">'
+                '<div class="rp-plan-nombre">Free</div>'
+                '<div class="rp-plan-target">Para probar antes de decidir</div>'
+                '<div class="rp-precio">0€</div>'
+                '<div class="rp-precio-periodo">para siempre</div>'
+                '<hr style="border-color:#232C42; margin:14px 0;">'
+                '<div class="rp-feature">✓ 1 local de prueba</div>'
+                f'<div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>'
+                '<div class="rp-feature">✓ Sin tarjeta de crédito</div>'
+                '<div class="rp-feature" style="opacity:0.4;">✗ Marca blanca</div>'
+                '<div class="rp-gancho">Ideal para ver la calidad de las respuestas sin compromiso.</div>'
+                '</div>'
+            )
+            st.markdown(free_html, unsafe_allow_html=True)
             with st.popover("Empezar gratis", use_container_width=True):
                 st.caption("Crea tu cuenta en 30 segundos. Sin tarjeta.")
                 nombre_agencia_free = st.text_input("Nombre de tu agencia o negocio", key="free_nombre_agencia")
@@ -1687,17 +1725,18 @@ if not st.session_state.sesion_activa:
         with col_individual:
             plan_ind = PLANES_AUTOSERVICIO["individual"]
             features_ind = "".join(f'<div class="rp-feature">✓ {f}</div>' for f in plan_ind["features"])
-            st.markdown(f"""
-                <div class="rp-card">
-                    <span class="rp-badge-verde">PARA UN SOLO LOCAL</span>
-                    <div class="rp-plan-nombre">{plan_ind['nombre']}</div>
-                    <div class="rp-plan-target">{plan_ind['target']}</div>
-                    {_bloque_precio(plan_ind['precio_mensual'])}
-                    <hr style="border-color:#232C42; margin:14px 0;">
-                    {features_ind}
-                    <div class="rp-gancho">{plan_ind['gancho']}</div>
-                </div>
-            """, unsafe_allow_html=True)
+            individual_html = (
+                '<div class="rp-card">'
+                '<span class="rp-badge-verde">PARA UN SOLO LOCAL</span>'
+                f'<div class="rp-plan-nombre">{plan_ind["nombre"]}</div>'
+                f'<div class="rp-plan-target">{plan_ind["target"]}</div>'
+                f'{_bloque_precio(plan_ind["precio_mensual"])}'
+                '<hr style="border-color:#232C42; margin:14px 0;">'
+                f'{features_ind}'
+                f'<div class="rp-gancho">{plan_ind["gancho"]}</div>'
+                '</div>'
+            )
+            st.markdown(individual_html, unsafe_allow_html=True)
             if st.button("Empezar con Individual", key="landing_elegir_individual", use_container_width=True, type="primary"):
                 price_id_ind = plan_ind["price_ids"]["anual" if es_anual else "mensual"]
                 url_pago = crear_sesion_pago_nueva_agencia("individual", price_id_ind)
@@ -1720,18 +1759,19 @@ if not st.session_state.sesion_activa:
                 clase_card = "rp-card rp-card-destacado" if datos.get("destacado") else "rp-card"
                 badge = '<span class="rp-badge">MÁS ELEGIDO</span>' if datos.get("destacado") else ""
                 features = "".join(f'<div class="rp-feature">✓ {f}</div>' for f in datos["features"])
-                st.markdown(f"""
-                    <div class="{clase_card}">
-                        {badge}
-                        <div class="rp-plan-nombre">{datos['nombre']}</div>
-                        <div class="rp-plan-target">{datos['target']}</div>
-                        {_bloque_precio(datos['precio_mensual'])}
-                        {_por_local(clave_plan, datos)}
-                        <hr style="border-color:#232C42; margin:14px 0;">
-                        {features}
-                        <div class="rp-gancho">{datos['gancho']}</div>
-                    </div>
-                """, unsafe_allow_html=True)
+                tarjeta_html = (
+                    f'<div class="{clase_card}">'
+                    f'{badge}'
+                    f'<div class="rp-plan-nombre">{datos["nombre"]}</div>'
+                    f'<div class="rp-plan-target">{datos["target"]}</div>'
+                    f'{_bloque_precio(datos["precio_mensual"])}'
+                    f'{_por_local(clave_plan, datos)}'
+                    f'<hr style="border-color:#232C42; margin:14px 0;">'
+                    f'{features}'
+                    f'<div class="rp-gancho">{datos["gancho"]}</div>'
+                    f'</div>'
+                )
+                st.markdown(tarjeta_html, unsafe_allow_html=True)
                 tipo_boton = "primary" if datos.get("destacado") else "secondary"
                 if st.button(f"Elegir {datos['nombre']}", key=boton_key, use_container_width=True, type=tipo_boton):
                     price_id = datos["price_ids"]["anual" if es_anual else "mensual"]
