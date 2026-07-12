@@ -1743,30 +1743,24 @@ def verificar_velocidad(agencia):
 
 def redirigir_a_stripe(url_pago):
     """
-    Lleva al usuario a la pasarela de pago de Stripe. Intenta un salto automático
-    (window.top para escapar del iframe interno de Streamlit; Stripe bloquea la carga
-    dentro de iframes con "not able to run in an iFrame"). Si el navegador bloquea el
-    salto automático, mostramos un botón grande y llamativo con el enlace, en vez del
-    típico enlace de texto pequeño que pasa desapercibido.
+    Lleva al usuario a la pasarela de pago de Stripe.
+
+    Importante: NO se puede hacer una redirección 100% automática desde aquí.
+    Streamlit elimina las etiquetas <script> inyectadas con st.markdown (aunque
+    se use unsafe_allow_html=True), así que un salto por JavaScript nunca se
+    ejecuta; y el contenido corre dentro de un iframe cuyo sandbox bloquea la
+    navegación del top window sin un clic real del usuario. Por eso se usa
+    st.link_button, que genera un ancla nativa y navega de forma fiable a Stripe
+    al pulsarlo, escapando correctamente del iframe.
     """
-    # Intento de salto automático al nivel superior de la ventana.
-    st.markdown(
-        f"""<script>window.top.location.href = "{url_pago}";</script>""",
-        unsafe_allow_html=True
+    st.success("Sesión de pago creada correctamente.")
+    st.link_button(
+        "Continuar al pago seguro con Stripe →",
+        url_pago,
+        type="primary",
+        use_container_width=True,
     )
-    # Botón-enlace como respaldo (y como acción principal si el salto se bloquea).
-    boton_pago_html = (
-        '<div style="margin:16px 0; text-align:center;">'
-        f'<a href="{url_pago}" target="_top" '
-        'style="display:inline-block; background:#3B3A6B; '
-        'color:#FFFFFF; font-weight:500; font-size:0.98rem; text-decoration:none; '
-        'padding:14px 34px; border:1px solid #3B3A6B; border-radius:8px; '
-        'letter-spacing:-0.006em; box-shadow:0 1px 2px rgba(59,58,107,0.18);">Continuar al pago seguro con Stripe &rarr;</a>'
-        '<div style="color:#8A8880; font-size:0.78rem; margin-top:10px;">'
-        'Pasarela cifrada de Stripe. Si no se abre sola, pulsa el botón.</div>'
-        '</div>'
-    )
-    st.markdown(boton_pago_html, unsafe_allow_html=True)
+    st.caption("Pasarela cifrada de Stripe. Pulsa el botón para completar la contratación.")
 
 
 def render_pagina_planes_upgrade(agencia, color_agencia):
