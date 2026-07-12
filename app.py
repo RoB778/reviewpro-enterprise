@@ -1833,24 +1833,6 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
 
     st.markdown(f"### Tu plan actual: {agencia.get('plan', 'free').capitalize()}")
 
-    # Portal de facturación: solo para agencias que ya son clientes de pago (tienen
-    # stripe_customer_id). Desde aquí gestionan o cancelan su suscripción por su cuenta.
-    customer_id = agencia.get("stripe_customer_id")
-    if customer_id:
-        with st.container(border=True):
-            st.markdown("**Gestionar mi suscripción**")
-            st.caption("Cambia tu método de pago, descarga tus facturas o cancela la suscripción cuando quieras.")
-            if st.button("Abrir portal de facturación", key="abrir_portal_cliente", use_container_width=True):
-                url_portal = crear_portal_cliente(customer_id)
-                if url_portal:
-                    st.link_button(
-                        "Ir al portal de Stripe →",
-                        url_portal,
-                        type="primary",
-                        use_container_width=True,
-                    )
-                    st.caption("Portal seguro de Stripe. Pulsa el botón para continuar.")
-
     ciclo_up = st.radio(
         "Facturación:", ["Mensual", f"Anual (−{int(DESCUENTO_ANUAL*100)}%)"],
         horizontal=True, key="ciclo_upgrade"
@@ -2359,7 +2341,19 @@ with col_titulo:
     )
 with col_cuenta:
     st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-    if st.button("Cerrar sesión"):
+    # Portal de facturación a un clic, solo para agencias que ya son clientes de pago.
+    customer_id_cuenta = agencia.get("stripe_customer_id")
+    if customer_id_cuenta:
+        if st.button("Gestionar suscripción", use_container_width=True):
+            url_portal_cuenta = crear_portal_cliente(customer_id_cuenta)
+            if url_portal_cuenta:
+                st.link_button(
+                    "Ir al portal de Stripe →",
+                    url_portal_cuenta,
+                    type="primary",
+                    use_container_width=True,
+                )
+    if st.button("Cerrar sesión", use_container_width=True):
         for key in ["sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia", "local_activo"]:
             st.session_state[key] = False if key == "sesion_activa" else None if "actual" in key else []
         st.session_state.vista_landing = "info"
