@@ -112,7 +112,7 @@ def log_error_completo(contexto, e):
 # APP_URL = "https://reviewpro-enterprise.streamlit.app"  (sin barra final)
 if "APP_URL" not in st.secrets:
     st.error(
-        "⚠️ Falta configurar APP_URL en los secrets de la app. Sin esto, Stripe no puede "
+        "Falta configurar APP_URL en los secrets de la app. Sin esto, Stripe no puede "
         "devolver al usuario tras el pago. Ve a 'Manage app' → Settings → Secrets y añade "
         "APP_URL = \"https://tu-url-real.streamlit.app\" (la URL exacta con la que accedes a tu app)."
     )
@@ -120,7 +120,7 @@ if "APP_URL" not in st.secrets:
 APP_URL = st.secrets["APP_URL"].rstrip("/")
 
 # 1. Configuración de página limpia y profesional
-st.set_page_config(page_title="ReviewPro Enterprise", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="ReviewPro Enterprise", page_icon="▪", layout="centered")
 
 st.markdown("""
     <style>
@@ -881,8 +881,8 @@ def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_pla
     try:
         nueva_agencia = supabase.table("agencias").insert({
             "nombre_agencia": nombre_agencia.strip(),
-            "logo_url": "https://dummyimage.com/200x60/635BFF/ffffff&text=ReviewPro",
-            "color_marca": "#635BFF",
+            "logo_url": "https://dummyimage.com/220x60/141416/F4F4F2&text=Enterprise+Review",
+            "color_marca": "#2A2C31",
             "plan": "free"
         }).execute()
         agencia_id = nueva_agencia.data[0]["id"]
@@ -929,8 +929,8 @@ def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plan
     try:
         datos_agencia = {
             "nombre_agencia": nombre_agencia.strip(),
-            "logo_url": "https://dummyimage.com/200x60/635BFF/ffffff&text=ReviewPro",
-            "color_marca": "#635BFF",
+            "logo_url": "https://dummyimage.com/220x60/141416/F4F4F2&text=Enterprise+Review",
+            "color_marca": "#2A2C31",
             "plan": plan
         }
         if stripe_customer_id:
@@ -970,7 +970,7 @@ def render_formulario_alta_pendiente():
     nombre, email, contraseña) y crea la cuenta completa, dejando al usuario ya logueado.
     """
     datos = st.session_state.alta_pendiente
-    st.success(f"✅ Pago confirmado — plan **{datos['plan'].capitalize()}**. Un último paso para entrar:")
+    st.success(f"Pago confirmado — plan **{datos['plan'].capitalize()}**. Un último paso para entrar:")
 
     with st.form("crear_cuenta_alta_pendiente"):
         nombre_agencia_final = st.text_input("Nombre de tu agencia o negocio")
@@ -1089,7 +1089,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     actividad de contenido SEO generado. Devuelve los bytes del PDF.
     """
     buffer = BytesIO()
-    color_hex = agencia.get("color_marca", "#635BFF").lstrip("#")
+    color_hex = agencia.get("color_marca", "#2A2C31").lstrip("#")
     color_rl = colors.HexColor(f"#{color_hex}")
 
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
@@ -1359,7 +1359,7 @@ def generar_qr_png(url_destino):
 def generar_mensaje_whatsapp(nombre_local, enlace_resena):
     """Construye el enlace wa.me con un mensaje precargado para pedir una reseña."""
     mensaje = (
-        f"¡Hola! Muchas gracias por confiar en {nombre_local} 🙌 "
+        f"Hola, muchas gracias por confiar en {nombre_local}. "
         f"¿Nos ayudarías dejando tu opinión en Google? Solo te llevará 1 minuto: {enlace_resena}"
     )
     return "https://wa.me/?text=" + urllib.parse.quote(mensaje)
@@ -1645,7 +1645,7 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
     )
     es_anual_up = ciclo_up.startswith("Anual")
     if es_anual_up:
-        st.caption(f"💚 Pagando por año te ahorras un {int(DESCUENTO_ANUAL*100)}%.")
+        st.caption(f"Pagando por año te ahorras un {int(DESCUENTO_ANUAL*100)}%.")
 
     columnas = st.columns(len(PLANES_AUTOSERVICIO))
 
@@ -1662,7 +1662,7 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
                 else:
                     st.markdown(f"## {datos_plan['precio_mensual']}€/mes")
                 for feature in datos_plan["features"]:
-                    st.caption(f"✓ {feature}")
+                    st.caption(f"— {feature}")
                 if es_plan_actual:
                     st.success("Tu plan actual")
                 elif st.button(f"Elegir {datos_plan['nombre']}", key=f"elegir_{clave_plan}", use_container_width=True, type="primary"):
@@ -1777,7 +1777,7 @@ if parametros_url.get("pago_exito") == "1" and "session_id" in parametros_url:
             # Si la sesión de Streamlit se mantuvo, refrescamos el plan en memoria al momento.
             if st.session_state.sesion_activa and st.session_state.agencia_actual:
                 st.session_state.agencia_actual["plan"] = resultado_pago
-            st.success(f"✅ ¡Pago confirmado! Tu plan '{resultado_pago}' ya está activo.")
+            st.success(f"Pago confirmado. Tu plan '{resultado_pago}' ya está activo.")
         else:
             st.error(redactar_secretos(f"No se pudo confirmar el pago automáticamente: {resultado_pago}. Escríbenos si el cargo sí se realizó."))
     st.query_params.clear()
@@ -1799,7 +1799,7 @@ elif parametros_url.get("pago_cancelado") == "1":
 # 🔑 LANDING: PLANES Y PRECIOS + LOGIN
 # =========================================================
 if not st.session_state.sesion_activa and st.session_state.alta_pendiente:
-    st.markdown('<div class="rp-hero-title" style="font-size:1.8rem;">Ya casi está 🎉</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rp-hero-title" style="font-size:1.8rem;">Ya casi está</div>', unsafe_allow_html=True)
     render_formulario_alta_pendiente()
     st.stop()
 
@@ -1852,28 +1852,31 @@ if not st.session_state.sesion_activa:
         col_a, col_b, col_c = st.columns(3)
         with col_a:
             st.markdown("""<div class="rp-card">
-                <div class="rp-plan-nombre" style="font-size:1.05rem;">🛡️ Blindaje legal</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#C8A24B; letter-spacing:0.1em; margin-bottom:8px;">01</div>
+                <div class="rp-plan-nombre" style="font-size:1.05rem;">Blindaje legal</div>
                 <div class="rp-feature">Nunca admite negligencias ni usa términos de alerta sanitaria. Cada respuesta pasa por reglas de redacción pensadas para proteger la reputación del negocio.</div>
             </div>""", unsafe_allow_html=True)
         with col_b:
             st.markdown("""<div class="rp-card">
-                <div class="rp-plan-nombre" style="font-size:1.05rem;">🔎 SEO invisible</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#C8A24B; letter-spacing:0.1em; margin-bottom:8px;">02</div>
+                <div class="rp-plan-nombre" style="font-size:1.05rem;">SEO invisible</div>
                 <div class="rp-feature">Cada respuesta integra de forma natural las palabras clave de posicionamiento de ese local concreto, sin que se note ni al cliente final ni a Google.</div>
             </div>""", unsafe_allow_html=True)
         with col_c:
             st.markdown("""<div class="rp-card">
-                <div class="rp-plan-nombre" style="font-size:1.05rem;">🏢 Marca blanca real</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#C8A24B; letter-spacing:0.1em; margin-bottom:8px;">03</div>
+                <div class="rp-plan-nombre" style="font-size:1.05rem;">Marca blanca real</div>
                 <div class="rp-feature">Tu agencia entra con su propio logo y color corporativo. Tus clientes ven tu marca, no la nuestra.</div>
             </div>""", unsafe_allow_html=True)
 
         st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
         col_cta1, col_cta2 = st.columns(2)
         with col_cta1:
-            if st.button("🔑 Ya tengo cuenta — Iniciar sesión", use_container_width=True):
+            if st.button("Ya tengo cuenta — Iniciar sesión", use_container_width=True):
                 st.session_state.vista_landing = "login"
                 st.rerun()
         with col_cta2:
-            if st.button("🚀 Ver planes y empezar", use_container_width=True, type="primary"):
+            if st.button("Ver planes y empezar", use_container_width=True, type="primary"):
                 st.session_state.vista_landing = "planes"
                 st.rerun()
         st.stop()
@@ -1915,7 +1918,7 @@ if not st.session_state.sesion_activa:
             )
         es_anual = ciclo.startswith("Anual")
         if es_anual:
-            st.caption(f"💚 Pagando por año te ahorras un {int(DESCUENTO_ANUAL*100)}% — equivale a llevarte más de 2 meses gratis.")
+            st.caption(f"Pagando por año te ahorras un {int(DESCUENTO_ANUAL*100)}% — equivale a llevarte más de 2 meses gratis.")
 
         def _bloque_precio(precio_mensual):
             """Devuelve el HTML del precio según el ciclo elegido, con anclaje visual.
@@ -1956,10 +1959,10 @@ if not st.session_state.sesion_activa:
                 '<div class="rp-precio">0€</div>'
                 '<div class="rp-precio-periodo">para siempre</div>'
                 '<hr style="border-color:#232C42; margin:14px 0;">'
-                '<div class="rp-feature">✓ 1 local de prueba</div>'
-                f'<div class="rp-feature">✓ {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>'
-                '<div class="rp-feature">✓ Sin tarjeta de crédito</div>'
-                '<div class="rp-feature" style="opacity:0.4;">✗ Marca blanca</div>'
+                '<div class="rp-feature">— 1 local de prueba</div>'
+                f'<div class="rp-feature">— {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>'
+                '<div class="rp-feature">— Sin tarjeta de crédito</div>'
+                '<div class="rp-feature" style="opacity:0.35;">— Marca blanca (no incluida)</div>'
                 '<div class="rp-gancho">Ideal para ver la calidad de las respuestas sin compromiso.</div>'
                 '</div>'
             )
@@ -1985,7 +1988,7 @@ if not st.session_state.sesion_activa:
 
         with col_individual:
             plan_ind = PLANES_AUTOSERVICIO["individual"]
-            features_ind = "".join(f'<div class="rp-feature">✓ {f}</div>' for f in plan_ind["features"])
+            features_ind = "".join(f'<div class="rp-feature">— {f}</div>' for f in plan_ind["features"])
             individual_html = (
                 '<div class="rp-card">'
                 '<span class="rp-badge-verde">PARA UN SOLO LOCAL</span>'
@@ -2019,7 +2022,7 @@ if not st.session_state.sesion_activa:
             with columna:
                 clase_card = "rp-card rp-card-destacado" if datos.get("destacado") else "rp-card"
                 badge = '<span class="rp-badge">MÁS ELEGIDO</span>' if datos.get("destacado") else ""
-                features = "".join(f'<div class="rp-feature">✓ {f}</div>' for f in datos["features"])
+                features = "".join(f'<div class="rp-feature">— {f}</div>' for f in datos["features"])
                 tarjeta_html = (
                     f'<div class="{clase_card}">'
                     f'{badge}'
@@ -2056,7 +2059,7 @@ if not st.session_state.sesion_activa:
         email_usuario = st.text_input("Email de usuario:")
         password_usuario = st.text_input("Contraseña:", type="password")
 
-        if st.button("🚪 Iniciar sesión", use_container_width=True):
+        if st.button("Iniciar sesión", use_container_width=True):
             if not email_usuario.strip() or not password_usuario:
                 st.warning("Introduce email y contraseña.")
             else:
@@ -2066,15 +2069,15 @@ if not st.session_state.sesion_activa:
                         perfil = cargar_perfil_login(email_normalizado)
 
                         if perfil is None:
-                            st.error("❌ Email o contraseña incorrectos.")
+                            st.error("Email o contraseña incorrectos.")
                         elif not verificar_password(password_usuario, perfil["usuario"]["password_hash"]):
-                            st.error("❌ Email o contraseña incorrectos.")
+                            st.error("Email o contraseña incorrectos.")
                         else:
                             st.session_state.sesion_activa = True
                             st.session_state.usuario_actual = perfil["usuario"]
                             st.session_state.agencia_actual = perfil["agencia"]
                             st.session_state.locales_agencia = perfil["locales"]
-                            st.success(f"🔋 Bienvenido, {perfil['usuario']['nombre_usuario']}.")
+                            st.success(f"Bienvenido, {perfil['usuario']['nombre_usuario']}.")
                             st.rerun()
                     except Exception as e:
                         st.error(redactar_secretos(f"Error de conexión con la base de datos: {e}"))
@@ -2085,6 +2088,25 @@ if not st.session_state.sesion_activa:
 agencia = st.session_state.agencia_actual
 usuario = st.session_state.usuario_actual
 color_agencia = agencia["color_marca"]
+
+
+def _texto_contraste(hex_color):
+    """Devuelve '#0A0A0B' (tinta) o '#F4F4F2' (hueso) según la luminancia del color
+    de fondo, para que el texto del botón siempre tenga contraste (nunca blanco sobre
+    claro ni negro sobre oscuro)."""
+    try:
+        h = str(hex_color).lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        # Luminancia relativa perceptual (ITU-R BT.601)
+        luminancia = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        return "#0A0A0B" if luminancia > 0.6 else "#F4F4F2"
+    except (ValueError, TypeError, IndexError):
+        return "#F4F4F2"
+
+
+texto_boton_marca = _texto_contraste(color_agencia)
 
 # Si el usuario ha pulsado "Actualizar plan" / "Ver planes de pago", mostramos la
 # comparativa de planes dentro del propio panel en vez de saltar directo a Stripe.
@@ -2109,7 +2131,7 @@ st.markdown(f"""
     div[data-testid="stFormSubmitButton"] button {{
         background-color: {color_agencia} !important;
         border: 1px solid {color_agencia} !important;
-        color: #ffffff !important;
+        color: {texto_boton_marca} !important;
         font-weight: 600 !important;
         border-radius: 2px !important;
         letter-spacing: 0.01em !important;
@@ -2136,7 +2158,7 @@ with col_titulo:
     )
 with col_cuenta:
     st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-    if st.button("🔒 Salir"):
+    if st.button("Cerrar sesión"):
         for key in ["sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia", "local_activo"]:
             st.session_state[key] = False if key == "sesion_activa" else None if "actual" in key else []
         st.session_state.vista_landing = "info"
@@ -2149,7 +2171,7 @@ st.caption(f"Sesión activa · {usuario['nombre_usuario']} ({usuario['email']}) 
 # 🔧 DIAGNÓSTICO TEMPORAL DE CONEXIÓN CON ANTHROPIC
 # (Quitar este bloque una vez resuelto el APIConnectionError)
 # =========================================================
-with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
+with st.expander("Diagnóstico de conexión con Anthropic (temporal)"):
     st.caption(
         "Aísla si el fallo es de RED (DNS/TLS/firewall saliente de Streamlit Cloud) "
         "o del SDK de Anthropic en sí, haciendo una petición HTTP cruda sin pasar "
@@ -2158,12 +2180,12 @@ with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
     if st.button("Probar conexión cruda a api.anthropic.com"):
         try:
             r = httpx.get("https://api.anthropic.com/v1/models", timeout=15.0)
-            st.success(f"✅ Conexión HTTP cruda OK — status code {r.status_code}")
+            st.success(f"Conexión HTTP cruda OK — status code {r.status_code}")
             st.code(r.text[:500])
         except Exception as e:
             causa_raiz = log_error_completo("test de red crudo con httpx", e)
-            st.error(redactar_secretos(f"❌ Falla incluso la petición cruda: {type(e).__name__}: {e}"))
-            st.caption(f"🔍 Causa raíz: {causa_raiz}")
+            st.error(redactar_secretos(f"Falla incluso la petición cruda: {type(e).__name__}: {e}"))
+            st.caption(f"Causa raíz: {causa_raiz}")
             st.warning(
                 "Si esto falla, el problema NO es del SDK de anthropic ni del modelo: "
                 "es de red saliente en esta instancia de Streamlit Cloud (DNS, TLS o "
@@ -2178,11 +2200,11 @@ with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
                 max_tokens=10,
                 messages=[{"role": "user", "content": "di 'ok'"}]
             )
-            st.success(f"✅ SDK OK — respuesta: {r.content[0].text}")
+            st.success(f"SDK OK — respuesta: {r.content[0].text}")
         except Exception as e:
             causa_raiz = log_error_completo("test mínimo vía SDK anthropic", e)
-            st.error(redactar_secretos(f"❌ {type(e).__name__}: {e}"))
-            st.caption(f"🔍 Causa raíz (mira también Manage app → Logs): {causa_raiz}")
+            st.error(redactar_secretos(f"{type(e).__name__}: {e}"))
+            st.caption(f"Causa raíz (mira también Manage app → Logs): {causa_raiz}")
 
     import anthropic as _anthropic_mod
     st.caption(f"Versión del SDK `anthropic` instalada: {_anthropic_mod.__version__}")
@@ -2203,7 +2225,7 @@ with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
         })
         if _tiene_whitespace_extra:
             st.warning(
-                "⚠️ La key en Secrets tenía espacios/saltos de línea al principio o al "
+                "La key en Secrets tenía espacios/saltos de línea al principio o al "
                 "final. Ya se limpia automáticamente con .strip(), pero te recomiendo "
                 "corregirla también en Manage app → Secrets: debe estar en una sola línea, "
                 "como `ANTHROPIC_API_KEY = \"sk-ant-api03-...\"`, sin comillas triples."
@@ -2213,7 +2235,7 @@ with st.expander("🔧 Diagnóstico de conexión con Anthropic (temporal)"):
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
 # =========================================================
 tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
-    ["✨ Generar respuesta", "📣 Pedir reseñas", "📝 Contenido SEO extra", "📊 Analítica de la agencia"]
+    ["Generar respuesta", "Pedir reseñas", "Contenido SEO", "Analítica"]
 )
 
 # ---------------------------------------------------------
@@ -2225,7 +2247,7 @@ with tab_generar:
     # ---- Añadir un nuevo establecimiento (respetando el límite del plan) ----
     limite_locales = LIMITE_LOCALES_POR_PLAN.get(agencia.get("plan", "growth"))
     texto_limite = "sin límite" if limite_locales is None else f"{len(locales_disponibles)}/{limite_locales}"
-    with st.expander(f"➕ Añadir establecimiento ({texto_limite})"):
+    with st.expander(f"Añadir establecimiento ({texto_limite})"):
         nombre_nuevo_local = st.text_input("Nombre del establecimiento", key="nuevo_local_nombre")
         nicho_nuevo_local = st.text_input("Nicho (ej: hotel, restaurante, clínica dental)", key="nuevo_local_nicho")
         ciudad_nuevo_local = st.text_input("Ciudad o zona (ej: Sevilla, o Triana, Sevilla)", key="nuevo_local_ciudad",
@@ -2234,7 +2256,7 @@ with tab_generar:
         if st.button("Crear establecimiento", key="crear_establecimiento_btn"):
             puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
             if not puede:
-                st.error(redactar_secretos(f"⚠️ {motivo}"))
+                st.error(redactar_secretos(motivo))
                 if st.button("Actualizar plan", key="actualizar_plan_limite_locales"):
                     st.session_state.mostrar_pagina_planes = True
                     st.rerun()
@@ -2261,16 +2283,16 @@ with tab_generar:
         st.stop()
 
     nombres_locales = [local["nombre"] for local in locales_disponibles]
-    nombre_local_elegido = st.selectbox("🏬 Selecciona el local:", options=nombres_locales, key="selector_local_activo")
+    nombre_local_elegido = st.selectbox("Selecciona el local", options=nombres_locales, key="selector_local_activo")
 
     local_activo = next(local for local in locales_disponibles if local["nombre"] == nombre_local_elegido)
     st.session_state.local_activo = local_activo
 
-    ciudad_display = f" · 📍 {local_activo.get('ciudad')}" if local_activo.get("ciudad") else ""
+    ciudad_display = f" · {local_activo.get('ciudad')}" if local_activo.get("ciudad") else ""
     st.caption(f"Nicho: **{local_activo['nicho']}**{ciudad_display} · {len(local_activo['seo_keywords'])} keywords SEO cargadas.")
     
     # --- Editar info del local (ciudad, nicho, keywords) ---
-    with st.expander("⚙️ Editar info del local", expanded=False):
+    with st.expander("Editar info del local", expanded=False):
         st.caption("Actualiza la ciudad, nicho y palabras clave del local para mejorar la potencia SEO del contenido generado.")
         col_edit1, col_edit2 = st.columns(2)
         with col_edit1:
@@ -2283,7 +2305,7 @@ with tab_generar:
         keywords_edit = st.text_input("Palabras clave SEO, separadas por comas",
                                       value=", ".join(local_activo.get("seo_keywords", [])),
                                       key=f"edit_keywords_{local_activo['id']}")
-        if st.button("💾 Guardar cambios", key=f"guardar_edit_local_{local_activo['id']}"):
+        if st.button("Guardar cambios", key=f"guardar_edit_local_{local_activo['id']}"):
             try:
                 keywords_lista_edit = [k.strip() for k in keywords_edit.split(",") if k.strip()]
                 supabase.table("locales").update({
@@ -2313,27 +2335,27 @@ with tab_generar:
     else:
         usos_local_este_mes = contar_usos_del_mes_por_local(local_activo["id"])
         if usos_local_este_mes >= UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL:
-            st.warning(f"📈 Este local ha generado {usos_local_este_mes} respuestas este mes — un volumen inusualmente alto. Si no es un cliente real de mucho tráfico, te recomendamos revisarlo.")
+            st.warning(f"Este local ha generado {usos_local_este_mes} respuestas este mes — un volumen inusualmente alto. Si no es un cliente real de mucho tráfico, te recomendamos revisarlo.")
 
     with st.form("review_form"):
         nombre_negocio = st.text_input("Nombre del establecimiento", value=local_activo["nombre"], disabled=True)
         resena_cliente = st.text_area("Pega aquí la reseña del cliente", height=150)
         tono = st.select_slider("Tono deseado", options=["Muy formal", "Profesional estándar", "Cercano y cálido"], value="Profesional estándar")
         acepta_terminos = st.checkbox("Acepto los Términos de Uso y el Descargo de Responsabilidad legal.", value=False)
-        submit = st.form_submit_button("✨ Generar respuesta profesional", use_container_width=True)
+        submit = st.form_submit_button("Generar respuesta profesional", use_container_width=True)
 
     if submit:
         if not resena_cliente.strip():
             st.warning("Por favor, pega la reseña del cliente.")
         elif not acepta_terminos:
-            st.error("⚠️ Es obligatorio aceptar los términos de uso.")
+            st.error("Es obligatorio aceptar los términos de uso.")
         elif limite_usos_plan is not None and contar_usos_del_mes(agencia["id"]) >= limite_usos_plan:
-            st.error(redactar_secretos(f"⚠️ Has usado tus {limite_usos_plan} respuestas de este mes en tu plan actual. Actualiza tu plan para seguir generando sin límite."))
-            if st.button("💳 Ver planes de pago", key="ver_planes_limite_usos"):
+            st.error(redactar_secretos(f"Has usado tus {limite_usos_plan} respuestas de este mes en tu plan actual. Actualiza tu plan para seguir generando sin límite."))
+            if st.button("Ver planes de pago", key="ver_planes_limite_usos"):
                 st.session_state.mostrar_pagina_planes = True
                 st.rerun()
         elif not verificar_velocidad(agencia)["permitido"]:
-            st.error(redactar_secretos(f"⚠️ {verificar_velocidad(agencia)['razon']}"))
+            st.error(redactar_secretos(verificar_velocidad(agencia)["razon"]))
         else:
             _adv_velocidad = verificar_velocidad(agencia).get("advertencia")
             if _adv_velocidad:
@@ -2448,10 +2470,10 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                     st.success("Respuesta generada con éxito:")
 
                     if traduccion:
-                        st.subheader("📋 Texto para copiar y pegar en tu reseña:")
+                        st.subheader("Texto para copiar y pegar en tu reseña")
                         st.caption("Respuesta oficial (Nativa) — pasa el ratón por encima para copiar:")
                         st.code(respuesta_nativa, language=None, wrap_lines=True)
-                        st.info(f"🌐 **Traducción al español para el propietario:**\n\n{traduccion}")
+                        st.info(f"**Traducción al español para el propietario:**\n\n{traduccion}")
                     else:
                         st.caption("Copia este texto y pégalo directamente — pasa el ratón por encima para copiar:")
                         st.code(respuesta_nativa, language=None, wrap_lines=True)
@@ -2472,13 +2494,13 @@ REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
                 except Exception as e:
                     causa_raiz = log_error_completo("generar respuesta a reseña", e)
                     st.error(redactar_secretos(f"Error al conectar con el servidor: {type(e).__name__}: {e}"))
-                    st.caption(f"🔍 Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
+                    st.caption(f"Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
 # ---------------------------------------------------------
 # PESTAÑA: PEDIR RESEÑAS (WhatsApp + QR)
 # ---------------------------------------------------------
 with tab_pedir_resenas:
-    st.subheader("📣 Consigue más reseñas de las que ya tienes")
+    st.subheader("Consigue más reseñas de las que ya tienes")
     st.caption("Genera un mensaje de WhatsApp y un código QR para que el propio negocio pida reseñas a sus clientes satisfechos.")
 
     locales_disponibles_pr = st.session_state.locales_agencia
@@ -2498,7 +2520,7 @@ with tab_pedir_resenas:
             help="Lo encuentras en Google Business Profile → Solicitar reseñas → Copiar enlace."
         )
 
-        if st.button("💾 Guardar enlace"):
+        if st.button("Guardar enlace"):
             try:
                 supabase.table("locales").update({"enlace_resena_google": nuevo_enlace.strip()}).eq("id", local_pr["id"]).execute()
                 local_pr["enlace_resena_google"] = nuevo_enlace.strip()
@@ -2513,19 +2535,19 @@ with tab_pedir_resenas:
             with col_wa:
                 st.markdown("**Mensaje listo para WhatsApp:**")
                 enlace_wa = generar_mensaje_whatsapp(nombre_local_pr, nuevo_enlace.strip())
-                st.markdown(f'<a href="{enlace_wa}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:#0A0A0B;padding:11px 20px;border-radius:2px;font-weight:600;cursor:pointer;width:100%;text-align:center;letter-spacing:0.01em;">Abrir en WhatsApp &rarr;</div></a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{enlace_wa}" target="_blank" style="text-decoration:none;"><div style="background:transparent;color:#F4F4F2;padding:11px 20px;border:1px solid #35373D;border-radius:2px;font-weight:500;cursor:pointer;width:100%;text-align:center;letter-spacing:0.01em;">Abrir en WhatsApp &rarr;</div></a>', unsafe_allow_html=True)
                 st.caption("Se abre con el mensaje ya escrito; solo hay que elegir el contacto.")
             with col_qr:
                 st.markdown("**Código QR para imprimir en el local:**")
                 png_qr = generar_qr_png(nuevo_enlace.strip())
                 st.image(png_qr, width=180)
-                st.download_button("⬇️ Descargar QR (PNG)", data=png_qr, file_name=f"qr_resenas_{nombre_local_pr}.png", mime="image/png")
+                st.download_button("Descargar QR (PNG)", data=png_qr, file_name=f"qr_resenas_{nombre_local_pr}.png", mime="image/png")
 
 # ---------------------------------------------------------
 # PESTAÑA: CONTENIDO SEO EXTRA
 # ---------------------------------------------------------
 with tab_seo_extra:
-    st.subheader("📝 Contenido SEO adicional para el local")
+    st.subheader("Contenido SEO adicional para el local")
     st.caption("Contenido optimizado para posicionamiento local 2026: intención de búsqueda, ubicación y estructura pensada para las AI overviews de Google. Cada generación te da 3 variantes para elegir o hacer test A/B.")
 
     locales_disponibles_seo = st.session_state.locales_agencia
@@ -2539,7 +2561,7 @@ with tab_seo_extra:
 
         ciudad_local = (local_seo.get("ciudad") or "").strip()
         if ciudad_local:
-            st.caption(f"📍 Ubicación para SEO local: **{ciudad_local}**")
+            st.caption(f"Ubicación para SEO local: **{ciudad_local}**")
         else:
             st.warning("Este local no tiene ciudad/zona configurada. El contenido saldrá bien, pero para máxima potencia SEO local, edita el local y añade su ciudad o zona (p.ej. 'Sevilla' o 'Triana, Sevilla').")
 
@@ -2561,9 +2583,9 @@ with tab_seo_extra:
             "Oferta / promoción": "Las publicaciones de Oferta destacan en el panel local y suben el porcentaje de clics.",
         }
         if tipo_contenido in ayudas_tipo:
-            st.caption(f"💡 {ayudas_tipo[tipo_contenido]}")
+            st.caption(ayudas_tipo[tipo_contenido])
 
-        if st.button("✨ Generar 3 variantes", key="generar_seo_extra"):
+        if st.button("Generar 3 variantes", key="generar_seo_extra"):
             with st.spinner("Redactando contenido optimizado para SEO local..."):
                 try:
                     variantes = generar_contenido_seo_extra(
@@ -2576,8 +2598,8 @@ with tab_seo_extra:
                         st.code(variante, language=None, wrap_lines=True)
                         if tipo_contenido == "Meta descripción SEO":
                             n_car = len(variante)
-                            color = "🟢" if n_car <= 155 else "🔴"
-                            st.caption(f"{color} {n_car} caracteres (recomendado: máx. 155).")
+                            estado = "correcto" if n_car <= 155 else "excede el límite"
+                            st.caption(f"{n_car} caracteres · {estado} (recomendado: máx. 155).")
 
                     registrar_contenido_seo_generado(
                         agencia_id=agencia["id"],
@@ -2588,13 +2610,13 @@ with tab_seo_extra:
                 except Exception as e:
                     causa_raiz = log_error_completo("generar contenido SEO extra", e)
                     st.error(redactar_secretos(f"Error al generar el contenido: {e}"))
-                    st.caption(f"🔍 Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
+                    st.caption(f"Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
 # ---------------------------------------------------------
 # PESTAÑA 2: ANALÍTICA DE LA AGENCIA
 # ---------------------------------------------------------
 with tab_analitica:
-    st.subheader("📊 Actividad de tu agencia")
+    st.subheader("Actividad de tu agencia")
 
     rango = st.radio("Periodo:", ["Últimos 7 días", "Últimos 30 días", "Todo el histórico"], horizontal=True)
     fecha_hasta_dt = datetime.utcnow()
@@ -2656,7 +2678,7 @@ with tab_analitica:
                         dias_periodo = 90
 
             # ---------- 🏆 REVIEWPRO REPUTATION SCORE (protagonista) ----------
-            st.markdown("### 🏆 Reputation Score")
+            st.markdown("### Reputation Score")
             opciones_score = ["Toda la agencia"] + [l["nombre"] for l in st.session_state.locales_agencia]
             local_score_sel = st.selectbox("Calcular para:", opciones_score, key="selector_score")
 
@@ -2675,7 +2697,7 @@ with tab_analitica:
             mostrar_medidor_score(resultado_score, f"Puntuación de {nombre_ctx} · {rango}", interpretacion)
 
             # ---------- 💶 CALCULADORA DE ROI (score → ingresos) ----------
-            with st.expander("💶 Calculadora de retorno: ¿cuánto vale subir de estrellas?", expanded=False):
+            with st.expander("Calculadora de retorno: ¿cuánto vale subir de estrellas?", expanded=False):
                 st.caption(
                     "Estima cuánto más podría facturar este negocio si mejora su valoración media. "
                     "Basado en el estudio de Harvard: cada estrella de más sube los ingresos un 5-9% en negocios independientes."
@@ -2728,7 +2750,7 @@ with tab_analitica:
                 contenido_seo_periodo = []
 
             st.divider()
-            st.markdown("**📄 Informe de marca blanca para reenviar a tus clientes:**")
+            st.markdown("**Informe de marca blanca para reenviar a tus clientes**")
             try:
                 # El informe usa siempre el score de toda la agencia (no el del
                 # local seleccionado arriba en pantalla).
@@ -2750,7 +2772,7 @@ with tab_analitica:
                     roi=roi_informe, roi_estrellas_actuales=est_act_roi, roi_estrellas_objetivo=est_obj_roi
                 )
                 st.download_button(
-                    "⬇️ Descargar informe PDF",
+                    "Descargar informe PDF",
                     data=pdf_bytes,
                     file_name=f"informe_{agencia['nombre_agencia'].replace(' ', '_')}_{fecha_hasta_dt.strftime('%Y%m%d')}.pdf",
                     mime="application/pdf"
@@ -2758,7 +2780,7 @@ with tab_analitica:
             except Exception as e:
                 causa_raiz = log_error_completo("generar informe PDF", e)
                 st.error(redactar_secretos(f"No se pudo generar el informe: {e}"))
-                st.caption(f"🔍 Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
+                st.caption(f"Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
     except Exception as e:
         st.error(redactar_secretos(f"No se pudo cargar la analítica: {e}"))
@@ -2767,7 +2789,7 @@ with tab_analitica:
 # 🗑️ ZONA DE BAJA — solo visible para el usuario admin de la agencia
 # =========================================================
 if usuario.get("rol") == "admin":
-    with st.expander("🗑️ Darme de baja / Eliminar todos los datos de mi agencia"):
+    with st.expander("Darme de baja / Eliminar todos los datos de mi agencia"):
         st.warning(
             "Esta acción borra permanentemente tu agencia, todos sus usuarios, "
             "todos sus locales y todo el histórico de respuestas generadas. "
