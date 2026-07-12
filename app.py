@@ -729,7 +729,7 @@ ROI_FUENTE = "Estudio de Michael Luca, Harvard Business School (Reviews, Reputat
 # Sugerencia de importe anual = mensual × 12 × 0,8 (dos meses gratis largos).
 STRIPE_PRICES = {
     "individual": {
-        "mensual": "price_TODO_INDIVIDUAL_25EUR_MES",   # ⚠️ crear en Stripe (25€/mes)
+        "mensual": "price_1TsLo0Kwc34DG74MzRU5g3YH",   # ⚠️ crear en Stripe (25€/mes)
         "anual":   "price_TODO_INDIVIDUAL_240EUR_ANO",   # ⚠️ crear en Stripe (240€/año = 25×12×0,8)
     },
     "starter": {
