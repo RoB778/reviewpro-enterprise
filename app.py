@@ -754,9 +754,9 @@ def _redondear_bonito(n):
     (1908 → 1910... y si cae en 1905-1914 lo deja en 1910; 1900 se queda 1900).
     Esto evita precios feos tipo 1908€ en la facturación anual."""
     n = round(n)
-    if n < 100:
+    if n < 100 and n > 45:
         return n
-    return int(round(n / 10.0) * 10)
+    return int(round(n / 1.0) + 2 )
 
 
 def _precio_anual_mensualizado(precio_mensual):
