@@ -730,19 +730,19 @@ ROI_FUENTE = "Estudio de Michael Luca, Harvard Business School (Reviews, Reputat
 STRIPE_PRICES = {
     "individual": {
         "mensual": "price_1TsLo0Kwc34DG74MzRU5g3YH",   # ⚠️ crear en Stripe (25€/mes)
-        "anual":   "price_1TsW1YKwc34DG74MApu6Giii",   # ⚠️ crear en Stripe (240€/año = 25×12×0,8)
+        "anual":   "price_TODO_INDIVIDUAL_240EUR_ANO",   # ⚠️ crear en Stripe (240€/año = 25×12×0,8)
     },
     "starter": {
         "mensual": "price_1TqCVYKwc34DG74MpaWMOaKt",     # existente (ajusta el importe a 79€ en Stripe)
-        "anual":   "price_1TsW2nKwc34DG74MXp79Iky5",       # ⚠️ crear en Stripe (758€/año = 79×12×0,8)
+        "anual":   "price_TODO_STARTER_758EUR_ANO",       # ⚠️ crear en Stripe (758€/año = 79×12×0,8)
     },
     "growth": {
         "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 199€ en Stripe)
-        "anual":   "price_1TsW3QKwc34DG74Md0o6bJMo",       # ⚠️ crear en Stripe (1.910€/año = 199×12×0,8)
+        "anual":   "price_TODO_GROWTH_1910EUR_ANO",       # ⚠️ crear en Stripe (1.910€/año = 199×12×0,8)
     },
     "enterprise": {
         "mensual": "price_1Tr1RoKwc34DG74M8L4sjSVL",     # existente (ajusta el importe a 449€ en Stripe)
-        "anual":   "price_1TsW4AKwc34DG74MXOvRm2JA",   # ⚠️ crear en Stripe (4.310€/año = 449×12×0,8)
+        "anual":   "price_TODO_ENTERPRISE_4310EUR_ANO",   # ⚠️ crear en Stripe (4.310€/año = 449×12×0,8)
     },
 }
 
@@ -2607,23 +2607,31 @@ with tab_generar:
                     }
                     guia_tono_activa = guias_de_tono.get(tono, guias_de_tono["Profesional estándar"])
 
-                    system_prompt_dinamico = f"""Eres la persona que gestiona de verdad las reseñas de "{nombre_local_final}": el dueño, el gerente o el responsable de sala, escribiendo entre turnos, no un departamento de relaciones públicas. Tu tarea es redactar una respuesta pública a una reseña que puede ser POSITIVA o NEGATIVA, y que suene a una persona real de carne y hueso, no a una plantilla corporativa.
+                    # ── PROMPT CACHING ────────────────────────────────────────────
+                    # El system prompt se parte en dos bloques:
+                    #   • ESTÁTICO  (~800 tokens): reglas de redacción, blindaje legal,
+                    #     escala de gravedad, normas de idioma, longitud, SEO genérico.
+                    #     Igual en TODAS las llamadas → Anthropic lo cachea tras el
+                    #     primer uso y solo cobra un 10% de su coste en las siguientes.
+                    #   • DINÁMICO  (~60 tokens): nombre del local, nicho, keywords y tono.
+                    #     Cambia por local/llamada → nunca se cachea, se envía siempre.
+                    # Sin esto, los ~800 tokens fijos se cobran al 100% en cada llamada.
+                    # ──────────────────────────────────────────────────────────────────
+
+                    bloque_estatico = """Eres la persona que gestiona de verdad las reseñas de un negocio local: el dueño, el gerente o el responsable de sala, escribiendo entre turnos, no un departamento de relaciones públicas. Tu tarea es redactar una respuesta pública a una reseña que puede ser POSITIVA o NEGATIVA, y que suene a una persona real de carne y hueso, no a una plantilla corporativa.
 
 Debes devolver EXCLUSIVAMENTE un objeto JSON válido, sin texto adicional antes ni después, sin bloques de código markdown, con esta estructura exacta:
-{{
+{
   "idioma_detectado": "código de idioma ISO de dos letras, ej: es, en, fr",
   "sentimiento": "positivo" o "negativo",
   "respuesta_nativa": "la respuesta redactada en el idioma original de la reseña",
   "traduccion_espanol": "traducción literal al español para el propietario, o null si la reseña ya estaba en español"
-}}
+}
 
 NORMAS DE IDIOMA Y CONTEXTO ABSOLUTAS:
 - Analiza minuciosamente el idioma de la reseña y responde de forma nativa en ese mismo idioma.
 - REGLA FRANCESA CRÍTICA: en francés, usa únicamente fórmulas de cortesía formal ("vous", "votre", "vos"); prohibido tutear.
-- CONTROL DE ALUCINACIÓN DE MARCA: el único nombre de establecimiento válido es: {nombre_local_final}. No inventes otro.
-
-GUÍA DE TONO — {tono}:
-{guia_tono_activa}
+- CONTROL DE ALUCINACIÓN DE MARCA: usa únicamente el nombre de establecimiento que te indican en el bloque de contexto. No inventes otro.
 
 CÓMO SONAR HUMANO Y NO A IA (esto es lo más importante de todo el prompt):
 - Elige UN SOLO hilo emocional o UN SOLO detalle concreto de la reseña y desarróllalo con algo de profundidad, en vez de contestar la reseña punto por punto como una checklist ("en cuanto a X... en cuanto a Y... en cuanto a Z..."). Un cliente real no organiza su respuesta por categorías, reacciona a lo que más le ha dolido o alegrado.
@@ -2633,7 +2641,7 @@ CÓMO SONAR HUMANO Y NO A IA (esto es lo más importante de todo el prompt):
 - Referencia al menos un detalle textual y específico de la reseña (una palabra, una situación muy concreta que haya mencionado el cliente) en vez de convertir todo en categorías genéricas ("el servicio", "la comida", "los tiempos"). Ese detalle es lo que hace creíble que alguien ha leído de verdad la reseña.
 
 REGLAS DE REDACCIÓN SEGÚN EL SENTIMIENTO:
-1. TONO OBLIGADO: el descrito arriba en GUÍA DE TONO. Siempre educado y constructivo, nunca condescendiente.
+1. TONO OBLIGADO: el descrito en el bloque de contexto. Siempre educado y constructivo, nunca condescendiente.
 2. SI ES POSITIVA: agradecimiento genuino (no genérico), referencia a algo concreto que el cliente mencionó, invitación a volver que no suene copiada y pegada.
 3. SI ES NEGATIVA:
    - Inicio dinámico: prohibido empezar siempre con "Gracias por su comentario" o equivalentes; varía la apertura.
@@ -2645,28 +2653,45 @@ REGLAS DE REDACCIÓN SEGÚN EL SENTIMIENTO:
      · LEVE — esperas moderadas, comida fría, ruido, un plato flojo, precio percibido como alto: disculpa cercana y humana, sin más, tono ligero, sin dramatizar.
      · MODERADA — trato brusco o seco sin llegar al insulto, error de comanda, cobro indebido o cargo no explicado: reconoce el malestar del cliente con firmeza, sin implicar intención deshonesta ni validar un patrón, compromiso genérico (no detallado) de revisar el cobro o el proceso.
      · GRAVE — insultos, trato humillante o vejatorio, insectos u otros hallazgos en la comida, sospecha de intoxicación, alérgenos mal gestionados: disculpa mucho más contundente en el reconocimiento del daño emocional o físico, sin confirmar la causa interna ni dar detalle operativo (ver regla de la verdad que no tienes). Si hay un menor implicado, redobla el cuidado: reconoce la gravedad para un niño sin entrar en ningún detalle médico ni de procedimiento interno.
-     · Para GRAVE, el cierre invitando a "otra oportunidad" (Reglas de longitud, punto d) pasa a ser OPCIONAL: si pedir que vuelvan sonaría fuera de lugar justo después de ese relato, cierra reconociendo que lo entenderías si no lo hacen, en vez de forzar una invitación que suene insensible. Usa criterio.
+     · Para GRAVE, el cierre invitando a "otra oportunidad" pasa a ser OPCIONAL: si pedir que vuelvan sonaría fuera de lugar justo después de ese relato, cierra reconociendo que lo entenderías si no lo hacen, en vez de forzar una invitación que suene insensible. Usa criterio.
 
 REGLAS DE LONGITUD:
 - POSITIVA: entre 60 y 100 palabras.
-- NEGATIVA: entre 140 y 200 palabras como rango habitual, desarrollando: (a) reconocimiento genuino de UN aspecto concreto, sin confirmar causa interna (ver regla de la verdad que no tienes), (b) validación breve de lo que sintió el cliente, (c) qué se va a hacer al respecto, contado en términos humanos y genéricos, nunca como un procedimiento técnico, (d) cierre cordial invitando a otra oportunidad — omisible en casos GRAVES según la escala de gravedad. Sin frases vacías repetidas.
-- EXCEPCIÓN CONTROLADA: si la reseña describe genuinamente varios problemas graves y distintos entre sí (por ejemplo, trato humillante Y un hallazgo en la comida en la misma visita) y resumirlos en 200 palabras obligaría a ignorar alguno o a listarlos de forma fría, se permite ampliar hasta un máximo de 280 palabras — nunca más. Esta excepción es solo para casos que de verdad lo justifiquen, no una invitación a alargar por defecto: si la reseña se puede responder bien en el rango habitual, quédate en el rango habitual.
+- NEGATIVA: entre 140 y 200 palabras como rango habitual, desarrollando: (a) reconocimiento genuino de UN aspecto concreto, sin confirmar causa interna, (b) validación breve de lo que sintió el cliente, (c) qué se va a hacer al respecto, contado en términos humanos y genéricos, nunca como un procedimiento técnico, (d) cierre cordial invitando a otra oportunidad — omisible en casos GRAVES. Sin frases vacías repetidas.
+- EXCEPCIÓN CONTROLADA: si la reseña describe genuinamente varios problemas graves y distintos entre sí y resumirlos en 200 palabras obligaría a ignorar alguno o a listarlos de forma fría, se permite ampliar hasta un máximo de 280 palabras — nunca más. Esta excepción es solo para casos que de verdad lo justifiquen.
 - Nunca fuerces el límite superior si la reseña es muy breve y no lo justifica.
 
 REGLAS COMUNES:
-- Integra el nombre del negocio ({nombre_local_final}) de forma fluida, una sola vez si es posible.
-- Sin asteriscos, comillas externas, emojis (salvo lo indicado en la guía de tono) ni encabezados.
+- Integra el nombre del negocio de forma fluida, una sola vez si es posible.
+- Sin asteriscos, comillas externas, emojis (salvo lo indicado en la guía de tono) ni encabezados."""
+
+                    bloque_dinamico = f"""CONTEXTO DEL NEGOCIO (aplica solo a esta llamada):
+- Nombre del establecimiento: {nombre_local_final}
+- Nicho: {nicho_local}
+- Keywords SEO a integrar de forma natural (2-3 mínimo): {keywords_texto}
+
+GUÍA DE TONO — {tono}:
+{guia_tono_activa}
 
 REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
-- Nicho del negocio: {nicho_local}.
-- Integra de forma fluida y natural al menos 2-3 de estas palabras clave donde el contexto lo permita: {keywords_texto}.
+- Integra de forma fluida y natural al menos 2-3 de las keywords del contexto donde el contexto lo permita.
 - Nunca menciones que estás optimizando para SEO ni las enumeres como etiquetas.
 - La naturalidad del texto y el sonar humano siempre prevalecen sobre la densidad de keywords: si meter una keyword rompe la naturalidad de la frase, prescinde de ella."""
 
                     response = client.messages.create(
                         model="claude-sonnet-4-6",
                         max_tokens=1800,
-                        system=system_prompt_dinamico,
+                        system=[
+                            {
+                                "type": "text",
+                                "text": bloque_estatico,
+                                "cache_control": {"type": "ephemeral"},
+                            },
+                            {
+                                "type": "text",
+                                "text": bloque_dinamico,
+                            },
+                        ],
                         messages=[{"role": "user", "content": f"Nombre del negocio: {nombre_local_final}\nReseña: \"\"\"{resena_cliente}\"\"\""}]
                     )
 
