@@ -313,6 +313,16 @@ st.markdown("""
     [data-testid="stExpander"] summary,
     [data-testid="stExpander"] summary p { color: var(--er-ink) !important; }
 
+    /* Popover — panel flotante (menú desplegable de "Empezar gratis") */
+    [data-testid="stPopover"] {
+        background: var(--er-surface) !important;
+        border: 1px solid var(--er-line) !important;
+        border-radius: 10px !important;
+        box-shadow: 0 8px 24px rgba(22,21,26,0.10) !important;
+    }
+    [data-testid="stPopover"] p,
+    [data-testid="stPopover"] label { color: var(--er-body) !important; }
+
     /* Alertas — planas, hairline, borde índigo a la izquierda */
     [data-testid="stAlert"] {
         border-radius: 6px !important;
@@ -2289,69 +2299,7 @@ with col_cuenta:
 st.markdown(f"<hr style='border:0; border-top:2px solid {ACCENT_INDIGO}; margin-top:4px; width:48px;'>", unsafe_allow_html=True)
 st.caption(f"Sesión activa · {usuario['nombre_usuario']} ({usuario['email']}) · Rol: {usuario['rol']}")
 
-# =========================================================
-# 🔧 DIAGNÓSTICO TEMPORAL DE CONEXIÓN CON ANTHROPIC
-# (Quitar este bloque una vez resuelto el APIConnectionError)
-# =========================================================
-with st.expander("Diagnóstico de conexión con Anthropic (temporal)"):
-    st.caption(
-        "Aísla si el fallo es de RED (DNS/TLS/firewall saliente de Streamlit Cloud) "
-        "o del SDK de Anthropic en sí, haciendo una petición HTTP cruda sin pasar "
-        "por la librería `anthropic`."
-    )
-    if st.button("Probar conexión cruda a api.anthropic.com"):
-        try:
-            r = httpx.get("https://api.anthropic.com/v1/models", timeout=15.0)
-            st.success(f"Conexión HTTP cruda OK — status code {r.status_code}")
-            st.code(r.text[:500])
-        except Exception as e:
-            causa_raiz = log_error_completo("test de red crudo con httpx", e)
-            st.error(redactar_secretos(f"Falla incluso la petición cruda: {type(e).__name__}: {e}"))
-            st.caption(f"Causa raíz: {causa_raiz}")
-            st.warning(
-                "Si esto falla, el problema NO es del SDK de anthropic ni del modelo: "
-                "es de red saliente en esta instancia de Streamlit Cloud (DNS, TLS o "
-                "firewall). Prueba un reboot completo de la app (Manage app → ⋮ → Reboot), "
-                "no solo un redeploy de código."
-            )
 
-    if st.button("Probar llamada real vía SDK de Anthropic (mensaje mínimo)"):
-        try:
-            r = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=10,
-                messages=[{"role": "user", "content": "di 'ok'"}]
-            )
-            st.success(f"SDK OK — respuesta: {r.content[0].text}")
-        except Exception as e:
-            causa_raiz = log_error_completo("test mínimo vía SDK anthropic", e)
-            st.error(redactar_secretos(f"{type(e).__name__}: {e}"))
-            st.caption(f"Causa raíz (mira también Manage app → Logs): {causa_raiz}")
-
-    import anthropic as _anthropic_mod
-    st.caption(f"Versión del SDK `anthropic` instalada: {_anthropic_mod.__version__}")
-
-    st.divider()
-    st.caption("Higiene de la API key (sin mostrarla completa):")
-    _key_check = _anthropic_api_key_raw
-    if isinstance(_key_check, str):
-        _tiene_whitespace_extra = _key_check != _key_check.strip()
-        _no_ascii = any(ord(c) > 126 or ord(c) < 32 for c in _key_check.strip())
-        st.write({
-            "longitud_original": len(_key_check),
-            "longitud_tras_strip": len(_key_check.strip()),
-            "tenia_espacios_o_saltos_de_linea": _tiene_whitespace_extra,
-            "tiene_caracteres_no_ascii_ocultos": _no_ascii,
-            "empieza_por": _key_check.strip()[:12] + "...",
-            "termina_por": "..." + _key_check.strip()[-4:],
-        })
-        if _tiene_whitespace_extra:
-            st.warning(
-                "La key en Secrets tenía espacios/saltos de línea al principio o al "
-                "final. Ya se limpia automáticamente con .strip(), pero te recomiendo "
-                "corregirla también en Manage app → Secrets: debe estar en una sola línea, "
-                "como `ANTHROPIC_API_KEY = \"sk-ant-api03-...\"`, sin comillas triples."
-            )
 
 # =========================================================
 # GESTIÓN DE EQUIPO — panel solo para administradores
