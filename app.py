@@ -124,6 +124,32 @@ st.set_page_config(page_title="ReviewPro Enterprise", page_icon="🛡️", layou
 
 st.markdown("""
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+    /* =========================================================
+       ENTERPRISE REVIEW — SISTEMA DE DISEÑO "SWISS PRECISION"
+       Paleta monocroma (tinta / hueso / grafito), formas angulosas,
+       tipografía grotesca suiza. Sobrio, preciso, ejecutivo.
+       ========================================================= */
+    :root {
+        --er-ink:        #0A0A0B;   /* negro tinta, casi puro */
+        --er-carbon:     #141416;   /* superficies elevadas */
+        --er-graphite:   #1E1F22;   /* tarjetas */
+        --er-slate:      #2A2C31;   /* bordes/divisores fuertes */
+        --er-hairline:   #35373D;   /* bordes finos */
+        --er-ash:        #6B6E76;   /* texto terciario */
+        --er-silver:     #9EA2AB;   /* texto secundario */
+        --er-mist:       #C9CCD2;   /* texto primario suave */
+        --er-bone:       #F4F4F2;   /* hueso, texto/superficie clara */
+        --er-white:      #FFFFFF;
+        --er-accent:     #C8A24B;   /* latón/oro pálido — el único color, muy contenido */
+        --er-accent-dim: #8A7233;
+        --er-pos:        #D4D6DB;   /* "positivo" en gris claro, no verde chillón */
+        --er-neg:        #6B6E76;   /* "negativo" en gris medio */
+        --er-danger:     #B4413C;   /* rojo apagado, solo para errores reales */
+    }
+
+    /* Ocultar cromo de Streamlit */
     #MainMenu, header, footer, .stAppDeployButton, .viewerBadge_container__1QS1h {
         display: none !important;
         visibility: hidden !important;
@@ -135,18 +161,172 @@ st.markdown("""
         display: none !important;
         height: 0px !important;
     }
-    iframe {
-        display: block;
+    iframe { display: block; }
+
+    /* Lienzo global */
+    .stApp {
+        background: var(--er-ink) !important;
+        color: var(--er-mist);
+    }
+    html, body, [class*="css"], .stApp, [data-testid="stMarkdownContainer"] {
+        font-family: 'Inter', -apple-system, 'Helvetica Neue', Arial, sans-serif !important;
+        letter-spacing: -0.01em;
     }
     .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 2rem !important;
+        padding-top: 2.5rem !important;
+        padding-bottom: 3rem !important;
+        max-width: 1080px !important;
     }
+
+    /* Tipografía de titulares — grotesca apretada, en versalitas cuando aplica */
+    h1, h2, h3, h4 {
+        font-family: 'Inter', sans-serif !important;
+        color: var(--er-bone) !important;
+        font-weight: 600 !important;
+        letter-spacing: -0.02em !important;
+    }
+    h1 { font-size: 2.1rem !important; }
+    h2 { font-size: 1.5rem !important; }
+    h3 { font-size: 1.15rem !important; }
+    p, span, label, li, div[data-testid="stMarkdownContainer"] p {
+        color: var(--er-mist);
+    }
+    .stCaption, [data-testid="stCaptionContainer"], small {
+        color: var(--er-ash) !important;
+        letter-spacing: 0 !important;
+    }
+
+    /* Botones — rectangulares, borde fino, sin degradado */
+    .stButton > button, .stDownloadButton > button {
+        background: transparent !important;
+        color: var(--er-bone) !important;
+        border: 1px solid var(--er-hairline) !important;
+        border-radius: 2px !important;
+        font-weight: 500 !important;
+        letter-spacing: 0.01em !important;
+        padding: 0.5rem 1.1rem !important;
+        transition: all 0.15s ease !important;
+        text-transform: none !important;
+    }
+    .stButton > button:hover, .stDownloadButton > button:hover {
+        background: var(--er-bone) !important;
+        color: var(--er-ink) !important;
+        border-color: var(--er-bone) !important;
+    }
+    /* Botón primario — invertido, sólido hueso */
+    .stButton > button[kind="primary"] {
+        background: var(--er-bone) !important;
+        color: var(--er-ink) !important;
+        border: 1px solid var(--er-bone) !important;
+        font-weight: 600 !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: var(--er-white) !important;
+        border-color: var(--er-white) !important;
+    }
+
+    /* Inputs — fondo carbón, borde fino, esquinas rectas */
+    .stTextInput > div > div > input,
+    .stNumberInput > div > div > input,
+    .stTextArea textarea,
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div {
+        background: var(--er-carbon) !important;
+        color: var(--er-bone) !important;
+        border: 1px solid var(--er-hairline) !important;
+        border-radius: 2px !important;
+    }
+    .stTextInput > div > div > input:focus,
+    .stNumberInput > div > div > input:focus,
+    .stTextArea textarea:focus {
+        border-color: var(--er-accent) !important;
+        box-shadow: none !important;
+    }
+    .stTextInput label, .stNumberInput label, .stTextArea label,
+    .stSelectbox label, .stRadio label, .stMultiSelect label {
+        color: var(--er-silver) !important;
+        font-weight: 500 !important;
+        font-size: 0.82rem !important;
+        letter-spacing: 0.02em !important;
+    }
+
+    /* Tabs — subrayado fino, mayúsculas pequeñas */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
+        border-bottom: 1px solid var(--er-slate) !important;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background: transparent !important;
+        color: var(--er-ash) !important;
+        border-radius: 0 !important;
+        font-weight: 500 !important;
+        font-size: 0.86rem !important;
+        letter-spacing: 0.01em !important;
+        padding: 0.5rem 0.9rem !important;
+    }
+    .stTabs [aria-selected="true"] {
+        color: var(--er-bone) !important;
+        border-bottom: 2px solid var(--er-accent) !important;
+    }
+
+    /* Métricas — números grandes en serif de alto contraste */
+    [data-testid="stMetricValue"] {
+        font-family: 'Newsreader', Georgia, serif !important;
+        color: var(--er-bone) !important;
+        font-weight: 500 !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: var(--er-ash) !important;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.72rem !important;
+    }
+
+    /* Expanders / contenedores con borde — rectos y finos */
+    [data-testid="stExpander"], div[data-testid="stExpander"] details {
+        background: var(--er-carbon) !important;
+        border: 1px solid var(--er-hairline) !important;
+        border-radius: 2px !important;
+    }
+    [data-testid="stExpander"] summary { color: var(--er-mist) !important; }
+
+    /* Alertas — planas, borde a la izquierda, sin colores de caramelo */
+    [data-testid="stAlert"] {
+        border-radius: 2px !important;
+        border-left: 2px solid var(--er-accent) !important;
+        background: var(--er-carbon) !important;
+        color: var(--er-mist) !important;
+    }
+
+    /* Código / bloques de contenido */
+    .stCode, pre, code {
+        background: var(--er-carbon) !important;
+        border: 1px solid var(--er-hairline) !important;
+        border-radius: 2px !important;
+        color: var(--er-bone) !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+    }
+
+    /* Radios y checks — acento latón */
+    .stRadio [data-baseweb="radio"] div[aria-checked="true"],
+    input[type="checkbox"]:checked {
+        background-color: var(--er-accent) !important;
+        border-color: var(--er-accent) !important;
+    }
+
+    /* Divisores */
+    hr { border-color: var(--er-slate) !important; }
+
+    /* Scrollbar sutil */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--er-ink); }
+    ::-webkit-scrollbar-thumb { background: var(--er-slate); border-radius: 0; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--er-hairline); }
     </style>
     """, unsafe_allow_html=True)
 
 
-def mostrar_barras_simples(conteo, color="#FFB454"):
+def mostrar_barras_simples(conteo, color="#C8A24B"):
     """Barras horizontales en HTML puro, sin pasar por pandas/pyarrow (evita el
     Segmentation fault de Python 3.14 + pyarrow en Streamlit Cloud)."""
     import html as _html
@@ -158,12 +338,12 @@ def mostrar_barras_simples(conteo, color="#FFB454"):
     for etiqueta, valor in sorted(conteo.items(), key=lambda kv: kv[1], reverse=True):
         ancho_pct = int((valor / maximo) * 100)
         filas_html += f"""
-        <div style="margin-bottom:8px;">
-            <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#C7CDDB; margin-bottom:2px;">
-                <span>{_html.escape(str(etiqueta))}</span><span>{valor}</span>
+        <div style="margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:#9EA2AB; margin-bottom:4px; letter-spacing:0.01em;">
+                <span>{_html.escape(str(etiqueta))}</span><span style="font-family:'IBM Plex Mono',monospace; color:#C9CCD2;">{valor}</span>
             </div>
-            <div style="background:#232C42; border-radius:4px; height:10px; width:100%;">
-                <div style="background:{color}; border-radius:4px; height:10px; width:{ancho_pct}%;"></div>
+            <div style="background:#1E1F22; border:1px solid #35373D; border-radius:0; height:8px; width:100%;">
+                <div style="background:{color}; border-radius:0; height:8px; width:{ancho_pct}%;"></div>
             </div>
         </div>"""
     st.markdown(f'<div>{filas_html}</div>', unsafe_allow_html=True)
@@ -273,16 +453,18 @@ def calcular_reputation_score(historico_actual, historico_anterior, dias_periodo
 
 
 def etiqueta_reputation_score(score):
-    """Traduce el número a una banda con nombre y color, estilo semáforo."""
+    """Traduce el número a una banda con nombre y color. Paleta monocroma:
+    el latón marca la excelencia; el resto es escala de grises; solo el riesgo
+    real usa un rojo apagado."""
     if score is None:
-        return ("Sin datos", "#8A94A6")
+        return ("Sin datos", "#6B6E76")
     if score >= 80:
-        return ("Excelente", "#2ECC71")
+        return ("Excelente", "#C8A24B")   # latón/oro pálido
     if score >= 60:
-        return ("Buena", "#8BD1F7")
+        return ("Buena", "#C9CCD2")        # gris claro
     if score >= 40:
-        return ("Mejorable", "#FFB454")
-    return ("En riesgo", "#E74C3C")
+        return ("Mejorable", "#9EA2AB")    # gris medio
+    return ("En riesgo", "#B4413C")        # rojo apagado
 
 
 def generar_interpretacion_score_ia(cliente_ia, resultado_score, nombre_contexto):
@@ -355,39 +537,39 @@ def mostrar_medidor_score(resultado_score, titulo, interpretacion):
         st.info(interpretacion)
         return
 
-    # Cabecera: número grande + banda
+    # Cabecera: número grande en serif + banda en versalitas
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#1B2233,#232C42); border-radius:14px; padding:20px 24px; margin-bottom:14px;">
-        <div style="font-size:0.9rem; color:#8A94A6; margin-bottom:4px;">{_html.escape(titulo)}</div>
-        <div style="display:flex; align-items:baseline; gap:12px;">
-            <span style="font-size:3.2rem; font-weight:700; color:{color}; line-height:1;">{score}</span>
-            <span style="font-size:1.1rem; color:#C7CDDB;">/ 100</span>
-            <span style="margin-left:auto; background:{color}; color:#0E1117; font-weight:700; font-size:0.85rem; padding:4px 12px; border-radius:20px;">{banda}</span>
+    <div style="background:#141416; border:1px solid #35373D; border-radius:2px; padding:24px 28px; margin-bottom:16px;">
+        <div style="font-size:0.72rem; color:#6B6E76; margin-bottom:14px; text-transform:uppercase; letter-spacing:0.14em;">{_html.escape(titulo)}</div>
+        <div style="display:flex; align-items:baseline; gap:14px;">
+            <span style="font-family:'Newsreader',Georgia,serif; font-size:4rem; font-weight:500; color:{color}; line-height:0.9;">{score}</span>
+            <span style="font-family:'Newsreader',Georgia,serif; font-size:1.2rem; color:#6B6E76;">/ 100</span>
+            <span style="margin-left:auto; border:1px solid {color}; color:{color}; font-weight:600; font-size:0.7rem; padding:5px 14px; border-radius:2px; text-transform:uppercase; letter-spacing:0.12em;">{banda}</span>
         </div>
-        <div style="background:#0E1117; border-radius:6px; height:12px; width:100%; margin-top:14px;">
-            <div style="background:{color}; border-radius:6px; height:12px; width:{score}%;"></div>
+        <div style="background:#0A0A0B; border:1px solid #35373D; border-radius:0; height:6px; width:100%; margin-top:20px;">
+            <div style="background:{color}; border-radius:0; height:6px; width:{score}%;"></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<div style='color:#C7CDDB; font-size:0.95rem; margin-bottom:14px;'>{_html.escape(interpretacion)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='color:#C9CCD2; font-size:0.95rem; line-height:1.6; margin-bottom:16px;'>{_html.escape(interpretacion)}</div>", unsafe_allow_html=True)
 
     # Desglose de factores
     factores = resultado_score.get("factores", {})
     if factores:
-        st.caption("Cómo se compone la puntuación:")
+        st.markdown("<div style='font-size:0.72rem; color:#6B6E76; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:10px;'>Composición de la puntuación</div>", unsafe_allow_html=True)
         topes = {"Sentimiento": 50, "Volumen": 20, "Constancia": 20, "Tendencia": 10}
         filas_html = ""
         for nombre, pts in factores.items():
             tope = topes.get(nombre, 1)
             ancho_pct = int((pts / tope) * 100) if tope else 0
             filas_html += f"""
-            <div style="margin-bottom:8px;">
-                <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#C7CDDB; margin-bottom:2px;">
-                    <span>{_html.escape(nombre)}</span><span>{pts} / {tope} pts</span>
+            <div style="margin-bottom:10px;">
+                <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:#9EA2AB; margin-bottom:4px;">
+                    <span>{_html.escape(nombre)}</span><span style="font-family:'IBM Plex Mono',monospace; color:#C9CCD2;">{pts} / {tope}</span>
                 </div>
-                <div style="background:#232C42; border-radius:4px; height:9px; width:100%;">
-                    <div style="background:{color}; border-radius:4px; height:9px; width:{ancho_pct}%;"></div>
+                <div style="background:#1E1F22; border:1px solid #35373D; border-radius:0; height:6px; width:100%;">
+                    <div style="background:{color}; border-radius:0; height:6px; width:{ancho_pct}%;"></div>
                 </div>
             </div>"""
         st.markdown(f'<div>{filas_html}</div>', unsafe_allow_html=True)
@@ -444,20 +626,20 @@ def mostrar_calculadora_roi(roi, estrellas_actuales, estrellas_objetivo):
         return
 
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#10241B,#15321F); border:1px solid #2ECC71; border-radius:14px; padding:20px 24px; margin:10px 0;">
-        <div style="font-size:0.9rem; color:#8FE3B0; margin-bottom:6px;">
-            Si subes de {estrellas_actuales}★ a {estrellas_objetivo}★ (+{roi['delta_estrellas']}★)
+    <div style="background:#141416; border:1px solid #35373D; border-left:2px solid #C8A24B; border-radius:2px; padding:20px 24px; margin:10px 0;">
+        <div style="font-size:0.72rem; color:#6B6E76; margin-bottom:16px; text-transform:uppercase; letter-spacing:0.12em;">
+            Proyección · {estrellas_actuales}★ → {estrellas_objetivo}★ (+{roi['delta_estrellas']})
         </div>
-        <div style="display:flex; gap:28px; flex-wrap:wrap;">
+        <div style="display:flex; gap:48px; flex-wrap:wrap;">
             <div>
-                <div style="font-size:0.8rem; color:#8A94A6;">Ingresos extra / mes</div>
-                <div style="font-size:1.9rem; font-weight:700; color:#2ECC71; line-height:1.2;">
+                <div style="font-size:0.72rem; color:#6B6E76; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px;">Ingresos extra / mes</div>
+                <div style="font-family:'Newsreader',Georgia,serif; font-size:1.8rem; font-weight:500; color:#F4F4F2; line-height:1.2;">
                     {_html.escape(_fmt_eur(roi['mensual_min']))} – {_html.escape(_fmt_eur(roi['mensual_max']))}
                 </div>
             </div>
             <div>
-                <div style="font-size:0.8rem; color:#8A94A6;">Ingresos extra / año</div>
-                <div style="font-size:1.9rem; font-weight:700; color:#2ECC71; line-height:1.2;">
+                <div style="font-size:0.72rem; color:#6B6E76; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px;">Ingresos extra / año</div>
+                <div style="font-family:'Newsreader',Georgia,serif; font-size:1.8rem; font-weight:500; color:#C8A24B; line-height:1.2;">
                     {_html.escape(_fmt_eur(roi['anual_min']))} – {_html.escape(_fmt_eur(roi['anual_max']))}
                 </div>
             </div>
@@ -1430,16 +1612,16 @@ def redirigir_a_stripe(url_pago):
         f"""<script>window.top.location.href = "{url_pago}";</script>""",
         unsafe_allow_html=True
     )
-    # Botón-enlace bonito como respaldo (y como acción principal si el salto se bloquea).
+    # Botón-enlace como respaldo (y como acción principal si el salto se bloquea).
     boton_pago_html = (
-        '<div style="margin:14px 0; text-align:center;">'
+        '<div style="margin:16px 0; text-align:center;">'
         f'<a href="{url_pago}" target="_top" '
-        'style="display:inline-block; background:linear-gradient(135deg,#635BFF,#8B7BFF); '
-        'color:#FFFFFF; font-weight:700; font-size:1.05rem; text-decoration:none; '
-        'padding:14px 32px; border-radius:12px; box-shadow:0 4px 14px rgba(99,91,255,0.45); '
-        'letter-spacing:0.01em;">🔒 Continuar al pago seguro con Stripe →</a>'
-        '<div style="color:#8B95A8; font-size:0.8rem; margin-top:8px;">'
-        'Se abre la pasarela cifrada de Stripe. Si no salta sola, pulsa el botón.</div>'
+        'style="display:inline-block; background:#F4F4F2; '
+        'color:#0A0A0B; font-weight:600; font-size:0.98rem; text-decoration:none; '
+        'padding:14px 34px; border:1px solid #F4F4F2; border-radius:2px; '
+        'letter-spacing:0.02em;">Continuar al pago seguro con Stripe &rarr;</a>'
+        '<div style="color:#6B6E76; font-size:0.78rem; margin-top:10px; letter-spacing:0.01em;">'
+        'Pasarela cifrada de Stripe. Si no se abre sola, pulsa el botón.</div>'
         '</div>'
     )
     st.markdown(boton_pago_html, unsafe_allow_html=True)
@@ -1625,42 +1807,43 @@ if not st.session_state.sesion_activa:
 
     st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
-        html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
         .rp-hero-title {
-            font-family: 'Fraunces', serif; font-weight: 700; font-size: 2.6rem;
-            color: #F5F7FA; line-height: 1.15; margin-bottom: 0.3rem;
+            font-family: 'Inter', sans-serif; font-weight: 600; font-size: 2.5rem;
+            color: #F4F4F2; line-height: 1.08; margin-bottom: 0.5rem; letter-spacing: -0.03em;
         }
-        .rp-hero-sub { color: #8B95A8; font-size: 1.05rem; margin-bottom: 1.8rem; }
+        .rp-hero-sub { color: #9EA2AB; font-size: 1.02rem; margin-bottom: 2rem; letter-spacing: -0.01em; line-height: 1.5; }
         .rp-card {
-            background: #131B2E; border: 1px solid #232C42; border-radius: 14px;
-            padding: 26px 22px; height: 100%;
+            background: #141416; border: 1px solid #35373D; border-radius: 2px;
+            padding: 28px 24px; height: 100%;
         }
-        .rp-card-destacado { border: 1px solid #FFB454; box-shadow: 0 0 0 1px #FFB45433; }
-        .rp-plan-nombre { font-family: 'Fraunces', serif; font-size: 1.3rem; color: #F5F7FA; margin-bottom: 2px; }
-        .rp-plan-target { color: #8B95A8; font-size: 0.85rem; margin-bottom: 14px; }
-        .rp-precio { font-family: 'IBM Plex Sans', monospace; font-size: 2rem; font-weight: 600; color: #FFB454; }
-        .rp-precio-periodo { color: #8B95A8; font-size: 0.9rem; }
-        .rp-feature { color: #C7CDDB; font-size: 0.88rem; margin: 6px 0; }
-        .rp-badge { display:inline-block; background:#FFB45422; color:#FFB454; font-size:0.72rem;
-            padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; font-weight:600; letter-spacing: 0.03em; }
-        .rp-badge-verde { display:inline-block; background:#2ECC7122; color:#2ECC71; font-size:0.72rem;
-            padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; font-weight:600; letter-spacing: 0.03em; }
-        .rp-precio-tachado { color:#6B7488; font-size:1rem; text-decoration:line-through; margin-right:6px; }
-        .rp-precio-ahorro { color:#2ECC71; font-size:0.8rem; font-weight:600; margin-top:2px; }
-        .rp-por-local { color:#8BD1F7; font-size:0.82rem; font-weight:600; margin-top:6px; }
-        .rp-gancho { color:#9AA4B8; font-size:0.82rem; font-style:italic; margin-top:10px; min-height:34px; }
+        .rp-card-destacado { border: 1px solid #C8A24B; }
+        .rp-plan-nombre { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 1.15rem; color: #F4F4F2; margin-bottom: 4px; letter-spacing: -0.01em; }
+        .rp-plan-target { color: #6B6E76; font-size: 0.8rem; margin-bottom: 16px; letter-spacing: 0; }
+        .rp-precio { font-family: 'Newsreader', Georgia, serif; font-size: 2.2rem; font-weight: 500; color: #F4F4F2; }
+        .rp-precio-periodo { color: #6B6E76; font-size: 0.85rem; }
+        .rp-feature { color: #C9CCD2; font-size: 0.86rem; margin: 7px 0; letter-spacing: -0.005em; }
+        .rp-badge { display:inline-block; background:transparent; color:#C8A24B; border:1px solid #C8A24B; font-size:0.66rem;
+            padding: 3px 10px; border-radius: 2px; margin-bottom: 12px; font-weight:600; letter-spacing: 0.12em; text-transform:uppercase; }
+        .rp-badge-verde { display:inline-block; background:transparent; color:#9EA2AB; border:1px solid #6B6E76; font-size:0.66rem;
+            padding: 3px 10px; border-radius: 2px; margin-bottom: 12px; font-weight:600; letter-spacing: 0.12em; text-transform:uppercase; }
+        .rp-precio-tachado { color:#6B6E76; font-size:1rem; text-decoration:line-through; margin-right:8px; font-family:'Newsreader',serif; }
+        .rp-precio-ahorro { color:#C8A24B; font-size:0.78rem; font-weight:500; margin-top:4px; letter-spacing:0; }
+        .rp-por-local { color:#9EA2AB; font-size:0.8rem; font-weight:500; margin-top:8px; font-family:'IBM Plex Mono',monospace; }
+        .rp-gancho { color:#6B6E76; font-size:0.8rem; margin-top:12px; min-height:34px; line-height:1.5; }
         .rp-roi-banner {
-            background:linear-gradient(135deg,#10241B,#15321F); border:1px solid #2ECC71;
-            border-radius:14px; padding:16px 22px; margin:6px 0 20px 0;
+            background:#141416; border:1px solid #35373D; border-left:2px solid #C8A24B;
+            border-radius:2px; padding:18px 24px; margin:6px 0 24px 0; color:#C9CCD2; line-height:1.6;
         }
-        .rp-roi-banner strong { color:#2ECC71; }
-        .rp-garantia { color:#8B95A8; font-size:0.85rem; text-align:center; margin-top:14px; }
+        .rp-roi-banner strong { color:#C8A24B; font-weight:600; }
+        .rp-garantia { color:#6B6E76; font-size:0.82rem; text-align:center; margin-top:16px; letter-spacing:0; }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="rp-hero-title">Deja de improvisar respuestas<br>a las reseñas de tus clientes.</div>', unsafe_allow_html=True)
-    st.markdown('<div class="rp-hero-sub">ReviewPro Enterprise redacta respuestas profesionales, con tu marca y con SEO integrado, para toda la cartera de tu agencia.</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.72rem; color:#C8A24B; letter-spacing:0.2em; text-transform:uppercase; margin-bottom:14px; font-weight:600;">Enterprise Review</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rp-hero-title">Reputación bajo control.<br>Respuestas con precisión.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rp-hero-sub">Plataforma de inteligencia de reputación para agencias. Respuestas redactadas con IA, con tu marca y SEO local integrado, para toda tu cartera de clientes.</div>', unsafe_allow_html=True)
 
     # -----------------------------------------------------
     # VISTA 1: INFO — presentación del producto antes de pedir nada
@@ -1925,12 +2108,14 @@ st.markdown(f"""
     }}
     div[data-testid="stFormSubmitButton"] button {{
         background-color: {color_agencia} !important;
-        border-color: {color_agencia} !important;
+        border: 1px solid {color_agencia} !important;
         color: #ffffff !important;
-        font-weight: bold !important;
+        font-weight: 600 !important;
+        border-radius: 2px !important;
+        letter-spacing: 0.01em !important;
     }}
     div[data-testid="stFormSubmitButton"] button:hover {{
-        opacity: 0.88 !important;
+        opacity: 0.9 !important;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -1942,7 +2127,13 @@ col_logo, col_titulo, col_cuenta = st.columns([1, 3, 1])
 with col_logo:
     st.image(agencia["logo_url"], use_container_width=True)
 with col_titulo:
-    st.markdown(f"<h2 style='margin-bottom:0; padding-top:8px;'>Console | {agencia['nombre_agencia']}</h2>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='padding-top:6px;'>"
+        f"<div style='font-size:0.66rem; color:#6B6E76; letter-spacing:0.18em; text-transform:uppercase; margin-bottom:2px;'>Console</div>"
+        f"<h2 style='margin:0; font-size:1.4rem;'>{agencia['nombre_agencia']}</h2>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
 with col_cuenta:
     st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
     if st.button("🔒 Salir"):
@@ -1951,8 +2142,8 @@ with col_cuenta:
         st.session_state.vista_landing = "info"
         st.rerun()
 
-st.markdown(f"<hr style='border-top:3px solid {color_agencia}; margin-top:4px;'>", unsafe_allow_html=True)
-st.info(f"Sesión activa: **{usuario['nombre_usuario']}** ({usuario['email']}) · Rol: {usuario['rol']}")
+st.markdown(f"<hr style='border:0; border-top:1px solid {color_agencia}; margin-top:4px; opacity:0.6;'>", unsafe_allow_html=True)
+st.caption(f"Sesión activa · {usuario['nombre_usuario']} ({usuario['email']}) · Rol: {usuario['rol']}")
 
 # =========================================================
 # 🔧 DIAGNÓSTICO TEMPORAL DE CONEXIÓN CON ANTHROPIC
@@ -2322,7 +2513,7 @@ with tab_pedir_resenas:
             with col_wa:
                 st.markdown("**Mensaje listo para WhatsApp:**")
                 enlace_wa = generar_mensaje_whatsapp(nombre_local_pr, nuevo_enlace.strip())
-                st.markdown(f'<a href="{enlace_wa}" target="_blank"><button style="background-color:#25D366;color:white;padding:10px 20px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:100%;">📲 Abrir en WhatsApp</button></a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{enlace_wa}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:#0A0A0B;padding:11px 20px;border-radius:2px;font-weight:600;cursor:pointer;width:100%;text-align:center;letter-spacing:0.01em;">Abrir en WhatsApp &rarr;</div></a>', unsafe_allow_html=True)
                 st.caption("Se abre con el mensaje ya escrito; solo hay que elegir el contacto.")
             with col_qr:
                 st.markdown("**Código QR para imprimir en el local:**")
@@ -2523,7 +2714,7 @@ with tab_analitica:
 
             st.markdown("**Reparto de trabajo por usuario del equipo:**")
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
-            mostrar_barras_simples(conteo_por_usuario, color="#8BD1F7")
+            mostrar_barras_simples(conteo_por_usuario, color="#9EA2AB")
 
             # Contenido SEO generado en el periodo (tabla nueva — si aún no se ha
             # ejecutado la migración, esto falla en silencio y el informe lo indica)
