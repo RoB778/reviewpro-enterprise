@@ -862,11 +862,16 @@ def confirmar_pago_y_activar_plan(session_id):
     automáticamente. Devuelve (True, plan_nombre) o (False, "motivo").
     """
     try:
-        session = stripe.checkout.Session.retrieve(session_id)
-        if session.payment_status != "paid":
+        # expand=[] fuerza al SDK a devolver el objeto completo con todos sus campos,
+        # evitando que .payment_status (u otros) lancen una excepción interna "get"
+        # cuando el campo no está expandido por defecto en versiones recientes del SDK.
+        session = stripe.checkout.Session.retrieve(session_id, expand=[])
+        estado = session.get("payment_status") or getattr(session, "payment_status", None)
+        if estado != "paid":
             return False, "El pago todavía no se ha confirmado."
-        agencia_id = session.metadata.get("agencia_id")
-        plan_nombre = session.metadata.get("plan")
+        metadata = session.get("metadata") or {}
+        agencia_id = metadata.get("agencia_id")
+        plan_nombre = metadata.get("plan")
         if not agencia_id or not plan_nombre:
             return False, "No se pudo identificar la agencia o el plan asociado a este pago."
         supabase.table("agencias").update({"plan": plan_nombre}).eq("id", agencia_id).execute()
@@ -884,22 +889,32 @@ def verificar_pago_alta_nueva(session_id):
     de depender de campos de Stripe. Devuelve (True, datos) o (False, "motivo").
     """
     try:
-        session = stripe.checkout.Session.retrieve(session_id)
-        if session.payment_status != "paid":
+        # expand=[] fuerza al SDK a devolver el objeto completo con todos sus campos,
+        # evitando que .payment_status (u otros) lancen una excepción interna "get"
+        # cuando el campo no está expandido por defecto en versiones recientes del SDK.
+        session = stripe.checkout.Session.retrieve(session_id, expand=[])
+        estado = session.get("payment_status") or getattr(session, "payment_status", None)
+        if estado != "paid":
             return False, "El pago todavía no se ha confirmado."
-        plan_nombre = session.metadata.get("plan")
+        metadata = session.get("metadata") or {}
+        plan_nombre = metadata.get("plan")
         if not plan_nombre:
             return False, "No se pudo identificar el plan asociado a este pago."
         email_prefill = ""
         try:
-            if session.customer_details and session.customer_details.email:
-                email_prefill = session.customer_details.email
+            detalles = session.get("customer_details") or getattr(session, "customer_details", None)
+            if detalles:
+                email_prefill = (
+                    detalles.get("email")
+                    if callable(getattr(detalles, "get", None))
+                    else getattr(detalles, "email", "")
+                ) or ""
         except Exception:
             pass
         return True, {
             "session_id": session_id,
             "plan": plan_nombre,
-            "stripe_customer_id": session.customer,
+            "stripe_customer_id": session.get("customer") or getattr(session, "customer", None),
             "email_prefill": email_prefill,
         }
     except Exception as e:
