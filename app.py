@@ -854,6 +854,30 @@ def crear_sesion_pago_nueva_agencia(plan_nombre, price_id):
         return None
 
 
+def _stripe_campo(obj, campo, default=None):
+    """
+    Lee un campo de una respuesta de Stripe de forma segura, sea cual sea la versión
+    del SDK. En las versiones recientes, stripe.checkout.Session.retrieve() devuelve
+    objetos tipados que NO exponen el método .get() de dict; llamar a obj.get(...)
+    sobre ellos dispara su __getattr__ y lanza AttributeError('get') — que es
+    exactamente el error "get" que aparecía en pantalla tras un pago correcto.
+
+    getattr(obj, campo, default) NUNCA lanza esa excepción (devuelve default si el
+    atributo no existe), y solo si eso no da resultado probamos el acceso tipo dict
+    obj[campo] dentro de un try. Así funciona tanto con StripeObject (atributo) como
+    con dict plano (subíndice), sin volver a tropezar con "get".
+    """
+    if obj is None:
+        return default
+    valor = getattr(obj, campo, None)
+    if valor is not None:
+        return valor
+    try:
+        return obj[campo]
+    except Exception:
+        return default
+
+
 def confirmar_pago_y_activar_plan(session_id):
     """
     Se llama cuando Stripe redirige de vuelta a la app tras un pago DE UPGRADE (agencia ya
@@ -862,16 +886,13 @@ def confirmar_pago_y_activar_plan(session_id):
     automáticamente. Devuelve (True, plan_nombre) o (False, "motivo").
     """
     try:
-        # expand=[] fuerza al SDK a devolver el objeto completo con todos sus campos,
-        # evitando que .payment_status (u otros) lancen una excepción interna "get"
-        # cuando el campo no está expandido por defecto en versiones recientes del SDK.
-        session = stripe.checkout.Session.retrieve(session_id, expand=[])
-        estado = session.get("payment_status") or getattr(session, "payment_status", None)
+        session = stripe.checkout.Session.retrieve(session_id)
+        estado = _stripe_campo(session, "payment_status")
         if estado != "paid":
             return False, "El pago todavía no se ha confirmado."
-        metadata = session.get("metadata") or {}
-        agencia_id = metadata.get("agencia_id")
-        plan_nombre = metadata.get("plan")
+        metadata = _stripe_campo(session, "metadata", {}) or {}
+        agencia_id = _stripe_campo(metadata, "agencia_id")
+        plan_nombre = _stripe_campo(metadata, "plan")
         if not agencia_id or not plan_nombre:
             return False, "No se pudo identificar la agencia o el plan asociado a este pago."
         supabase.table("agencias").update({"plan": plan_nombre}).eq("id", agencia_id).execute()
@@ -889,32 +910,20 @@ def verificar_pago_alta_nueva(session_id):
     de depender de campos de Stripe. Devuelve (True, datos) o (False, "motivo").
     """
     try:
-        # expand=[] fuerza al SDK a devolver el objeto completo con todos sus campos,
-        # evitando que .payment_status (u otros) lancen una excepción interna "get"
-        # cuando el campo no está expandido por defecto en versiones recientes del SDK.
-        session = stripe.checkout.Session.retrieve(session_id, expand=[])
-        estado = session.get("payment_status") or getattr(session, "payment_status", None)
+        session = stripe.checkout.Session.retrieve(session_id)
+        estado = _stripe_campo(session, "payment_status")
         if estado != "paid":
             return False, "El pago todavía no se ha confirmado."
-        metadata = session.get("metadata") or {}
-        plan_nombre = metadata.get("plan")
+        metadata = _stripe_campo(session, "metadata", {}) or {}
+        plan_nombre = _stripe_campo(metadata, "plan")
         if not plan_nombre:
             return False, "No se pudo identificar el plan asociado a este pago."
-        email_prefill = ""
-        try:
-            detalles = session.get("customer_details") or getattr(session, "customer_details", None)
-            if detalles:
-                email_prefill = (
-                    detalles.get("email")
-                    if callable(getattr(detalles, "get", None))
-                    else getattr(detalles, "email", "")
-                ) or ""
-        except Exception:
-            pass
+        detalles = _stripe_campo(session, "customer_details")
+        email_prefill = _stripe_campo(detalles, "email", "") or ""
         return True, {
             "session_id": session_id,
             "plan": plan_nombre,
-            "stripe_customer_id": session.get("customer") or getattr(session, "customer", None),
+            "stripe_customer_id": _stripe_campo(session, "customer"),
             "email_prefill": email_prefill,
         }
     except Exception as e:
