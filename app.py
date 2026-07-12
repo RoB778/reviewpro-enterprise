@@ -319,6 +319,7 @@ st.markdown("""
     border-radius: 10px !important;
     box-shadow: 0 8px 24px rgba(22,21,26,0.10) !important;
     background-color: fffaf0;
+    text-color: #ffffff;
 }
     }
     [data-testid="stPopover"] p,
