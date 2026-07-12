@@ -124,29 +124,30 @@ st.set_page_config(page_title="ReviewPro Enterprise", page_icon="▪", layout="c
 
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
     /* =========================================================
-       ENTERPRISE REVIEW — SISTEMA DE DISEÑO "SWISS PRECISION"
-       Paleta monocroma (tinta / hueso / grafito), formas angulosas,
-       tipografía grotesca suiza. Sobrio, preciso, ejecutivo.
+       ENTERPRISE REVIEW — SISTEMA DE DISEÑO "EDITORIAL LIGHT"
+       Lienzo hueso cálido, tinta casi negra, un único acento índigo
+       usado con extrema contención. Aire, hairlines, sentence case.
+       Registro Stripe / Linear / McKinsey: confianza silenciosa.
        ========================================================= */
     :root {
-        --er-ink:        #0A0A0B;   /* negro tinta, casi puro */
-        --er-carbon:     #141416;   /* superficies elevadas */
-        --er-graphite:   #1E1F22;   /* tarjetas */
-        --er-slate:      #2A2C31;   /* bordes/divisores fuertes */
-        --er-hairline:   #35373D;   /* bordes finos */
-        --er-ash:        #6B6E76;   /* texto terciario */
-        --er-silver:     #9EA2AB;   /* texto secundario */
-        --er-mist:       #C9CCD2;   /* texto primario suave */
-        --er-bone:       #F4F4F2;   /* hueso, texto/superficie clara */
-        --er-white:      #FFFFFF;
-        --er-accent:     #C8A24B;   /* latón/oro pálido — el único color, muy contenido */
-        --er-accent-dim: #8A7233;
-        --er-pos:        #D4D6DB;   /* "positivo" en gris claro, no verde chillón */
-        --er-neg:        #6B6E76;   /* "negativo" en gris medio */
-        --er-danger:     #B4413C;   /* rojo apagado, solo para errores reales */
+        --er-canvas:     #FAFAF8;   /* lienzo, blanco hueso cálido */
+        --er-surface:    #FFFFFF;   /* tarjetas, blanco puro */
+        --er-sunken:     #F4F3EF;   /* superficies hundidas / inputs */
+        --er-line:       #E6E4DE;   /* hairline por defecto */
+        --er-line-2:     #D6D3CA;   /* hairline con énfasis */
+        --er-ink:        #16151A;   /* texto primario, casi negro */
+        --er-body:       #46454C;   /* texto de cuerpo */
+        --er-muted:      #8A8880;   /* texto secundario / captions */
+        --er-faint:      #A8A69E;   /* placeholders / metadatos */
+        --er-accent:     #3B3A6B;   /* índigo profundo — el único color */
+        --er-accent-2:   #4E4C8A;   /* índigo hover */
+        --er-accent-bg:  #EEEEF4;   /* fondo índigo muy pálido */
+        --er-danger:     #A23A34;   /* rojo controlado para errores */
+        --er-danger-bg:  #F7EDEC;
+        --er-ok:         #3B6B52;   /* verde controlado, casi nunca */
     }
 
     /* Ocultar cromo de Streamlit */
@@ -165,168 +166,199 @@ st.markdown("""
 
     /* Lienzo global */
     .stApp {
-        background: var(--er-ink) !important;
-        color: var(--er-mist);
+        background: var(--er-canvas) !important;
+        color: var(--er-body);
     }
     html, body, [class*="css"], .stApp, [data-testid="stMarkdownContainer"] {
         font-family: 'Inter', -apple-system, 'Helvetica Neue', Arial, sans-serif !important;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.006em;
     }
     .block-container {
-        padding-top: 2.5rem !important;
-        padding-bottom: 3rem !important;
-        max-width: 1080px !important;
+        padding-top: 3rem !important;
+        padding-bottom: 4rem !important;
+        max-width: 940px !important;
     }
 
-    /* Tipografía de titulares — grotesca apretada, en versalitas cuando aplica */
+    /* Titulares — pesos ligeros, sentence case, tinta */
     h1, h2, h3, h4 {
         font-family: 'Inter', sans-serif !important;
-        color: var(--er-bone) !important;
-        font-weight: 600 !important;
+        color: var(--er-ink) !important;
+        font-weight: 500 !important;
         letter-spacing: -0.02em !important;
     }
-    h1 { font-size: 2.1rem !important; }
-    h2 { font-size: 1.5rem !important; }
-    h3 { font-size: 1.15rem !important; }
+    h1 { font-size: 2rem !important; line-height: 1.15 !important; }
+    h2 { font-size: 1.4rem !important; }
+    h3 { font-size: 1.1rem !important; }
     p, span, label, li, div[data-testid="stMarkdownContainer"] p {
-        color: var(--er-mist);
+        color: var(--er-body);
+        line-height: 1.65;
     }
-    .stCaption, [data-testid="stCaptionContainer"], small {
-        color: var(--er-ash) !important;
+    .stCaption, [data-testid="stCaptionContainer"], small,
+    [data-testid="stCaptionContainer"] p {
+        color: var(--er-muted) !important;
         letter-spacing: 0 !important;
     }
+    strong, b { color: var(--er-ink); font-weight: 600; }
 
-    /* Botones — rectangulares, borde fino, sin degradado */
+    /* ---------------------------------------------------------
+       BOTONES — robustos: fijamos color también en el texto interno
+       (Streamlit envuelve el label en <p>/<div>, que heredaba mal
+       el color y salía invisible). Aquí no queda margen a ambigüedad.
+       --------------------------------------------------------- */
+    .stButton > button, .stDownloadButton > button,
+    .stButton > button *, .stDownloadButton > button * {
+        color: var(--er-ink) !important;
+    }
     .stButton > button, .stDownloadButton > button {
-        background: transparent !important;
-        color: var(--er-bone) !important;
-        border: 1px solid var(--er-hairline) !important;
-        border-radius: 2px !important;
+        background: var(--er-surface) !important;
+        border: 1px solid var(--er-line-2) !important;
+        border-radius: 6px !important;
         font-weight: 500 !important;
-        letter-spacing: 0.01em !important;
-        padding: 0.5rem 1.1rem !important;
-        transition: all 0.15s ease !important;
-        text-transform: none !important;
+        font-size: 0.9rem !important;
+        letter-spacing: -0.006em !important;
+        padding: 0.55rem 1.15rem !important;
+        transition: all 0.14s ease !important;
+        box-shadow: 0 1px 1px rgba(22,21,26,0.03) !important;
     }
     .stButton > button:hover, .stDownloadButton > button:hover {
-        background: var(--er-bone) !important;
-        color: var(--er-ink) !important;
-        border-color: var(--er-bone) !important;
+        background: var(--er-sunken) !important;
+        border-color: var(--er-line-2) !important;
     }
-    /* Botón primario — invertido, sólido hueso */
-    .stButton > button[kind="primary"] {
-        background: var(--er-bone) !important;
+    .stButton > button:hover *, .stDownloadButton > button:hover * {
         color: var(--er-ink) !important;
-        border: 1px solid var(--er-bone) !important;
-        font-weight: 600 !important;
+    }
+    /* Botón primario — índigo sólido, texto blanco forzado en el interior */
+    .stButton > button[kind="primary"] {
+        background: var(--er-accent) !important;
+        border: 1px solid var(--er-accent) !important;
+        box-shadow: 0 1px 2px rgba(59,58,107,0.18) !important;
+    }
+    .stButton > button[kind="primary"], .stButton > button[kind="primary"] * {
+        color: #FFFFFF !important;
     }
     .stButton > button[kind="primary"]:hover {
-        background: var(--er-white) !important;
-        border-color: var(--er-white) !important;
+        background: var(--er-accent-2) !important;
+        border-color: var(--er-accent-2) !important;
     }
+    .stButton > button[kind="primary"]:hover * { color: #FFFFFF !important; }
 
-    /* Inputs — fondo carbón, borde fino, esquinas rectas */
+    /* Inputs — superficie hundida, borde hairline, foco índigo */
     .stTextInput > div > div > input,
     .stNumberInput > div > div > input,
     .stTextArea textarea,
     .stSelectbox > div > div,
     .stMultiSelect > div > div {
-        background: var(--er-carbon) !important;
-        color: var(--er-bone) !important;
-        border: 1px solid var(--er-hairline) !important;
-        border-radius: 2px !important;
+        background: var(--er-surface) !important;
+        color: var(--er-ink) !important;
+        border: 1px solid var(--er-line-2) !important;
+        border-radius: 6px !important;
     }
+    .stTextInput > div > div > input::placeholder,
+    .stTextArea textarea::placeholder { color: var(--er-faint) !important; }
     .stTextInput > div > div > input:focus,
     .stNumberInput > div > div > input:focus,
     .stTextArea textarea:focus {
         border-color: var(--er-accent) !important;
-        box-shadow: none !important;
+        box-shadow: 0 0 0 3px var(--er-accent-bg) !important;
     }
     .stTextInput label, .stNumberInput label, .stTextArea label,
-    .stSelectbox label, .stRadio label, .stMultiSelect label {
-        color: var(--er-silver) !important;
+    .stSelectbox label, .stRadio label, .stMultiSelect label,
+    .stSlider label, .stCheckbox label {
+        color: var(--er-body) !important;
         font-weight: 500 !important;
-        font-size: 0.82rem !important;
-        letter-spacing: 0.02em !important;
+        font-size: 0.85rem !important;
+        letter-spacing: -0.006em !important;
     }
 
-    /* Tabs — subrayado fino, mayúsculas pequeñas */
+    /* Tabs — subrayado índigo fino, sentence case */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 4px;
-        border-bottom: 1px solid var(--er-slate) !important;
+        gap: 2px;
+        border-bottom: 1px solid var(--er-line) !important;
     }
     .stTabs [data-baseweb="tab"] {
         background: transparent !important;
-        color: var(--er-ash) !important;
+        color: var(--er-muted) !important;
         border-radius: 0 !important;
         font-weight: 500 !important;
-        font-size: 0.86rem !important;
-        letter-spacing: 0.01em !important;
-        padding: 0.5rem 0.9rem !important;
+        font-size: 0.9rem !important;
+        letter-spacing: -0.006em !important;
+        padding: 0.55rem 1rem !important;
     }
+    .stTabs [data-baseweb="tab"]:hover { color: var(--er-body) !important; }
     .stTabs [aria-selected="true"] {
-        color: var(--er-bone) !important;
+        color: var(--er-ink) !important;
         border-bottom: 2px solid var(--er-accent) !important;
     }
+    .stTabs [data-baseweb="tab"] p { color: inherit !important; font-size: 0.9rem !important; }
 
-    /* Métricas — números grandes en serif de alto contraste */
+    /* Métricas — cifras en serif editorial */
     [data-testid="stMetricValue"] {
         font-family: 'Newsreader', Georgia, serif !important;
-        color: var(--er-bone) !important;
+        color: var(--er-ink) !important;
         font-weight: 500 !important;
     }
-    [data-testid="stMetricLabel"] {
-        color: var(--er-ash) !important;
+    [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
+        color: var(--er-muted) !important;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font-size: 0.72rem !important;
+        letter-spacing: 0.07em;
+        font-size: 0.7rem !important;
     }
 
-    /* Expanders / contenedores con borde — rectos y finos */
+    /* Expanders — tarjeta blanca, hairline */
     [data-testid="stExpander"], div[data-testid="stExpander"] details {
-        background: var(--er-carbon) !important;
-        border: 1px solid var(--er-hairline) !important;
-        border-radius: 2px !important;
+        background: var(--er-surface) !important;
+        border: 1px solid var(--er-line) !important;
+        border-radius: 8px !important;
     }
-    [data-testid="stExpander"] summary { color: var(--er-mist) !important; }
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] summary p { color: var(--er-ink) !important; }
 
-    /* Alertas — planas, borde a la izquierda, sin colores de caramelo */
+    /* Alertas — planas, hairline, borde índigo a la izquierda */
     [data-testid="stAlert"] {
-        border-radius: 2px !important;
-        border-left: 2px solid var(--er-accent) !important;
-        background: var(--er-carbon) !important;
-        color: var(--er-mist) !important;
+        border-radius: 6px !important;
+        border: 1px solid var(--er-line) !important;
+        border-left: 3px solid var(--er-accent) !important;
+        background: var(--er-surface) !important;
     }
+    [data-testid="stAlert"], [data-testid="stAlert"] p { color: var(--er-body) !important; }
 
-    /* Código / bloques de contenido */
+    /* Código / bloques de respuesta generada */
     .stCode, pre, code {
-        background: var(--er-carbon) !important;
-        border: 1px solid var(--er-hairline) !important;
-        border-radius: 2px !important;
-        color: var(--er-bone) !important;
+        background: var(--er-surface) !important;
+        border: 1px solid var(--er-line) !important;
+        border-radius: 6px !important;
+        color: var(--er-ink) !important;
         font-family: 'IBM Plex Mono', monospace !important;
     }
 
-    /* Radios y checks — acento latón */
+    /* Radios y checks — acento índigo */
     .stRadio [data-baseweb="radio"] div[aria-checked="true"],
     input[type="checkbox"]:checked {
         background-color: var(--er-accent) !important;
         border-color: var(--er-accent) !important;
     }
+    .stSlider [data-baseweb="slider"] div[role="slider"] {
+        background-color: var(--er-accent) !important;
+    }
 
     /* Divisores */
-    hr { border-color: var(--er-slate) !important; }
+    hr { border-color: var(--er-line) !important; }
 
     /* Scrollbar sutil */
-    ::-webkit-scrollbar { width: 10px; height: 10px; }
-    ::-webkit-scrollbar-track { background: var(--er-ink); }
-    ::-webkit-scrollbar-thumb { background: var(--er-slate); border-radius: 0; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--er-hairline); }
+    ::-webkit-scrollbar { width: 11px; height: 11px; }
+    ::-webkit-scrollbar-track { background: var(--er-canvas); }
+    ::-webkit-scrollbar-thumb { background: var(--er-line-2); border-radius: 6px; border: 3px solid var(--er-canvas); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--er-faint); }
     </style>
     """, unsafe_allow_html=True)
 
 
-def mostrar_barras_simples(conteo, color="#C8A24B"):
+# Acento de la app (índigo). Fuente única de verdad para Python + CSS dinámico.
+ACCENT_INDIGO = "#3B3A6B"
+ACCENT_INDIGO_HOVER = "#4E4C8A"
+
+
+def mostrar_barras_simples(conteo, color=ACCENT_INDIGO):
     """Barras horizontales en HTML puro, sin pasar por pandas/pyarrow (evita el
     Segmentation fault de Python 3.14 + pyarrow en Streamlit Cloud)."""
     import html as _html
@@ -338,12 +370,12 @@ def mostrar_barras_simples(conteo, color="#C8A24B"):
     for etiqueta, valor in sorted(conteo.items(), key=lambda kv: kv[1], reverse=True):
         ancho_pct = int((valor / maximo) * 100)
         filas_html += f"""
-        <div style="margin-bottom:10px;">
-            <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:#9EA2AB; margin-bottom:4px; letter-spacing:0.01em;">
-                <span>{_html.escape(str(etiqueta))}</span><span style="font-family:'IBM Plex Mono',monospace; color:#C9CCD2;">{valor}</span>
+        <div style="margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#46454C; margin-bottom:5px;">
+                <span>{_html.escape(str(etiqueta))}</span><span style="font-family:'IBM Plex Mono',monospace; color:#16151A;">{valor}</span>
             </div>
-            <div style="background:#1E1F22; border:1px solid #35373D; border-radius:0; height:8px; width:100%;">
-                <div style="background:{color}; border-radius:0; height:8px; width:{ancho_pct}%;"></div>
+            <div style="background:#F4F3EF; border:1px solid #E6E4DE; border-radius:4px; height:8px; width:100%;">
+                <div style="background:{color}; border-radius:4px; height:8px; width:{ancho_pct}%;"></div>
             </div>
         </div>"""
     st.markdown(f'<div>{filas_html}</div>', unsafe_allow_html=True)
@@ -453,18 +485,18 @@ def calcular_reputation_score(historico_actual, historico_anterior, dias_periodo
 
 
 def etiqueta_reputation_score(score):
-    """Traduce el número a una banda con nombre y color. Paleta monocroma:
-    el latón marca la excelencia; el resto es escala de grises; solo el riesgo
-    real usa un rojo apagado."""
+    """Traduce el número a una banda con nombre y color, sobre lienzo claro.
+    El índigo marca la excelencia; el resto gradúa en tinta; solo el riesgo
+    real usa un rojo controlado."""
     if score is None:
-        return ("Sin datos", "#6B6E76")
+        return ("Sin datos", "#8A8880")
     if score >= 80:
-        return ("Excelente", "#C8A24B")   # latón/oro pálido
+        return ("Excelente", "#3B3A6B")   # índigo — el acento
     if score >= 60:
-        return ("Buena", "#C9CCD2")        # gris claro
+        return ("Buena", "#46454C")        # tinta cuerpo
     if score >= 40:
-        return ("Mejorable", "#9EA2AB")    # gris medio
-    return ("En riesgo", "#B4413C")        # rojo apagado
+        return ("Mejorable", "#8A8880")    # gris medio
+    return ("En riesgo", "#A23A34")        # rojo controlado
 
 
 def generar_interpretacion_score_ia(cliente_ia, resultado_score, nombre_contexto):
@@ -539,25 +571,25 @@ def mostrar_medidor_score(resultado_score, titulo, interpretacion):
 
     # Cabecera: número grande en serif + banda en versalitas
     st.markdown(f"""
-    <div style="background:#141416; border:1px solid #35373D; border-radius:2px; padding:24px 28px; margin-bottom:16px;">
-        <div style="font-size:0.72rem; color:#6B6E76; margin-bottom:14px; text-transform:uppercase; letter-spacing:0.14em;">{_html.escape(titulo)}</div>
+    <div style="background:#FFFFFF; border:1px solid #E6E4DE; border-radius:10px; padding:24px 28px; margin-bottom:16px;">
+        <div style="font-size:0.72rem; color:#8A8880; margin-bottom:14px; text-transform:uppercase; letter-spacing:0.14em;">{_html.escape(titulo)}</div>
         <div style="display:flex; align-items:baseline; gap:14px;">
             <span style="font-family:'Newsreader',Georgia,serif; font-size:4rem; font-weight:500; color:{color}; line-height:0.9;">{score}</span>
-            <span style="font-family:'Newsreader',Georgia,serif; font-size:1.2rem; color:#6B6E76;">/ 100</span>
-            <span style="margin-left:auto; border:1px solid {color}; color:{color}; font-weight:600; font-size:0.7rem; padding:5px 14px; border-radius:2px; text-transform:uppercase; letter-spacing:0.12em;">{banda}</span>
+            <span style="font-family:'Newsreader',Georgia,serif; font-size:1.2rem; color:#8A8880;">/ 100</span>
+            <span style="margin-left:auto; border:1px solid {color}; color:{color}; font-weight:600; font-size:0.7rem; padding:5px 14px; border-radius:6px; text-transform:uppercase; letter-spacing:0.12em;">{banda}</span>
         </div>
-        <div style="background:#0A0A0B; border:1px solid #35373D; border-radius:0; height:6px; width:100%; margin-top:20px;">
-            <div style="background:{color}; border-radius:0; height:6px; width:{score}%;"></div>
+        <div style="background:#F4F3EF; border:1px solid #E6E4DE; border-radius:4px; height:6px; width:100%; margin-top:20px;">
+            <div style="background:{color}; border-radius:4px; height:6px; width:{score}%;"></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<div style='color:#C9CCD2; font-size:0.95rem; line-height:1.6; margin-bottom:16px;'>{_html.escape(interpretacion)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='color:#46454C; font-size:0.95rem; line-height:1.6; margin-bottom:16px;'>{_html.escape(interpretacion)}</div>", unsafe_allow_html=True)
 
     # Desglose de factores
     factores = resultado_score.get("factores", {})
     if factores:
-        st.markdown("<div style='font-size:0.72rem; color:#6B6E76; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:10px;'>Composición de la puntuación</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:0.72rem; color:#8A8880; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:10px;'>Composición de la puntuación</div>", unsafe_allow_html=True)
         topes = {"Sentimiento": 50, "Volumen": 20, "Constancia": 20, "Tendencia": 10}
         filas_html = ""
         for nombre, pts in factores.items():
@@ -565,11 +597,11 @@ def mostrar_medidor_score(resultado_score, titulo, interpretacion):
             ancho_pct = int((pts / tope) * 100) if tope else 0
             filas_html += f"""
             <div style="margin-bottom:10px;">
-                <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:#9EA2AB; margin-bottom:4px;">
-                    <span>{_html.escape(nombre)}</span><span style="font-family:'IBM Plex Mono',monospace; color:#C9CCD2;">{pts} / {tope}</span>
+                <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:#8A8880; margin-bottom:4px;">
+                    <span>{_html.escape(nombre)}</span><span style="font-family:'IBM Plex Mono',monospace; color:#46454C;">{pts} / {tope}</span>
                 </div>
-                <div style="background:#1E1F22; border:1px solid #35373D; border-radius:0; height:6px; width:100%;">
-                    <div style="background:{color}; border-radius:0; height:6px; width:{ancho_pct}%;"></div>
+                <div style="background:#F4F3EF; border:1px solid #E6E4DE; border-radius:4px; height:6px; width:100%;">
+                    <div style="background:{color}; border-radius:4px; height:6px; width:{ancho_pct}%;"></div>
                 </div>
             </div>"""
         st.markdown(f'<div>{filas_html}</div>', unsafe_allow_html=True)
@@ -626,20 +658,20 @@ def mostrar_calculadora_roi(roi, estrellas_actuales, estrellas_objetivo):
         return
 
     st.markdown(f"""
-    <div style="background:#141416; border:1px solid #35373D; border-left:2px solid #C8A24B; border-radius:2px; padding:20px 24px; margin:10px 0;">
-        <div style="font-size:0.72rem; color:#6B6E76; margin-bottom:16px; text-transform:uppercase; letter-spacing:0.12em;">
+    <div style="background:#FFFFFF; border:1px solid #E6E4DE; border-left:3px solid #3B3A6B; border-radius:0 10px 10px 0; padding:20px 24px; margin:10px 0;">
+        <div style="font-size:0.72rem; color:#8A8880; margin-bottom:16px; text-transform:uppercase; letter-spacing:0.1em;">
             Proyección · {estrellas_actuales}★ → {estrellas_objetivo}★ (+{roi['delta_estrellas']})
         </div>
         <div style="display:flex; gap:48px; flex-wrap:wrap;">
             <div>
-                <div style="font-size:0.72rem; color:#6B6E76; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px;">Ingresos extra / mes</div>
-                <div style="font-family:'Newsreader',Georgia,serif; font-size:1.8rem; font-weight:500; color:#F4F4F2; line-height:1.2;">
+                <div style="font-size:0.72rem; color:#8A8880; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px;">Ingresos extra / mes</div>
+                <div style="font-family:'Newsreader',Georgia,serif; font-size:1.9rem; font-weight:500; color:#16151A; line-height:1.2;">
                     {_html.escape(_fmt_eur(roi['mensual_min']))} – {_html.escape(_fmt_eur(roi['mensual_max']))}
                 </div>
             </div>
             <div>
-                <div style="font-size:0.72rem; color:#6B6E76; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px;">Ingresos extra / año</div>
-                <div style="font-family:'Newsreader',Georgia,serif; font-size:1.8rem; font-weight:500; color:#C8A24B; line-height:1.2;">
+                <div style="font-size:0.72rem; color:#8A8880; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px;">Ingresos extra / año</div>
+                <div style="font-family:'Newsreader',Georgia,serif; font-size:1.9rem; font-weight:500; color:#3B3A6B; line-height:1.2;">
                     {_html.escape(_fmt_eur(roi['anual_min']))} – {_html.escape(_fmt_eur(roi['anual_max']))}
                 </div>
             </div>
@@ -663,6 +695,10 @@ LIMITE_USOS_POR_PLAN = {
 }
 LIMITE_LOCALES_POR_PLAN = {"free": 1, "individual": 1,
                             "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
+# Nº máximo de usuarios (miembros del equipo) por plan. None = sin límite.
+# Free e Individual son de un solo usuario; los planes de agencia permiten equipo.
+LIMITE_USUARIOS_POR_PLAN = {"free": 1, "individual": 1,
+                            "starter": 5, "growth": 15, "enterprise": None}
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -961,6 +997,103 @@ def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plan
         }
     except Exception as e:
         return False, f"Error al crear la cuenta: {e}"
+
+
+# =========================================================
+# GESTIÓN DE EQUIPO — varios usuarios bajo la misma agencia
+# =========================================================
+def listar_usuarios_agencia(agencia_id):
+    """Devuelve la lista de usuarios (miembros del equipo) de una agencia,
+    ordenados por fecha de alta. Solo lectura."""
+    try:
+        resultado = (
+            supabase.table("usuarios")
+            .select("id, email, nombre_usuario, rol, activo, creado_en")
+            .eq("agencia_id", agencia_id)
+            .order("creado_en", desc=False)
+            .execute()
+        )
+        return resultado.data or []
+    except Exception:
+        # Si 'creado_en' no existiera en alguna instancia antigua, reintenta sin orden.
+        try:
+            resultado = (
+                supabase.table("usuarios")
+                .select("id, email, nombre_usuario, rol, activo")
+                .eq("agencia_id", agencia_id)
+                .execute()
+            )
+            return resultado.data or []
+        except Exception:
+            return []
+
+
+def contar_usuarios_activos_agencia(agencia_id):
+    """Cuenta cuántos usuarios activos tiene la agencia (para aplicar el límite del plan)."""
+    return len([u for u in listar_usuarios_agencia(agencia_id) if u.get("activo", True)])
+
+
+def puede_agencia_anadir_usuario(agencia):
+    """(bool, motivo) — indica si la agencia puede sumar otro miembro según su plan."""
+    plan = agencia.get("plan", "free")
+    limite = LIMITE_USUARIOS_POR_PLAN.get(plan)
+    if limite is None:
+        return True, None
+    actuales = contar_usuarios_activos_agencia(agencia["id"])
+    if actuales >= limite:
+        if plan in ("free", "individual"):
+            return False, ("Tu plan actual es de un solo usuario. Cambia a un plan de agencia "
+                           "(Starter, Growth o Enterprise) para dar acceso a tu equipo.")
+        return False, (f"Has alcanzado el máximo de {limite} usuarios de tu plan {plan.capitalize()}. "
+                       "Sube de plan para añadir más miembros.")
+    return True, None
+
+
+def crear_usuario_en_agencia(agencia_id, email, password_plano, nombre_usuario, rol="gestor"):
+    """Da de alta un nuevo miembro del equipo bajo una agencia existente.
+    Devuelve (True, usuario) o (False, motivo). El email debe ser único en todo el sistema."""
+    email_normalizado = email.lower().strip()
+    if not EMAIL_REGEX.match(email_normalizado):
+        return False, "El email no tiene un formato válido."
+    if len(password_plano) < 8:
+        return False, "La contraseña debe tener al menos 8 caracteres."
+    if rol not in ("admin", "gestor"):
+        rol = "gestor"
+
+    try:
+        existente = supabase.table("usuarios").select("id").eq("email", email_normalizado).execute()
+        if existente.data:
+            return False, "Ya existe una cuenta con ese email."
+
+        nuevo = supabase.table("usuarios").insert({
+            "agencia_id": agencia_id,
+            "email": email_normalizado,
+            "password_hash": bcrypt.hashpw(password_plano.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
+            "nombre_usuario": nombre_usuario.strip() or email_normalizado.split("@")[0],
+            "rol": rol,
+        }).execute()
+        return True, nuevo.data[0]
+    except Exception as e:
+        return False, f"No se pudo crear el usuario: {e}"
+
+
+def desactivar_usuario(usuario_id, agencia_id):
+    """Desactiva (no borra) un miembro del equipo, revocándole el acceso.
+    Comprueba que pertenezca a la agencia para evitar tocar usuarios ajenos."""
+    try:
+        objetivo = (
+            supabase.table("usuarios")
+            .select("id, agencia_id, rol")
+            .eq("id", usuario_id)
+            .eq("agencia_id", agencia_id)
+            .execute()
+        )
+        if not objetivo.data:
+            return False, "Usuario no encontrado en tu agencia."
+        supabase.table("usuarios").update({"activo": False}).eq("id", usuario_id).execute()
+        return True, None
+    except Exception as e:
+        return False, f"No se pudo desactivar el usuario: {e}"
 
 
 def render_formulario_alta_pendiente():
@@ -1616,11 +1749,11 @@ def redirigir_a_stripe(url_pago):
     boton_pago_html = (
         '<div style="margin:16px 0; text-align:center;">'
         f'<a href="{url_pago}" target="_top" '
-        'style="display:inline-block; background:#F4F4F2; '
-        'color:#0A0A0B; font-weight:600; font-size:0.98rem; text-decoration:none; '
-        'padding:14px 34px; border:1px solid #F4F4F2; border-radius:2px; '
-        'letter-spacing:0.02em;">Continuar al pago seguro con Stripe &rarr;</a>'
-        '<div style="color:#6B6E76; font-size:0.78rem; margin-top:10px; letter-spacing:0.01em;">'
+        'style="display:inline-block; background:#3B3A6B; '
+        'color:#FFFFFF; font-weight:500; font-size:0.98rem; text-decoration:none; '
+        'padding:14px 34px; border:1px solid #3B3A6B; border-radius:8px; '
+        'letter-spacing:-0.006em; box-shadow:0 1px 2px rgba(59,58,107,0.18);">Continuar al pago seguro con Stripe &rarr;</a>'
+        '<div style="color:#8A8880; font-size:0.78rem; margin-top:10px;">'
         'Pasarela cifrada de Stripe. Si no se abre sola, pulsa el botón.</div>'
         '</div>'
     )
@@ -1807,41 +1940,41 @@ if not st.session_state.sesion_activa:
 
     st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap');
         html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
         .rp-hero-title {
-            font-family: 'Inter', sans-serif; font-weight: 600; font-size: 2.5rem;
-            color: #F4F4F2; line-height: 1.08; margin-bottom: 0.5rem; letter-spacing: -0.03em;
+            font-family: 'Inter', sans-serif; font-weight: 500; font-size: 2.4rem;
+            color: #16151A; line-height: 1.1; margin-bottom: 0.6rem; letter-spacing: -0.03em;
         }
-        .rp-hero-sub { color: #9EA2AB; font-size: 1.02rem; margin-bottom: 2rem; letter-spacing: -0.01em; line-height: 1.5; }
+        .rp-hero-sub { color: #46454C; font-size: 1.02rem; margin-bottom: 2rem; letter-spacing: -0.008em; line-height: 1.6; max-width: 620px; }
         .rp-card {
-            background: #141416; border: 1px solid #35373D; border-radius: 2px;
-            padding: 28px 24px; height: 100%;
+            background: #FFFFFF; border: 1px solid #E6E4DE; border-radius: 12px;
+            padding: 28px 26px; height: 100%; box-shadow: 0 1px 2px rgba(22,21,26,0.03);
         }
-        .rp-card-destacado { border: 1px solid #C8A24B; }
-        .rp-plan-nombre { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 1.15rem; color: #F4F4F2; margin-bottom: 4px; letter-spacing: -0.01em; }
-        .rp-plan-target { color: #6B6E76; font-size: 0.8rem; margin-bottom: 16px; letter-spacing: 0; }
-        .rp-precio { font-family: 'Newsreader', Georgia, serif; font-size: 2.2rem; font-weight: 500; color: #F4F4F2; }
-        .rp-precio-periodo { color: #6B6E76; font-size: 0.85rem; }
-        .rp-feature { color: #C9CCD2; font-size: 0.86rem; margin: 7px 0; letter-spacing: -0.005em; }
-        .rp-badge { display:inline-block; background:transparent; color:#C8A24B; border:1px solid #C8A24B; font-size:0.66rem;
-            padding: 3px 10px; border-radius: 2px; margin-bottom: 12px; font-weight:600; letter-spacing: 0.12em; text-transform:uppercase; }
-        .rp-badge-verde { display:inline-block; background:transparent; color:#9EA2AB; border:1px solid #6B6E76; font-size:0.66rem;
-            padding: 3px 10px; border-radius: 2px; margin-bottom: 12px; font-weight:600; letter-spacing: 0.12em; text-transform:uppercase; }
-        .rp-precio-tachado { color:#6B6E76; font-size:1rem; text-decoration:line-through; margin-right:8px; font-family:'Newsreader',serif; }
-        .rp-precio-ahorro { color:#C8A24B; font-size:0.78rem; font-weight:500; margin-top:4px; letter-spacing:0; }
-        .rp-por-local { color:#9EA2AB; font-size:0.8rem; font-weight:500; margin-top:8px; font-family:'IBM Plex Mono',monospace; }
-        .rp-gancho { color:#6B6E76; font-size:0.8rem; margin-top:12px; min-height:34px; line-height:1.5; }
+        .rp-card-destacado { border: 1.5px solid #3B3A6B; box-shadow: 0 2px 8px rgba(59,58,107,0.08); }
+        .rp-plan-nombre { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 1.1rem; color: #16151A; margin-bottom: 4px; letter-spacing: -0.01em; }
+        .rp-plan-target { color: #8A8880; font-size: 0.82rem; margin-bottom: 18px; letter-spacing: 0; }
+        .rp-precio { font-family: 'Newsreader', Georgia, serif; font-size: 2.3rem; font-weight: 500; color: #16151A; }
+        .rp-precio-periodo { color: #8A8880; font-size: 0.85rem; }
+        .rp-feature { color: #46454C; font-size: 0.87rem; margin: 8px 0; letter-spacing: -0.005em; }
+        .rp-badge { display:inline-block; background:#EEEEF4; color:#3B3A6B; border:none; font-size:0.66rem;
+            padding: 4px 11px; border-radius: 6px; margin-bottom: 14px; font-weight:600; letter-spacing: 0.08em; text-transform:uppercase; }
+        .rp-badge-verde { display:inline-block; background:#F4F3EF; color:#8A8880; border:none; font-size:0.66rem;
+            padding: 4px 11px; border-radius: 6px; margin-bottom: 14px; font-weight:600; letter-spacing: 0.08em; text-transform:uppercase; }
+        .rp-precio-tachado { color:#A8A69E; font-size:1rem; text-decoration:line-through; margin-right:8px; font-family:'Newsreader',serif; }
+        .rp-precio-ahorro { color:#3B3A6B; font-size:0.78rem; font-weight:500; margin-top:4px; letter-spacing:0; }
+        .rp-por-local { color:#8A8880; font-size:0.8rem; font-weight:500; margin-top:8px; font-family:'IBM Plex Mono',monospace; }
+        .rp-gancho { color:#8A8880; font-size:0.8rem; margin-top:12px; min-height:34px; line-height:1.55; }
         .rp-roi-banner {
-            background:#141416; border:1px solid #35373D; border-left:2px solid #C8A24B;
-            border-radius:2px; padding:18px 24px; margin:6px 0 24px 0; color:#C9CCD2; line-height:1.6;
+            background:#FFFFFF; border:1px solid #E6E4DE; border-left:3px solid #3B3A6B;
+            border-radius:0 10px 10px 0; padding:18px 24px; margin:6px 0 24px 0; color:#46454C; line-height:1.6;
         }
-        .rp-roi-banner strong { color:#C8A24B; font-weight:600; }
-        .rp-garantia { color:#6B6E76; font-size:0.82rem; text-align:center; margin-top:16px; letter-spacing:0; }
+        .rp-roi-banner strong { color:#3B3A6B; font-weight:600; }
+        .rp-garantia { color:#8A8880; font-size:0.82rem; text-align:center; margin-top:16px; letter-spacing:0; }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div style="font-size:0.72rem; color:#C8A24B; letter-spacing:0.2em; text-transform:uppercase; margin-bottom:14px; font-weight:600;">Enterprise Review</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.72rem; color:#3B3A6B; letter-spacing:0.16em; text-transform:uppercase; margin-bottom:14px; font-weight:600;">Enterprise Review</div>', unsafe_allow_html=True)
     st.markdown('<div class="rp-hero-title">Reputación bajo control.<br>Respuestas con precisión.</div>', unsafe_allow_html=True)
     st.markdown('<div class="rp-hero-sub">Plataforma de inteligencia de reputación para agencias. Respuestas redactadas con IA, con tu marca y SEO local integrado, para toda tu cartera de clientes.</div>', unsafe_allow_html=True)
 
@@ -1852,19 +1985,19 @@ if not st.session_state.sesion_activa:
         col_a, col_b, col_c = st.columns(3)
         with col_a:
             st.markdown("""<div class="rp-card">
-                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#C8A24B; letter-spacing:0.1em; margin-bottom:8px;">01</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#3B3A6B; letter-spacing:0.1em; margin-bottom:8px;">01</div>
                 <div class="rp-plan-nombre" style="font-size:1.05rem;">Blindaje legal</div>
                 <div class="rp-feature">Nunca admite negligencias ni usa términos de alerta sanitaria. Cada respuesta pasa por reglas de redacción pensadas para proteger la reputación del negocio.</div>
             </div>""", unsafe_allow_html=True)
         with col_b:
             st.markdown("""<div class="rp-card">
-                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#C8A24B; letter-spacing:0.1em; margin-bottom:8px;">02</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#3B3A6B; letter-spacing:0.1em; margin-bottom:8px;">02</div>
                 <div class="rp-plan-nombre" style="font-size:1.05rem;">SEO invisible</div>
                 <div class="rp-feature">Cada respuesta integra de forma natural las palabras clave de posicionamiento de ese local concreto, sin que se note ni al cliente final ni a Google.</div>
             </div>""", unsafe_allow_html=True)
         with col_c:
             st.markdown("""<div class="rp-card">
-                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#C8A24B; letter-spacing:0.1em; margin-bottom:8px;">03</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#3B3A6B; letter-spacing:0.1em; margin-bottom:8px;">03</div>
                 <div class="rp-plan-nombre" style="font-size:1.05rem;">Marca blanca real</div>
                 <div class="rp-feature">Tu agencia entra con su propio logo y color corporativo. Tus clientes ven tu marca, no la nuestra.</div>
             </div>""", unsafe_allow_html=True)
@@ -2089,25 +2222,6 @@ agencia = st.session_state.agencia_actual
 usuario = st.session_state.usuario_actual
 color_agencia = agencia["color_marca"]
 
-
-def _texto_contraste(hex_color):
-    """Devuelve '#0A0A0B' (tinta) o '#F4F4F2' (hueso) según la luminancia del color
-    de fondo, para que el texto del botón siempre tenga contraste (nunca blanco sobre
-    claro ni negro sobre oscuro)."""
-    try:
-        h = str(hex_color).lstrip("#")
-        if len(h) == 3:
-            h = "".join(c * 2 for c in h)
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        # Luminancia relativa perceptual (ITU-R BT.601)
-        luminancia = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-        return "#0A0A0B" if luminancia > 0.6 else "#F4F4F2"
-    except (ValueError, TypeError, IndexError):
-        return "#F4F4F2"
-
-
-texto_boton_marca = _texto_contraste(color_agencia)
-
 # Si el usuario ha pulsado "Actualizar plan" / "Ver planes de pago", mostramos la
 # comparativa de planes dentro del propio panel en vez de saltar directo a Stripe.
 if st.session_state.mostrar_pagina_planes:
@@ -2128,16 +2242,24 @@ st.markdown(f"""
         display: none !important;
         height: 0px !important;
     }}
+    /* El botón de acción principal (generar respuesta) usa SIEMPRE el índigo de la
+       app, nunca el color de marca guardado en la BD (que podía ser morado y salir
+       ilegible). Forzamos también el color del texto interno para que nunca falle. */
     div[data-testid="stFormSubmitButton"] button {{
-        background-color: {color_agencia} !important;
-        border: 1px solid {color_agencia} !important;
-        color: {texto_boton_marca} !important;
-        font-weight: 600 !important;
-        border-radius: 2px !important;
-        letter-spacing: 0.01em !important;
+        background-color: {ACCENT_INDIGO} !important;
+        border: 1px solid {ACCENT_INDIGO} !important;
+        font-weight: 500 !important;
+        border-radius: 6px !important;
+        letter-spacing: -0.006em !important;
+        box-shadow: 0 1px 2px rgba(59,58,107,0.18) !important;
+    }}
+    div[data-testid="stFormSubmitButton"] button,
+    div[data-testid="stFormSubmitButton"] button * {{
+        color: #FFFFFF !important;
     }}
     div[data-testid="stFormSubmitButton"] button:hover {{
-        opacity: 0.9 !important;
+        background-color: {ACCENT_INDIGO_HOVER} !important;
+        border-color: {ACCENT_INDIGO_HOVER} !important;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -2151,7 +2273,7 @@ with col_logo:
 with col_titulo:
     st.markdown(
         f"<div style='padding-top:6px;'>"
-        f"<div style='font-size:0.66rem; color:#000000; letter-spacing:0.18em; text-transform:uppercase; margin-bottom:2px;'>Console</div>"
+        f"<div style='font-size:0.66rem; color:#8A8880; letter-spacing:0.18em; text-transform:uppercase; margin-bottom:2px;'>Console</div>"
         f"<h2 style='margin:0; font-size:1.4rem;'>{agencia['nombre_agencia']}</h2>"
         f"</div>",
         unsafe_allow_html=True
@@ -2164,8 +2286,150 @@ with col_cuenta:
         st.session_state.vista_landing = "info"
         st.rerun()
 
-st.markdown(f"<hr style='border:0; border-top:1px solid {color_agencia}; margin-top:4px; opacity:0.6;'>", unsafe_allow_html=True)
+st.markdown(f"<hr style='border:0; border-top:2px solid {ACCENT_INDIGO}; margin-top:4px; width:48px;'>", unsafe_allow_html=True)
 st.caption(f"Sesión activa · {usuario['nombre_usuario']} ({usuario['email']}) · Rol: {usuario['rol']}")
+
+# =========================================================
+# 🔧 DIAGNÓSTICO TEMPORAL DE CONEXIÓN CON ANTHROPIC
+# (Quitar este bloque una vez resuelto el APIConnectionError)
+# =========================================================
+with st.expander("Diagnóstico de conexión con Anthropic (temporal)"):
+    st.caption(
+        "Aísla si el fallo es de RED (DNS/TLS/firewall saliente de Streamlit Cloud) "
+        "o del SDK de Anthropic en sí, haciendo una petición HTTP cruda sin pasar "
+        "por la librería `anthropic`."
+    )
+    if st.button("Probar conexión cruda a api.anthropic.com"):
+        try:
+            r = httpx.get("https://api.anthropic.com/v1/models", timeout=15.0)
+            st.success(f"Conexión HTTP cruda OK — status code {r.status_code}")
+            st.code(r.text[:500])
+        except Exception as e:
+            causa_raiz = log_error_completo("test de red crudo con httpx", e)
+            st.error(redactar_secretos(f"Falla incluso la petición cruda: {type(e).__name__}: {e}"))
+            st.caption(f"Causa raíz: {causa_raiz}")
+            st.warning(
+                "Si esto falla, el problema NO es del SDK de anthropic ni del modelo: "
+                "es de red saliente en esta instancia de Streamlit Cloud (DNS, TLS o "
+                "firewall). Prueba un reboot completo de la app (Manage app → ⋮ → Reboot), "
+                "no solo un redeploy de código."
+            )
+
+    if st.button("Probar llamada real vía SDK de Anthropic (mensaje mínimo)"):
+        try:
+            r = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "di 'ok'"}]
+            )
+            st.success(f"SDK OK — respuesta: {r.content[0].text}")
+        except Exception as e:
+            causa_raiz = log_error_completo("test mínimo vía SDK anthropic", e)
+            st.error(redactar_secretos(f"{type(e).__name__}: {e}"))
+            st.caption(f"Causa raíz (mira también Manage app → Logs): {causa_raiz}")
+
+    import anthropic as _anthropic_mod
+    st.caption(f"Versión del SDK `anthropic` instalada: {_anthropic_mod.__version__}")
+
+    st.divider()
+    st.caption("Higiene de la API key (sin mostrarla completa):")
+    _key_check = _anthropic_api_key_raw
+    if isinstance(_key_check, str):
+        _tiene_whitespace_extra = _key_check != _key_check.strip()
+        _no_ascii = any(ord(c) > 126 or ord(c) < 32 for c in _key_check.strip())
+        st.write({
+            "longitud_original": len(_key_check),
+            "longitud_tras_strip": len(_key_check.strip()),
+            "tenia_espacios_o_saltos_de_linea": _tiene_whitespace_extra,
+            "tiene_caracteres_no_ascii_ocultos": _no_ascii,
+            "empieza_por": _key_check.strip()[:12] + "...",
+            "termina_por": "..." + _key_check.strip()[-4:],
+        })
+        if _tiene_whitespace_extra:
+            st.warning(
+                "La key en Secrets tenía espacios/saltos de línea al principio o al "
+                "final. Ya se limpia automáticamente con .strip(), pero te recomiendo "
+                "corregirla también en Manage app → Secrets: debe estar en una sola línea, "
+                "como `ANTHROPIC_API_KEY = \"sk-ant-api03-...\"`, sin comillas triples."
+            )
+
+# =========================================================
+# GESTIÓN DE EQUIPO — panel solo para administradores
+# =========================================================
+if usuario.get("rol") == "admin":
+    plan_actual_equipo = agencia.get("plan", "free")
+    limite_usuarios = LIMITE_USUARIOS_POR_PLAN.get(plan_actual_equipo)
+    miembros = listar_usuarios_agencia(agencia["id"])
+    activos = [m for m in miembros if m.get("activo", True)]
+
+    if limite_usuarios is None:
+        etiqueta_equipo = f"Equipo · {len(activos)} usuarios (sin límite)"
+    else:
+        etiqueta_equipo = f"Equipo · {len(activos)} de {limite_usuarios} usuarios"
+
+    with st.expander(etiqueta_equipo, expanded=False):
+        if plan_actual_equipo in ("free", "individual"):
+            st.info("Tu plan actual es de un solo usuario. Los planes de agencia (Starter, "
+                    "Growth y Enterprise) permiten dar acceso a varias personas del equipo bajo "
+                    "la misma cuenta, cada una con su propio email y contraseña.")
+            if st.button("Ver planes de agencia", key="equipo_ver_planes"):
+                st.session_state.mostrar_pagina_planes = True
+                st.rerun()
+        else:
+            st.caption("Da acceso a las personas de tu agencia. Cada miembro entra con su propio "
+                       "email y contraseña, y trabaja sobre los mismos locales y datos.")
+
+            # Lista de miembros actuales
+            st.markdown("**Miembros del equipo**")
+            for m in activos:
+                col_m1, col_m2, col_m3 = st.columns([3, 1.4, 1.2])
+                with col_m1:
+                    st.markdown(f"{m['nombre_usuario']}  \n<span style='color:#8A8880; font-size:0.82rem;'>{m['email']}</span>", unsafe_allow_html=True)
+                with col_m2:
+                    es_tu = m["id"] == usuario["id"]
+                    etiqueta_rol = "Administrador" if m.get("rol") == "admin" else "Gestor"
+                    st.caption(etiqueta_rol + (" · tú" if es_tu else ""))
+                with col_m3:
+                    # No se puede desactivar a uno mismo ni al último admin.
+                    otros_admins = [x for x in activos if x.get("rol") == "admin" and x["id"] != m["id"]]
+                    if m["id"] != usuario["id"] and (m.get("rol") != "admin" or otros_admins):
+                        if st.button("Quitar acceso", key=f"quitar_{m['id']}"):
+                            ok, motivo = desactivar_usuario(m["id"], agencia["id"])
+                            if ok:
+                                st.success(f"Se ha revocado el acceso a {m['nombre_usuario']}.")
+                                st.rerun()
+                            else:
+                                st.error(redactar_secretos(motivo))
+
+            st.divider()
+
+            # Alta de nuevo miembro
+            puede_anadir, motivo_limite = puede_agencia_anadir_usuario(agencia)
+            if not puede_anadir:
+                st.warning(motivo_limite)
+                if st.button("Actualizar plan", key="equipo_upgrade"):
+                    st.session_state.mostrar_pagina_planes = True
+                    st.rerun()
+            else:
+                st.markdown("**Añadir un nuevo miembro**")
+                nuevo_nombre = st.text_input("Nombre del miembro", key="nuevo_miembro_nombre")
+                nuevo_email = st.text_input("Email", key="nuevo_miembro_email", placeholder="persona@tuagencia.com")
+                nuevo_pass = st.text_input("Contraseña temporal (mín. 8 caracteres)", type="password", key="nuevo_miembro_pass")
+                nuevo_rol = st.radio("Rol", ["Gestor", "Administrador"], horizontal=True, key="nuevo_miembro_rol",
+                                     help="Los administradores pueden gestionar el equipo y la facturación; los gestores solo generan respuestas y contenido.")
+                if st.button("Añadir miembro", key="crear_miembro", type="primary"):
+                    if not nuevo_email.strip() or not nuevo_pass:
+                        st.warning("Rellena al menos el email y la contraseña.")
+                    else:
+                        rol_bd = "admin" if nuevo_rol == "Administrador" else "gestor"
+                        ok, resultado = crear_usuario_en_agencia(
+                            agencia["id"], nuevo_email, nuevo_pass, nuevo_nombre, rol_bd
+                        )
+                        if ok:
+                            st.success(f"{resultado['nombre_usuario']} ya puede iniciar sesión con su email y la contraseña que le has asignado.")
+                            st.rerun()
+                        else:
+                            st.error(redactar_secretos(resultado))
 
 # =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
@@ -2471,7 +2735,7 @@ with tab_pedir_resenas:
             with col_wa:
                 st.markdown("**Mensaje listo para WhatsApp:**")
                 enlace_wa = generar_mensaje_whatsapp(nombre_local_pr, nuevo_enlace.strip())
-                st.markdown(f'<a href="{enlace_wa}" target="_blank" style="text-decoration:none;"><div style="background:transparent;color:#F4F4F2;padding:11px 20px;border:1px solid #35373D;border-radius:2px;font-weight:500;cursor:pointer;width:100%;text-align:center;letter-spacing:0.01em;">Abrir en WhatsApp &rarr;</div></a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{enlace_wa}" target="_blank" style="text-decoration:none;"><div style="background:#FFFFFF;color:#16151A;padding:11px 20px;border:1px solid #D6D3CA;border-radius:6px;font-weight:500;cursor:pointer;width:100%;text-align:center;box-shadow:0 1px 1px rgba(22,21,26,0.03);">Abrir en WhatsApp &rarr;</div></a>', unsafe_allow_html=True)
                 st.caption("Se abre con el mensaje ya escrito; solo hay que elegir el contacto.")
             with col_qr:
                 st.markdown("**Código QR para imprimir en el local:**")
@@ -2672,7 +2936,7 @@ with tab_analitica:
 
             st.markdown("**Reparto de trabajo por usuario del equipo:**")
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
-            mostrar_barras_simples(conteo_por_usuario, color="#9EA2AB")
+            mostrar_barras_simples(conteo_por_usuario, color="#8A8880")
 
             # Contenido SEO generado en el periodo (tabla nueva — si aún no se ha
             # ejecutado la migración, esto falla en silencio y el informe lo indica)
