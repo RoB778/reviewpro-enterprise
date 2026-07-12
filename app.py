@@ -754,9 +754,9 @@ def _redondear_bonito(n):
     (1908 → 1910... y si cae en 1905-1914 lo deja en 1910; 1900 se queda 1900).
     Esto evita precios feos tipo 1908€ en la facturación anual."""
     n = round(n)
-    if n < 100 :
+    if n < 100:
         return n
-    return int(round(n / 1.0) + 2 )
+    return int(round(n / 10.0) * 10)
 
 
 def _precio_anual_mensualizado(precio_mensual):
@@ -822,6 +822,10 @@ def crear_sesion_pago_stripe(agencia_id, plan_nombre, price_id):
             line_items=[{"price": price_id, "quantity": 1}],
             client_reference_id=str(agencia_id),
             metadata={"agencia_id": str(agencia_id), "plan": plan_nombre},
+            # La metadata de la sesión NO se copia a la suscripción; la propagamos
+            # aquí para que los eventos customer.subscription.* del webhook lleven el
+            # plan y la agencia y podamos sincronizar sin mapear precios a mano.
+            subscription_data={"metadata": {"agencia_id": str(agencia_id), "plan": plan_nombre}},
             success_url=f"{APP_URL}/?pago_exito=1&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{APP_URL}/?pago_cancelado=1",
         )
@@ -845,12 +849,36 @@ def crear_sesion_pago_nueva_agencia(plan_nombre, price_id):
             payment_method_types=["card"],
             line_items=[{"price": price_id, "quantity": 1}],
             metadata={"plan": plan_nombre, "flujo": "alta_nueva"},
+            # Propagamos el plan a la suscripción para que el webhook lo reciba en
+            # los eventos customer.subscription.* (la agencia aún no existe aquí, así
+            # que el webhook la localizará luego por stripe_customer_id).
+            subscription_data={"metadata": {"plan": plan_nombre, "flujo": "alta_nueva"}},
             success_url=f"{APP_URL}/?alta_nueva=1&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{APP_URL}/?pago_cancelado=1",
         )
         return session.url
     except Exception as e:
         st.error(redactar_secretos(f"No se pudo iniciar el proceso de pago: {e}"))
+        return None
+
+
+def crear_portal_cliente(stripe_customer_id):
+    """
+    Crea una sesión del Customer Portal de Stripe para que el propio cliente gestione
+    su suscripción (cambiar método de pago, descargar facturas, cancelar) sin tener que
+    escribirnos. Devuelve la URL del portal, o None si algo falla.
+
+    Requisito: hay que activar el Customer Portal una vez en el Dashboard de Stripe
+    (Settings → Billing → Customer portal). Si no está configurado, Stripe devuelve error.
+    """
+    try:
+        portal = stripe.billing_portal.Session.create(
+            customer=stripe_customer_id,
+            return_url=f"{APP_URL}/",
+        )
+        return portal.url
+    except Exception as e:
+        st.error(redactar_secretos(f"No se pudo abrir el portal de suscripción: {e}"))
         return None
 
 
@@ -895,7 +923,13 @@ def confirmar_pago_y_activar_plan(session_id):
         plan_nombre = _stripe_campo(metadata, "plan")
         if not agencia_id or not plan_nombre:
             return False, "No se pudo identificar la agencia o el plan asociado a este pago."
-        supabase.table("agencias").update({"plan": plan_nombre}).eq("id", agencia_id).execute()
+        # Guardamos también el stripe_customer_id: es la clave con la que el webhook
+        # localiza a esta agencia cuando Stripe avise de una cancelación o un impago.
+        datos_update = {"plan": plan_nombre}
+        customer_id = _stripe_campo(session, "customer")
+        if customer_id:
+            datos_update["stripe_customer_id"] = customer_id
+        supabase.table("agencias").update(datos_update).eq("id", agencia_id).execute()
         return True, plan_nombre
     except Exception as e:
         return False, str(e)
@@ -1798,6 +1832,24 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
         st.rerun()
 
     st.markdown(f"### Tu plan actual: {agencia.get('plan', 'free').capitalize()}")
+
+    # Portal de facturación: solo para agencias que ya son clientes de pago (tienen
+    # stripe_customer_id). Desde aquí gestionan o cancelan su suscripción por su cuenta.
+    customer_id = agencia.get("stripe_customer_id")
+    if customer_id:
+        with st.container(border=True):
+            st.markdown("**Gestionar mi suscripción**")
+            st.caption("Cambia tu método de pago, descarga tus facturas o cancela la suscripción cuando quieras.")
+            if st.button("Abrir portal de facturación", key="abrir_portal_cliente", use_container_width=True):
+                url_portal = crear_portal_cliente(customer_id)
+                if url_portal:
+                    st.link_button(
+                        "Ir al portal de Stripe →",
+                        url_portal,
+                        type="primary",
+                        use_container_width=True,
+                    )
+                    st.caption("Portal seguro de Stripe. Pulsa el botón para continuar.")
 
     ciclo_up = st.radio(
         "Facturación:", ["Mensual", f"Anual (−{int(DESCUENTO_ANUAL*100)}%)"],
