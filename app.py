@@ -765,8 +765,22 @@ def _precio_anual_mensualizado(precio_mensual):
 
 
 def _precio_anual_total(precio_mensual):
-    """Precio total del año con descuento, redondeado a una cifra bonita.
-    Es lo que realmente se cobra de una vez al elegir facturación anual."""
+    """Precio total del año (lo que se cobra de una vez al elegir facturación anual).
+
+    Fijado a mano por plan para tener cifras comerciales limpias en lugar del
+    resultado 'feo' de mensual × 12 × 0,8 (que daba 758, 1910, 4310...).
+    👉 RETOCA AQUÍ los importes anuales que quieras; el "€/mes equivalente" y el
+    "ahorras X€/año" que se muestran en los planes se recalculan solos a partir
+    de este número. Si un plan no está en la tabla, usa la fórmula automática.
+    """
+    precios_anuales = {
+        25: 240,    # Individual
+        79: 760,    # Starter
+        199: 1900,  # Growth
+        449: 4300,  # Enterprise
+    }
+    if precio_mensual in precios_anuales:
+        return precios_anuales[precio_mensual]
     return _redondear_bonito(precio_mensual * 12 * (1 - DESCUENTO_ANUAL))
 
 PLANES_AUTOSERVICIO = {
