@@ -313,12 +313,12 @@ st.markdown("""
     [data-testid="stExpander"] summary,
     [data-testid="stExpander"] summary p { color: var(--er-ink) !important; }
 
-    /* Popover — panel flotante (menú desplegable de "Empezar gratis") */
-    [data-testid="stPopover"] {
-        background: var(--er-surface) !important;
-        border: 1px solid var(--er-line) !important;
-        border-radius: 10px !important;
-        box-shadow: 0 8px 24px rgba(22,21,26,0.10) !important;
+  [data-testid="stPopover"] {
+    background: var(--er-surface) !important;
+    border: 1px solid var(--er-line) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 8px 24px rgba(22,21,26,0.10) !important;
+}
     }
     [data-testid="stPopover"] p,
     [data-testid="stPopover"] label { color: var(--er-body) !important; }
