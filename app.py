@@ -1584,88 +1584,142 @@ def generar_contenido_seo_extra(client, nombre_local, nicho, seo_keywords, tipo_
     Genera contenido SEO de alto impacto (posts de Google Business, descripciones de
     servicios, Q&A, ofertas, meta descripciones, descripciones para redes), aplicando
     las mejores prácticas de posicionamiento local de 2026: intención de búsqueda local,
-    ubicación explícita, y estructura pensada para que Google (y las AI overviews) usen
-    el contenido como material de verificación de la entidad.
+    ubicación explícita, GEO para AI overviews, y ejes de variante distintos para A/B real.
 
-    Devuelve una LISTA de 2-3 variantes (para test A/B), no una sola cadena. Si algo
+    Devuelve una LISTA de 3 variantes (para test A/B), no una sola cadena. Si algo
     falla, devuelve una lista con un único elemento de reserva para no romper la UI.
     """
     keywords_texto = ", ".join(seo_keywords) if seo_keywords else "sin keywords específicas cargadas"
     zona = (ciudad or "").strip()
+    zona_o_generico = zona or "tu zona"
     referencia_local = f"{nombre_local} en {zona}" if zona else nombre_local
+    zona_hashtag = zona.replace(" ", "").replace(",", "") if zona else "local"
 
-    # Instrucciones por tipo, alineadas con lo que Google premia en 2026.
+    contexto_zona = (
+        f"El negocio está en {zona}. Ancla siempre el contenido a esta ubicación: "
+        f"la gente busca '{nicho} en {zona}', 'mejor {nicho} cerca de mí', '{nicho} {zona}'. "
+        f"Úsalo de forma natural, no como etiqueta pegada al final."
+        if zona else
+        "No se ha especificado la ciudad/zona. Refuerza igualmente la intención local con el "
+        "tipo de negocio, pero NUNCA inventes un nombre de ciudad concreto."
+    )
+
+    # ── INSTRUCCIONES POR TIPO ─────────────────────────────────────────────────
+    # Cada tipo tiene su propia norma de longitud, estructura y ejes de variante.
+    # Los ejes de variante son explícitos para que las 3 salidas difieran de verdad
+    # en ángulo, no solo en orden de palabras — eso es lo que hace útil el A/B.
     instrucciones_por_tipo = {
+
         "Publicación de Google Business": (
-            "Escribe una publicación de novedades (What's New) de 45-70 palabras para Google Business Profile. "
-            "En 2026 Google premia las publicaciones que aportan un DATO FRESCO Y CONCRETO (un plato nuevo, un "
-            "horario de temporada, un producto específico, una novedad real), no promoción genérica. "
-            "Ancla el contenido a la búsqueda local: menciona el tipo de negocio y la zona como lo buscaría un "
-            "cliente ('mejor {nicho} en {zona}'). Cierra con una acción concreta (reservar, pasar, preguntar)."
+            f"Escribe una publicación de novedades (What's New) de 45-70 palabras para Google Business Profile de {nombre_local}.\n"
+            "REQUISITO CRÍTICO: cada variante debe girar en torno a UN DATO FRESCO Y CONCRETO y verificable "
+            "(una novedad real, un servicio específico, un detalle operativo, una temporada concreta). "
+            "Sin datos concretos no hay publicación — una frase genérica que cualquier negocio del mismo nicho "
+            "pudiera firmar es un FRACASO. Ancla siempre a la búsqueda local. Cierra con UNA acción concreta.\n"
+            "EJES DE VARIANTE (cada variante debe usar un eje distinto, en este orden):\n"
+            f"  Variante 1 — eje NOVEDAD: destaca algo nuevo o reciente en {nombre_local} (tecnología, horario, producto, servicio).\n"
+            f"  Variante 2 — eje RESULTADO: arranca desde el beneficio que obtiene el cliente, no desde el negocio.\n"
+            f"  Variante 3 — eje DIFERENCIADOR: lo que {nombre_local} hace distinto a cualquier otro {nicho} en {zona_o_generico}."
         ),
+
         "Descripción de servicio/producto": (
-            "Escribe una descripción de 50-80 palabras para un servicio o producto estrella, pensada para la "
-            "pestaña de Servicios/Productos de Google Business Profile. Esta sección es de las más infravaloradas "
-            "y en 2026 alimenta directamente las respuestas de las AI overviews de Google. Sé específico y "
-            "descriptivo (qué es, qué incluye, para quién), integra la intención de búsqueda ('{nicho} en {zona}') "
-            "y transmite experiencia real, no adjetivos vacíos."
+            f"Escribe una descripción de 50-80 palabras para la pestaña de Servicios/Productos de Google Business Profile de {nombre_local}.\n"
+            "Esta sección alimenta directamente las AI overviews de Google en 2026: escribe frases autocontenidas, "
+            "concretas y verificables — Google las usa como fragmentos de respuesta cuando alguien pregunta a la IA. "
+            "Prohibido adjetivos vacíos ('excelente', 'profesional', 'de calidad'): sustituye cada uno por un dato real.\n"
+            "EJES DE VARIANTE:\n"
+            f"  Variante 1 — eje QUÉ ES + PARA QUIÉN: describe el servicio y el perfil exacto de cliente que lo necesita.\n"
+            f"  Variante 2 — eje PROCESO: explica cómo funciona paso a paso de forma breve, transmitiendo confianza técnica.\n"
+            f"  Variante 3 — eje RESULTADO MEDIBLE: arranca desde el resultado concreto que obtiene el cliente."
         ),
+
         "Pregunta y respuesta (Q&A)": (
-            "Escribe UNA pregunta frecuente real que un cliente haría antes de visitar este negocio, y su "
-            "respuesta (respuesta de 40-60 palabras). El bloque Q&A de Google se indexa y alimenta las AI "
-            "overviews. La pregunta debe reflejar una duda real de intención alta (reservas, parking, opciones "
-            "para alérgicos/veganos, grupos, horarios). La respuesta debe ser útil, concreta e integrar de forma "
-            "natural el tipo de negocio y la zona. Formato: 'P: ...' en una línea y 'R: ...' debajo."
+            f"Genera 3 bloques Q&A independientes para la sección de Preguntas y Respuestas de Google Business Profile de {nombre_local}.\n"
+            "El Q&A es el tipo de contenido con mejor ratio impacto/esfuerzo de toda la ficha: Google lo indexa "
+            "y lo usa masivamente para AI overviews. La clave es elegir preguntas de INTENCIÓN ALTA — las que hace "
+            "alguien que está a punto de decidir, no alguien que acaba de descubrir el negocio.\n"
+            "REGLAS para cada bloque:\n"
+            "  - La pregunta debe sonar exactamente como la escribiría un cliente real (informal, directa, con la duda concreta).\n"
+            "  - La respuesta: 35-55 palabras, autocontenida (que se entienda sin contexto previo), con el nombre del negocio "
+            f"y la zona integrados de forma natural, y al menos 1 keyword de: {keywords_texto}.\n"
+            "  - Prohibido respuestas vagas ('depende', 'consúltenos', 'estamos para ayudarte'): si la respuesta no da "
+            "información concreta y útil, no sirve para AI overviews ni para el cliente.\n"
+            "EJES DE VARIANTE (una pregunta por eje):\n"
+            f"  Q&A 1 — LOGÍSTICA: duda práctica antes de la visita (aparcamiento, reserva, horario, acceso, precio orientativo).\n"
+            f"  Q&A 2 — SERVICIO ESPECÍFICO: duda sobre un tratamiento, producto o servicio concreto del {nicho}.\n"
+            f"  Q&A 3 — CONFIANZA: duda sobre garantías, experiencia del equipo, qué pasa si algo no sale bien.\n"
+            "Formato de cada bloque: 'P: ...' en una línea y 'R: ...' en la siguiente. Separa los 3 bloques con una línea en blanco."
         ),
+
         "Oferta / promoción": (
-            "Escribe una publicación de tipo Oferta de 40-60 palabras para Google Business Profile. Debe sonar a "
-            "oferta real y con gancho (no genérica), dejar claro el beneficio concreto para el cliente y crear un "
-            "motivo para actuar pronto sin caer en urgencia falsa. Ancla a la búsqueda local ('{nicho} en {zona}')."
+            f"Escribe una publicación de tipo Oferta de 40-60 palabras para Google Business Profile de {nombre_local}.\n"
+            "Una oferta que no especifica QUÉ se ofrece, A QUIÉN y POR QUÉ AHORA es publicidad genérica, no una oferta. "
+            "El cliente debe entender el beneficio concreto en las primeras 10 palabras. "
+            "Prohibido urgencia falsa ('solo hoy', 'últimas plazas' sin base real) y frases intercambiables "
+            "('no te lo pierdas', 'aprovecha ahora', 'ven a disfrutar').\n"
+            "EJES DE VARIANTE:\n"
+            f"  Variante 1 — eje PRIMERA VEZ: orientada a captar clientes nuevos que aún no conocen {nombre_local}.\n"
+            f"  Variante 2 — eje TEMPORADA/MOMENTO: anclada a un motivo real y concreto (época del año, vuelta al cole, verano, etc.).\n"
+            f"  Variante 3 — eje COMBO/PACK: presenta una combinación de servicios o productos con valor percibido alto."
         ),
+
         "Descripción para redes sociales": (
-            "Escribe una descripción corta (25-45 palabras) para el pie de una publicación de Instagram o "
-            "Facebook. Tono cercano y con personalidad de marca. Puedes cerrar con un máximo de 3 hashtags "
-            "relevantes, incluyendo uno geolocalizado (p.ej. #{zona_hashtag}) si hay zona."
+            f"Escribe una descripción de 30-50 palabras para el pie de una publicación de Instagram o Facebook de {nombre_local}.\n"
+            "REGLA CRÍTICA (la causa de que el 90% de estos textos fracasen): cada variante debe contener "
+            "AL MENOS UN DETALLE CONCRETO Y ESPECÍFICO de este negocio que ningún otro {nicho} en {zona_o_generico} "
+            "pudiera copiar sin que sonara falso. Un dato real, un proceso propio, un resultado específico, "
+            "una característica distintiva. Sin ese detalle, el texto es intercambiable y no construye marca.\n"
+            "Tono: cercano, con personalidad, como si lo escribiera el propio dueño. "
+            "Máximo 3 hashtags al final: uno de nicho, uno de zona, uno de marca o servicio específico.\n"
+            "EJES DE VARIANTE:\n"
+            f"  Variante 1 — eje BACKSTAGE: muestra algo del proceso interno, del equipo o del día a día de {nombre_local}.\n"
+            f"  Variante 2 — eje CLIENTE: arranca desde la experiencia o el resultado del cliente, no desde el negocio.\n"
+            f"  Variante 3 — eje DATO SORPRENDENTE: un número, un hecho o un contraste inesperado y real sobre {nombre_local} o el {nicho}."
         ),
+
         "Meta descripción SEO": (
-            "Escribe una meta descripción SEO de MÁXIMO 155 caracteres para la web de este negocio. Debe incluir "
-            "la keyword principal de intención local ('{nicho} en {zona}' o similar) lo antes posible, transmitir "
-            "una propuesta de valor clara y terminar con una llamada a la acción. Cuenta los caracteres: no te pases."
+            f"Escribe una meta descripción SEO para la web de {nombre_local}.\n"
+            "LÍMITE ABSOLUTO: máximo 155 caracteres por variante (cuenta los caracteres tú mismo antes de devolver).\n"
+            "Estructura óptima probada: [keyword de intención local lo antes posible] + [propuesta de valor concreta] + [CTA breve].\n"
+            "La keyword de intención local debe aparecer en las primeras 60 caracteres — Google la muestra en negrita "
+            "en los resultados y aumenta el CTR. Prohibido adjetivos sin respaldo ('los mejores', 'expertos en') "
+            "salvo que vayas a anclarlos a algo concreto.\n"
+            "EJES DE VARIANTE:\n"
+            f"  Variante 1 — eje PROBLEMA-SOLUCIÓN: arranca desde el problema del cliente y {nombre_local} como solución.\n"
+            f"  Variante 2 — eje DIFERENCIADOR: qué hace a {nombre_local} distinto de otros {nicho} en {zona_o_generico}.\n"
+            f"  Variante 3 — eje PRUEBA SOCIAL: integra un indicador de confianza real (años, pacientes, valoraciones) si encaja."
         ),
     }
 
-    zona_hashtag = zona.replace(" ", "").replace(",", "") if zona else "local"
     instruccion = instrucciones_por_tipo.get(tipo_contenido, instrucciones_por_tipo["Publicación de Google Business"])
-    instruccion = instruccion.replace("{nicho}", nicho).replace("{zona}", zona or "tu zona").replace("{zona_hashtag}", zona_hashtag)
+    instruccion = instruccion.replace("{nicho}", nicho).replace("{zona}", zona_o_generico).replace("{zona_hashtag}", zona_hashtag)
 
-    contexto_zona = (
-        f"El negocio está en {zona}. Usa esta ubicación para reforzar el posicionamiento local: "
-        f"la gente busca '{nicho} en {zona}', 'mejor {nicho} cerca', etc."
-        if zona else
-        "No se ha especificado la ciudad/zona del negocio. Refuerza igualmente la intención local con el tipo "
-        "de negocio, pero NO te inventes un nombre de ciudad concreto."
-    )
-
-    system_prompt = f"""Eres un especialista en SEO local y en Generative Engine Optimization (GEO) que además escribe con la voz auténtica del propio negocio "{referencia_local}" (nicho: "{nicho}"). No eres una agencia externa ni un redactor genérico: suenas al negocio hablando de sí mismo.
+    system_prompt = f"""Eres un especialista en SEO local y Generative Engine Optimization (GEO) que escribe con la voz auténtica del negocio "{referencia_local}" (nicho: "{nicho}"). No eres una agencia externa: suenas al propio negocio hablando de sí mismo.
 
 CONTEXTO DE UBICACIÓN: {contexto_zona}
 
-PRINCIPIOS SEO 2026 QUE DEBES APLICAR:
-- La INTENCIÓN DE BÚSQUEDA LOCAL manda: integra de forma natural cómo la gente busca de verdad este tipo de negocio ("{nicho} en {zona or 'la zona'}", "mejor {nicho} cerca de mí").
-- Google cruza este contenido con la web y la ficha para VERIFICAR la entidad y lo usa como material para sus AI overviews. Por eso el contenido debe ser específico, concreto y verificable, no relleno bonito.
-- Integra 1-2 de estas keywords SOLO si encajan con naturalidad (nunca a la fuerza, el keyword-stuffing penaliza en 2026): {keywords_texto}.
-- Prohibido sonar a plantilla: nada de "no te lo pierdas", "descúbrelo ya", "ven a disfrutar" ni llamadas a la acción intercambiables entre cualquier negocio.
+KEYWORDS SEO disponibles — integra 1-2 SOLO si encajan con naturalidad (el keyword-stuffing penaliza en 2026): {keywords_texto}.
 
-TAREA: {instruccion}
+NORMAS ANTI-PLANTILLA (válidas para TODOS los tipos de contenido):
+- PROHIBIDAS estas frases y cualquier variación suya, están quemadas de tanto verlas: "tecnología de última generación", "equipo de profesionales", "atención personalizada", "calidad garantizada", "nos preocupamos por ti", "tu satisfacción es lo primero", "no te lo pierdas", "descúbrelo ya", "ven a disfrutar", "somos tu mejor opción".
+- Si necesitas expresar algo parecido, dilo con un DATO CONCRETO que lo demuestre, no con el adjetivo vacío.
+- Un texto que cualquier otro {nicho} en España pudiera publicar sin cambiar una sola palabra es un FRACASO.
 
-Genera EXACTAMENTE 3 variantes distintas entre sí (diferente ángulo o gancho, no la misma frase reordenada), para que el negocio elija o haga test A/B.
+PRINCIPIOS GEO PARA AI OVERVIEWS (Google usa este contenido como respuesta directa):
+- Frases autocontenidas: cada oración debe tener sentido sin contexto previo.
+- Datos verificables y específicos: nombres reales, cifras, procesos concretos.
+- Intención de búsqueda natural: integra cómo busca de verdad la gente, no cómo habla un copywriter.
 
-Devuelve tu respuesta EXCLUSIVAMENTE como un array JSON de 3 strings, sin ningún texto antes ni después, sin markdown, sin comillas triples. Ejemplo de formato exacto: ["variante 1", "variante 2", "variante 3"]"""
+TAREA:
+{instruccion}
+
+Devuelve tu respuesta EXCLUSIVAMENTE como un array JSON de 3 strings, sin texto antes ni después, sin markdown, sin comillas triples.
+Formato exacto: ["variante 1", "variante 2", "variante 3"]"""
 
     try:
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=900,
+            max_tokens=1200,
             system=system_prompt,
             messages=[{"role": "user", "content": f"Genera las 3 variantes para {referencia_local}."}]
         )
