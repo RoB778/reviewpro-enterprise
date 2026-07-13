@@ -84,12 +84,33 @@ from supabase import create_client
 _anthropic_api_key_raw = st.secrets["ANTHROPIC_API_KEY"]
 _anthropic_api_key = _anthropic_api_key_raw.strip() if isinstance(_anthropic_api_key_raw, str) else _anthropic_api_key_raw
 
-client = Anthropic(
-    api_key=_anthropic_api_key,
-    max_retries=3,   # reintenta automáticamente ante fallos de red transitorios
-    timeout=60.0,    # más margen que el default, por si la conexión tarda en establecerse
-)
-supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+# -----------------------------------------------------------------------
+# OPTIMIZACIÓN: clientes cacheados con @st.cache_resource.
+# Streamlit re-ejecuta TODO este archivo en cada interacción (cada click,
+# cada cambio de campo). Sin caché, en cada rerun se creaban de nuevo el
+# cliente de Anthropic y el de Supabase, abriendo conexiones HTTP nuevas
+# cada vez -> tiempo desperdiciado que se nota como lentitud.
+# Con @st.cache_resource, cada cliente se crea UNA sola vez y se reutiliza
+# en todos los reruns de todas las sesiones. No cambia el comportamiento:
+# 'client' y 'supabase' se siguen usando exactamente igual que antes.
+# -----------------------------------------------------------------------
+@st.cache_resource
+def _crear_cliente_anthropic(api_key):
+    return Anthropic(
+        api_key=api_key,
+        max_retries=3,   # reintenta automáticamente ante fallos de red transitorios
+        timeout=60.0,    # más margen que el default, por si la conexión tarda en establecerse
+    )
+
+
+@st.cache_resource
+def _crear_cliente_supabase(url, key):
+    return create_client(url, key)
+
+
+client = _crear_cliente_anthropic(_anthropic_api_key)
+supabase = _crear_cliente_supabase(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
 
 # -----------------------------------------------------------------------
