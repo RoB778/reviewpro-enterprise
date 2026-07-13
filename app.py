@@ -2215,6 +2215,49 @@ if not st.session_state.sesion_activa:
             if st.button("Ver planes y empezar", use_container_width=True, type="primary"):
                 st.session_state.vista_landing = "planes"
                 st.rerun()
+
+        # -----------------------------------------------------
+        # BLOQUE DE CONTACTO / SOPORTE (visible en la landing principal)
+        # -----------------------------------------------------
+        # Aquí lo ve TODO el que llega, tenga cuenta o no. Cubre el caso del
+        # "pago huérfano": alguien que pagó en Stripe pero no llegó a crear su
+        # cuenta y no tiene forma de entrar. El mailto lleva asunto y cuerpo ya
+        # rellenados (incluida la petición del email con el que pagó) para que
+        # el cliente solo tenga que darle a enviar.
+        _email_soporte = "enterprise-review@gmail.com"
+        _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
+        _cuerpo = urllib.parse.quote(
+            "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
+            "(Describe aquí tu caso. Si acabas de pagar y no has podido crear la "
+            "cuenta, indícanos el email con el que hiciste el pago.)\n\nGracias."
+        )
+        _mailto = f"mailto:{_email_soporte}?subject={_asunto}&body={_cuerpo}"
+        st.markdown(
+            f"""
+            <div style="
+                margin-top: 2rem;
+                padding: 0.9rem 1.25rem;
+                border: 1px solid rgba(59, 58, 107, 0.18);
+                border-radius: 12px;
+                text-align: center;
+                font-size: 0.88rem;
+            ">
+                <span style="color:#8A8880;">
+                    ¿Has pagado y no puedes acceder, o necesitas ayuda?
+                </span>
+                &nbsp;
+                <a href="{_mailto}" style="
+                    color: {ACCENT_INDIGO};
+                    text-decoration: none;
+                    font-weight: 600;
+                ">Contactar con soporte →</a>
+                <div style="color:#8A8880; margin-top:0.4rem; font-size:0.8rem;">
+                    {_email_soporte}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.stop()
 
     # Botón para volver a la info desde las otras dos vistas
@@ -2417,54 +2460,6 @@ if not st.session_state.sesion_activa:
                             st.rerun()
                     except Exception as e:
                         st.error(redactar_secretos(f"Error de conexión con la base de datos: {e}"))
-
-    # -----------------------------------------------------
-    # BLOQUE DE CONTACTO / SOPORTE
-    # -----------------------------------------------------
-    # Visible para cualquiera que aún no ha iniciado sesión. Es justo aquí donde
-    # aparece el caso del "pago huérfano": alguien que pagó en Stripe pero no llegó
-    # a crear su cuenta. Al no tener acceso, necesita una vía para avisarnos.
-    # Usamos un enlace mailto con asunto y cuerpo pre-rellenados para bajar la
-    # fricción: el cliente solo tiene que darle a enviar.
-    _email_soporte = "enterprise-review@gmail.com"
-    _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
-    _cuerpo = urllib.parse.quote(
-        "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
-        "(Describe aquí tu caso. Si acabas de pagar y no has podido crear la cuenta, "
-        "indícanos el email con el que hiciste el pago.)\n\n"
-        "Gracias."
-    )
-    _mailto = f"mailto:{_email_soporte}?subject={_asunto}&body={_cuerpo}"
-    st.markdown(
-        f"""
-        <div style="
-            margin-top: 2.5rem;
-            padding: 1rem 1.25rem;
-            border: 1px solid rgba(99, 91, 255, 0.25);
-            border-radius: 12px;
-            background: rgba(99, 91, 255, 0.04);
-            text-align: center;
-            font-size: 0.9rem;
-        ">
-            <div style="color: #9aa0a6; margin-bottom: 0.5rem;">
-                ¿Has pagado y no puedes acceder, o necesitas ayuda?
-            </div>
-            <a href="{_mailto}" style="
-                display: inline-block;
-                padding: 0.55rem 1.4rem;
-                background: {ACCENT_INDIGO};
-                color: #ffffff;
-                text-decoration: none;
-                border-radius: 8px;
-                font-weight: 600;
-            ">Contactar con soporte</a>
-            <div style="color: #9aa0a6; margin-top: 0.6rem; font-size: 0.8rem;">
-                O escríbenos a <strong>{_email_soporte}</strong>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
     st.stop()
 
@@ -2822,7 +2817,8 @@ REGLAS DE REDACCIÓN SEGÚN EL SENTIMIENTO:
 3. SI ES NEGATIVA:
    - Inicio dinámico: prohibido empezar siempre con "Gracias por su comentario" o equivalentes; varía la apertura.
    - REGLA DE LA VERDAD QUE NO TIENES: quien escribe esta respuesta no estaba en la cocina ni en la sala esa noche, así que nunca puede confirmar ni negar la causa interna concreta de lo que el cliente describe. Se puede validar por completo su experiencia como algo real y lamentable ("lo que usted describe es serio y lo lamento de verdad"), pero esa validación NUNCA se convierte en una confirmación de causa. Valida la experiencia del cliente, no confirmes el mecanismo interno que la causó — esa línea es la más importante de toda esta sección.
-   - PROHIBIDO EXPLÍCITAMENTE, aunque suene humano y hasta bien intencionado (son admisiones legales en toda regla): "es un fallo nuestro", "fue culpa nuestra"/"nuestra culpa", "no fue así", "eso no debería haber pasado" seguido de una causa concreta, "se nos escapó", "fallamos en...", "no llegó el aviso/la información", o cualquier frase en primera persona que confirme qué salió mal por dentro del negocio. Tampoco detalles operativos concretos (tiempos de cocción, temperaturas, protocolos de conservación, cadenas de comunicación interna) — describir con ese nivel de detalle lo que se está "revisando" equivale a admitir dónde estuvo el fallo, aunque no se diga con esas palabras exactas.
+   - REGLA DE LAS CIFRAS Y DATOS QUE NO PUEDES VERIFICAR: si el cliente menciona un importe, un precio, una diferencia de cobro, una fecha, un porcentaje o cualquier dato concreto y verificable ("me cobraron 189€ en vez de 89€", "llevo 3 años esperando", "la diferencia es de 100€"), NUNCA repitas esas cifras exactas en la respuesta ni las trates como un hecho ya asumido. Repetir el número del cliente ("esos 100€ de diferencia...") equivale a confirmarlo por escrito, y esa respuesta queda pública y permanente — es exactamente el tipo de frase que un abogado usa como admisión. Habla siempre en términos genéricos y no cuantificados: "cualquier cargo que usted no reconozca merece revisión", nunca "esos 100€ que menciona merecen revisión". Lo mismo aplica a la propia palabra "desfase", "diferencia" o "descuadre" seguida del número exacto: la palabra sin el número es aceptable, con el número repetido no lo es.
+   - PROHIBIDO EXPLÍCITAMENTE, aunque suene humano y hasta bien intencionado (son admisiones legales en toda regla): "es un fallo nuestro", "fue culpa nuestra"/"nuestra culpa", "no fue así", "eso no debería haber pasado" seguido de una causa concreta, "se nos escapó", "fallamos en...", "no llegó el aviso/la información", "no es algo que podamos dejar pasar" (aplicado a lo que el cliente reclama, porque da a entender que se acepta como cierto), o cualquier frase en primera persona que confirme qué salió mal por dentro del negocio. Tampoco detalles operativos concretos (tiempos de cocción, temperaturas, protocolos de conservación, cadenas de comunicación interna) — describir con ese nivel de detalle lo que se está "revisando" equivale a admitir dónde estuvo el fallo, aunque no se diga con esas palabras exactas.
    - BLINDAJE JURÍDICO TOTAL: prohibido admitir negligencias, explícita o implícitamente, o usar alertas sanitarias ("higiene alimentaria", "intoxicación", "contaminación"); usa perífrasis suaves y naturales, no siempre las mismas palabras. Ante temas de cobro o facturación, prohibido cualquier palabra que implique intención deshonesta ("engañar", "timar", "cobrar de más a propósito", "así se hace siempre" repetido o validado); habla de "un error en la cuenta" o "un cargo que no debería estar ahí", nunca de intención.
    - Nunca invites al cliente a escribir, contactar o resolverlo por otra vía (nada de "escríbenos", "contáctanos", "cuéntanoslo por privado" ni fórmulas parecidas, ni siquiera suavizadas): la respuesta la gestiona una agencia externa, no el propio negocio, así que abrir esa puerta genera una expectativa de seguimiento que luego nadie puede cumplir. La respuesta se queda siempre en una disculpa sincera y humana.
    - ESCALA DE GRAVEDAD (si el caso encaja en varios niveles, aplica siempre el más alto):
