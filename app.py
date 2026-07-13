@@ -344,6 +344,39 @@ st.markdown("""
         letter-spacing: -0.006em !important;
     }
 
+    /* -----------------------------------------------------------------
+       REFUERZO DE COLOR EN EL SELECTBOX (ej. "Selecciona el local")
+       -----------------------------------------------------------------
+       El selector ".stSelectbox > div > div" de arriba no siempre llega
+       al texto real: Streamlit construye el desplegable con un
+       componente interno (BaseWeb) que anida el valor mostrado varios
+       niveles más adentro, en un <div data-baseweb="select"> con un
+       <span> propio. Sin apuntar directamente a esa capa, el texto se
+       queda con el color por defecto (blanco) y desaparece sobre el
+       fondo claro. Aquí forzamos negro en todas las capas posibles:
+       el valor ya seleccionado (dentro del campo cerrado) y cada
+       opción de la lista que se despliega al hacer click.
+       ----------------------------------------------------------------- */
+    .stSelectbox div[data-baseweb="select"] * ,
+    .stSelectbox div[data-baseweb="select"] span,
+    .stSelectbox div[data-baseweb="select"] div {
+        color: var(--er-ink) !important;
+    }
+    /* La lista de opciones se pinta en un popover aparte (fuera del
+       propio selectbox en el árbol del DOM), por eso necesita su
+       propia regla en vez de heredar la de arriba. */
+    ul[data-baseweb="menu"] li,
+    ul[data-baseweb="menu"] li * ,
+    div[data-baseweb="popover"] li,
+    div[data-baseweb="popover"] li * {
+        color: var(--er-ink) !important;
+        background: var(--er-surface) !important;
+    }
+    ul[data-baseweb="menu"] li:hover,
+    div[data-baseweb="popover"] li:hover {
+        background: var(--er-accent-bg) !important;
+    }
+
     /* Tabs — subrayado índigo fino, sentence case */
     .stTabs [data-baseweb="tab-list"] {
         gap: 2px;
