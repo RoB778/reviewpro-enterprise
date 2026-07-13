@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 import traceback
@@ -13,6 +14,58 @@ import requests
 import stripe
 import streamlit as st
 from anthropic import Anthropic
+
+# -----------------------------------------------------------------------
+# PUENTE DE SECRETOS: st.secrets <-> variables de entorno
+# -----------------------------------------------------------------------
+# En Streamlit Community Cloud los secretos viven en un archivo secrets.toml
+# y se leen con st.secrets["CLAVE"]. Pero al desplegar en Render (u otro
+# hosting con Docker) NO existe ese archivo: los secretos se inyectan como
+# variables de entorno. Sin este puente, cualquier st.secrets["X"] revienta
+# con StreamlitSecretNotFoundError porque no hay secrets.toml.
+#
+# Este envoltorio intercepta los accesos a st.secrets y, si la clave no está
+# en el archivo (caso Render), la busca en os.environ. Así el MISMO código
+# funciona en los dos sitios sin tocar ninguna de las líneas st.secrets[...]
+# repartidas por el archivo.
+# -----------------------------------------------------------------------
+class _SecretsConEntorno:
+    """Se comporta como st.secrets, pero con fallback a variables de entorno."""
+
+    def _leer_archivo(self, clave):
+        # Intenta leer del secrets.toml real. Si no existe archivo o falta la
+        # clave, Streamlit lanza una excepción que aquí tratamos como "no está".
+        try:
+            return st._secrets_originales[clave]
+        except Exception:
+            return None
+
+    def __getitem__(self, clave):
+        valor = self._leer_archivo(clave)
+        if valor is not None:
+            return valor
+        valor = os.environ.get(clave)
+        if valor is not None:
+            return valor
+        raise KeyError(
+            f"No se encontró el secreto '{clave}' ni en secrets.toml ni en las "
+            f"variables de entorno. En Render, añádela en Settings -> Environment."
+        )
+
+    def get(self, clave, por_defecto=None):
+        try:
+            return self[clave]
+        except KeyError:
+            return por_defecto
+
+    def __contains__(self, clave):
+        return self.get(clave) is not None
+
+
+# Guardamos el st.secrets original y lo sustituimos por nuestro puente.
+if not hasattr(st, "_secrets_originales"):
+    st._secrets_originales = st.secrets
+    st.secrets = _SecretsConEntorno()
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
