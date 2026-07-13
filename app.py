@@ -2418,6 +2418,54 @@ if not st.session_state.sesion_activa:
                     except Exception as e:
                         st.error(redactar_secretos(f"Error de conexión con la base de datos: {e}"))
 
+    # -----------------------------------------------------
+    # BLOQUE DE CONTACTO / SOPORTE
+    # -----------------------------------------------------
+    # Visible para cualquiera que aún no ha iniciado sesión. Es justo aquí donde
+    # aparece el caso del "pago huérfano": alguien que pagó en Stripe pero no llegó
+    # a crear su cuenta. Al no tener acceso, necesita una vía para avisarnos.
+    # Usamos un enlace mailto con asunto y cuerpo pre-rellenados para bajar la
+    # fricción: el cliente solo tiene que darle a enviar.
+    _email_soporte = "enterprise-review@gmail.com"
+    _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
+    _cuerpo = urllib.parse.quote(
+        "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
+        "(Describe aquí tu caso. Si acabas de pagar y no has podido crear la cuenta, "
+        "indícanos el email con el que hiciste el pago.)\n\n"
+        "Gracias."
+    )
+    _mailto = f"mailto:{_email_soporte}?subject={_asunto}&body={_cuerpo}"
+    st.markdown(
+        f"""
+        <div style="
+            margin-top: 2.5rem;
+            padding: 1rem 1.25rem;
+            border: 1px solid rgba(99, 91, 255, 0.25);
+            border-radius: 12px;
+            background: rgba(99, 91, 255, 0.04);
+            text-align: center;
+            font-size: 0.9rem;
+        ">
+            <div style="color: #9aa0a6; margin-bottom: 0.5rem;">
+                ¿Has pagado y no puedes acceder, o necesitas ayuda?
+            </div>
+            <a href="{_mailto}" style="
+                display: inline-block;
+                padding: 0.55rem 1.4rem;
+                background: {ACCENT_INDIGO};
+                color: #ffffff;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 600;
+            ">Contactar con soporte</a>
+            <div style="color: #9aa0a6; margin-top: 0.6rem; font-size: 0.8rem;">
+                O escríbenos a <strong>{_email_soporte}</strong>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.stop()
 
 # A partir de aquí: sesión válida.
