@@ -191,7 +191,22 @@ if "APP_URL" not in st.secrets:
         "APP_URL = \"https://tu-url-real.streamlit.app\" (la URL exacta con la que accedes a tu app)."
     )
     st.stop()
-APP_URL = st.secrets["APP_URL"].rstrip("/")
+APP_URL = st.secrets["APP_URL"].strip().rstrip("/")
+# Validación defensiva: si APP_URL no empieza por http:// o https:// (por ejemplo,
+# porque al copiar/pegar en Render se coló un espacio invisible al principio, o
+# porque directamente se olvidó el "https://"), Stripe rechaza la URL con un error
+# críptico ("Invalid URL: An explicit scheme must be provided") que no dice dónde
+# está el problema real. Lo detectamos aquí, antes de que llegue a Stripe, con un
+# aviso que sí dice exactamente qué está mal.
+if not (APP_URL.startswith("http://") or APP_URL.startswith("https://")):
+    st.error(
+        f"APP_URL está mal configurada: el valor actual es \"{APP_URL}\", y tiene que "
+        f"empezar por \"https://\". Revisa en Render → Settings → Environment que la "
+        f"variable APP_URL no tenga espacios ni caracteres invisibles al principio, y "
+        f"que sea exactamente tu URL completa, por ejemplo: "
+        f"https://reviewpro-enterprise-1.onrender.com"
+    )
+    st.stop()
 
 # 1. Configuración de página limpia y profesional
 st.set_page_config(page_title="ReviewPro Enterprise", page_icon="▪", layout="centered")
