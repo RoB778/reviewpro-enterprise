@@ -813,10 +813,34 @@ def mostrar_calculadora_roi(roi, estrellas_actuales, estrellas_objetivo):
 
 
 
-LIMITE_USOS_PLAN_GRATIS = 10  # respuestas por mes incluidas en el plan Free (referenciado en la landing)
+
+# -----------------------------------------------------------------------
+# MODO BETA: interruptor único para dar respuestas ilimitadas en el plan
+# Free mientras se capta a los primeros clientes/agencias de demo.
+#
+# Por qué un interruptor y no borrar el límite directamente: cuando quieras
+# volver al límite normal de 10/mes (por ejemplo, al cerrar la fase beta),
+# basta con cambiar esto a False — no hay que recordar qué número había
+# antes ni tocar nada más en el código.
+#
+# Qué SÍ te sigue protegiendo aunque esto esté en True: el rate limit de
+# verificar_velocidad() (más abajo) sigue activo y limita por hora/día,
+# así que un uso descontrolado o malicioso (cientos de respuestas seguidas)
+# se sigue frenando. Lo único que se quita es el tope mensual de 10.
+#
+# Ten en cuenta: cada respuesta generada consume la API de Claude, que
+# tiene un coste real. Con esto en True, vigila el consumo mientras dure
+# la fase beta.
+# -----------------------------------------------------------------------
+MODO_BETA_RESPUESTAS_ILIMITADAS = True
+
+LIMITE_USOS_PLAN_GRATIS = 10  # respuestas por mes incluidas en el plan Free fuera de la ventana de beta
 # Límite de respuestas/mes por plan. None = ilimitado.
 # El plan 'individual' es ahora ilimitado (1 local, sin tope de reseñas); el
 # blindaje anti-abuso se hace por VELOCIDAD (rate limit por hora/día), no por cupo mensual.
+# NOTA: el "free" de aquí es el límite BASE, fuera de la ventana de beta. Mientras
+# una agencia esté dentro de su ventana (ver agencia_en_beta más abajo), este
+# límite se ignora en el punto donde se comprueba el cupo mensual.
 LIMITE_USOS_POR_PLAN = {
     "free": 10,
     "individual": None,        # 1 local, respuestas ilimitadas
@@ -832,6 +856,42 @@ LIMITE_USUARIOS_POR_PLAN = {"free": 1, "individual": 1,
                             "starter": 5, "growth": 15, "enterprise": None}
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def agencia_en_beta(agencia):
+    """
+    True si esta agencia concreta todavía está dentro de su ventana personal
+    de beta (respuestas ilimitadas gratis), False si ya expiró o si nunca
+    aplicó (planes de pago no la necesitan, ya son ilimitados por su cuenta).
+
+    Cómo funciona la ventana: cada agencia tiene su propia fecha de alta
+    (creado_en) y su propio nº de días de beta (dias_beta, columna en Supabase,
+    por defecto 15 — ver migracion_dias_beta.sql). Los primeros clientes de la
+    semana de lanzamiento se suben a mano a 30 días desde el Table Editor de
+    Supabase. Así cada agencia caduca en su propia fecha, sin tocar código ni
+    reiniciar nada cuando se les acaba el plazo — simplemente, a partir de esa
+    fecha, vuelven a los límites normales del plan Free.
+
+    MODO_BETA_RESPUESTAS_ILIMITADAS actúa como interruptor maestro: si algún
+    día quieres cortar el programa de beta entero de golpe (para todas las
+    agencias a la vez, sin esperar a que expire cada una), basta con ponerlo
+    en False aquí arriba.
+    """
+    if not MODO_BETA_RESPUESTAS_ILIMITADAS:
+        return False
+    if agencia.get("plan", "free") != "free":
+        return False  # los planes de pago no necesitan este mecanismo
+    creado_en_raw = agencia.get("creado_en")
+    if not creado_en_raw:
+        return False
+    try:
+        fecha_alta = datetime.fromisoformat(creado_en_raw.replace("Z", "+00:00"))
+        if fecha_alta.tzinfo is not None:
+            fecha_alta = fecha_alta.replace(tzinfo=None)
+    except (ValueError, AttributeError):
+        return False
+    dias_beta = agencia.get("dias_beta", 15) or 15
+    return datetime.utcnow() < fecha_alta + timedelta(days=dias_beta)
 
 # --- Constantes de la calculadora de ROI ---
 # Basadas en el estudio de Michael Luca (Harvard Business School), "Reviews,
@@ -1917,7 +1977,12 @@ def puede_agencia_anadir_local(agencia, locales_actuales):
 LIMITES_VELOCIDAD_POR_PLAN = {
     # (respuestas/hora, respuestas/día). None = sin límite (planes de agencia grandes,
     # que legítimamente gestionan muchos locales a la vez).
-    "free":       (10, 10),      # el cupo mensual (10) ya es el límite real
+    #
+    # "free" son los valores BASE, fuera de la ventana de beta de cada agencia.
+    # Mientras una agencia esté dentro de su ventana (agencia_en_beta), verificar_velocidad
+    # usa en su lugar el mismo margen que el plan Individual (30/h, 150/día) — de sobra
+    # para una demo o un negocio real, pero sigue frenando un abuso masivo.
+    "free":       (10, 10),
     "individual": (30, 150),     # 1 local: 30/h y 150/día es holgadísimo para un humano,
                                  # pero frena en seco el uso como si fuera multi-local
     "starter":    (80, None),    # varios locales; límite/hora alto para picos legítimos
@@ -1949,7 +2014,12 @@ def verificar_velocidad(agencia):
     No usa tablas nuevas: se apoya en historico_respuestas.
     """
     plan = agencia.get("plan", "growth")
-    limite_hora, limite_dia = LIMITES_VELOCIDAD_POR_PLAN.get(plan, (None, None))
+    if agencia_en_beta(agencia):
+        # Dentro de su ventana de beta: mismo margen generoso que el plan Individual,
+        # en vez del límite base y estricto del plan Free.
+        limite_hora, limite_dia = (30, 150)
+    else:
+        limite_hora, limite_dia = LIMITES_VELOCIDAD_POR_PLAN.get(plan, (None, None))
     if limite_hora is None and limite_dia is None:
         return {"permitido": True, "razon": None, "advertencia": None}
 
@@ -2387,7 +2457,7 @@ if not st.session_state.sesion_activa:
                 '<div class="rp-precio-periodo">para siempre</div>'
                 '<hr style="border-color:#232C42; margin:14px 0;">'
                 '<div class="rp-feature">— 1 local de prueba</div>'
-                f'<div class="rp-feature">— {LIMITE_USOS_PLAN_GRATIS} respuestas / mes</div>'
+                f'<div class="rp-feature">— {"Respuestas ilimitadas durante tu periodo de prueba" if MODO_BETA_RESPUESTAS_ILIMITADAS else f"{LIMITE_USOS_PLAN_GRATIS} respuestas / mes"}</div>'
                 '<div class="rp-feature">— Sin tarjeta de crédito</div>'
                 '<div class="rp-feature" style="opacity:0.35;">— Marca blanca (no incluida)</div>'
                 '<div class="rp-gancho">Ideal para ver la calidad de las respuestas sin compromiso.</div>'
@@ -2770,16 +2840,22 @@ with tab_generar:
                 st.error(redactar_secretos(f"Error al guardar: {e}"))
 
     plan_actual = agencia.get("plan", "growth")
-    limite_usos_plan = LIMITE_USOS_POR_PLAN.get(plan_actual, None)
-    if limite_usos_plan is not None:
-        usos_hechos = contar_usos_del_mes(agencia["id"])
-        restantes = max(0, limite_usos_plan - usos_hechos)
-        nombre_plan_legible = PLANES_AUTOSERVICIO.get(plan_actual, {}).get("nombre", plan_actual.capitalize())
-        st.info(f"Plan {nombre_plan_legible}: te quedan **{restantes} de {limite_usos_plan}** respuestas este mes.")
+    if agencia_en_beta(agencia):
+        creado_en_dt = datetime.fromisoformat(agencia["creado_en"].replace("Z", "+00:00")).replace(tzinfo=None)
+        dias_restantes = (creado_en_dt + timedelta(days=agencia.get("dias_beta", 15) or 15) - datetime.utcnow()).days
+        dias_restantes = max(0, dias_restantes)
+        st.info(f"🎁 Estás en el periodo de beta: respuestas ilimitadas durante **{dias_restantes} día(s) más**.")
     else:
-        usos_local_este_mes = contar_usos_del_mes_por_local(local_activo["id"])
-        if usos_local_este_mes >= UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL:
-            st.warning(f"Este local ha generado {usos_local_este_mes} respuestas este mes — un volumen inusualmente alto. Si no es un cliente real de mucho tráfico, te recomendamos revisarlo.")
+        limite_usos_plan = LIMITE_USOS_POR_PLAN.get(plan_actual, None)
+        if limite_usos_plan is not None:
+            usos_hechos = contar_usos_del_mes(agencia["id"])
+            restantes = max(0, limite_usos_plan - usos_hechos)
+            nombre_plan_legible = PLANES_AUTOSERVICIO.get(plan_actual, {}).get("nombre", plan_actual.capitalize())
+            st.info(f"Plan {nombre_plan_legible}: te quedan **{restantes} de {limite_usos_plan}** respuestas este mes.")
+        else:
+            usos_local_este_mes = contar_usos_del_mes_por_local(local_activo["id"])
+            if usos_local_este_mes >= UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL:
+                st.warning(f"Este local ha generado {usos_local_este_mes} respuestas este mes — un volumen inusualmente alto. Si no es un cliente real de mucho tráfico, te recomendamos revisarlo.")
 
     with st.form("review_form"):
         nombre_negocio = st.text_input("Nombre del establecimiento", value=local_activo["nombre"], disabled=True)
