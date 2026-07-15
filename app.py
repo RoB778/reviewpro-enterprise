@@ -2970,13 +2970,21 @@ with tab_generar:
                 st.error(redactar_secretos(f"Error al guardar: {e}"))
 
     plan_actual = agencia.get("plan", "growth")
+    # Definimos limite_usos_plan SIEMPRE (se usa más abajo, al comprobar el cupo
+    # antes de generar). En beta es None = ilimitado; si no, el límite del plan.
+    # Sin esta línea, cuando la agencia está en beta el bloque else de abajo no
+    # se ejecuta, la variable no se crea y peta con NameError al generar.
+    if agencia_en_beta(agencia):
+        limite_usos_plan = None
+    else:
+        limite_usos_plan = LIMITE_USOS_POR_PLAN.get(plan_actual, None)
+
     if agencia_en_beta(agencia):
         creado_en_dt = datetime.fromisoformat(agencia["creado_en"].replace("Z", "+00:00")).replace(tzinfo=None)
         dias_restantes = (creado_en_dt + timedelta(days=agencia.get("dias_beta", 15) or 15) - datetime.utcnow()).days
         dias_restantes = max(0, dias_restantes)
         st.info(f"🎁 Estás en el periodo de beta: respuestas ilimitadas durante **{dias_restantes} día(s) más**.")
     else:
-        limite_usos_plan = LIMITE_USOS_POR_PLAN.get(plan_actual, None)
         if limite_usos_plan is not None:
             usos_hechos = contar_usos_del_mes(agencia["id"])
             restantes = max(0, limite_usos_plan - usos_hechos)
