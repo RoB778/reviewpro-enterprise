@@ -70,7 +70,6 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.lib.utils import ImageReader
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.graphics.shapes import Drawing
 from reportlab.graphics.charts.barcharts import VerticalBarChart
@@ -1529,12 +1528,24 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     # Logo (si se puede descargar; si falla, se omite sin romper el informe).
     # Se escala preservando la proporción original dentro de una caja más amplia,
     # en vez de forzar unas medidas fijas que aplastaban logos no apaisados.
+    # IMPORTANTE: convertimos el logo a RGB con fondo blanco antes de meterlo.
+    # Un PNG con transparencia (canal alfa) puede hacer que reportlab reviente
+    # más tarde, en doc.build() — fuera de este try — y entonces NO se genera
+    # el PDF (el navegador acaba descargando un archivo corrupto). Aplanando
+    # el alfa aquí, el logo siempre entra en un formato que reportlab maneja bien.
+    imagen_logo = None
     try:
+        from PIL import Image as PILImage
         resp_logo = requests.get(agencia["logo_url"], timeout=5)
-        datos_logo = BytesIO(resp_logo.content)
-        # Medimos el logo real para respetar su relación de aspecto.
-        logo_reader = ImageReader(datos_logo)
-        ancho_px, alto_px = logo_reader.getSize()
+        logo_pil = PILImage.open(BytesIO(resp_logo.content))
+        if logo_pil.mode in ("RGBA", "LA", "P"):
+            fondo = PILImage.new("RGB", logo_pil.size, (255, 255, 255))
+            logo_conv = logo_pil.convert("RGBA")
+            fondo.paste(logo_conv, mask=logo_conv.split()[-1])
+            logo_pil = fondo
+        else:
+            logo_pil = logo_pil.convert("RGB")
+        ancho_px, alto_px = logo_pil.size
         proporcion = alto_px / ancho_px if ancho_px else 0.4
         ancho_logo = 5.5 * cm                       # más ancho que antes (era 4 cm)
         alto_logo = ancho_logo * proporcion
@@ -1542,13 +1553,15 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
         if alto_logo > alto_maximo:
             alto_logo = alto_maximo
             ancho_logo = alto_logo / proporcion if proporcion else 5.5 * cm
-        datos_logo.seek(0)
-        imagen_logo = RLImage(datos_logo, width=ancho_logo, height=alto_logo)
+        logo_buffer = BytesIO()
+        logo_pil.save(logo_buffer, format="PNG")
+        logo_buffer.seek(0)
+        imagen_logo = RLImage(logo_buffer, width=ancho_logo, height=alto_logo)
         imagen_logo.hAlign = "LEFT"
         story.append(imagen_logo)
         story.append(Spacer(1, 14))
     except Exception:
-        pass
+        imagen_logo = None
 
     story.append(Paragraph("Informe de reputación online", estilo_titulo))
     story.append(Paragraph(f"{agencia['nombre_agencia']} · {periodo_texto}", estilo_subtitulo))
@@ -1772,7 +1785,19 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
         ParagraphStyle("Pie", parent=estilos["Normal"], fontSize=7, textColor=PDF_MUTED)
     ))
 
-    doc.build(story)
+    # Red de seguridad: si la construcción falla (típicamente por el logo, que
+    # es el único elemento externo e impredecible), reintentamos generando el
+    # informe SIN logo. Mejor un PDF perfecto sin logo que un archivo corrupto.
+    try:
+        doc.build(story)
+    except Exception:
+        if imagen_logo is not None and imagen_logo in story:
+            idx = story.index(imagen_logo)
+            # Quitamos el logo y el Spacer que va justo detrás de él.
+            del story[idx:idx + 2]
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
+        doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
 
