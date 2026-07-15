@@ -1489,6 +1489,36 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     color_hex = agencia.get("color_marca", "#2A2C31").lstrip("#")
     color_rl = colors.HexColor(f"#{color_hex}")
 
+    # Color para las CABECERAS DE TABLA. El color de marca de la agencia se
+    # respeta SIEMPRE que sea suficientemente oscuro como para que el texto
+    # blanco encima se lea bien y no resulte chillón. Colores muy brillantes
+    # o saturados (el caso típico: el morado fosforito #635BFF que venía por
+    # defecto en el esquema antiguo) se sustituyen por el índigo corporativo
+    # sobrio, que combina con la paleta neutra del resto del informe.
+    def _color_tabla_seguro(hex_str):
+        indigo_corporativo = colors.HexColor("#3B3A6B")
+        try:
+            h = hex_str.lstrip("#")
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        except (ValueError, IndexError):
+            return indigo_corporativo
+        # Dos motivos para rechazar un color de marca como fondo de cabecera:
+        #  1) Demasiado CLARO: el texto blanco encima no se leería.
+        #  2) Demasiado SATURADO/brillante: queda "fosforito" y choca con la
+        #     paleta sobria del resto del informe (caso típico: #635BFF).
+        # En ambos casos usamos el índigo corporativo, que siempre queda bien.
+        luminancia = 0.299 * r + 0.587 * g + 0.114 * b
+        maximo, minimo = max(r, g, b), min(r, g, b)
+        saturacion = (maximo - minimo) / maximo if maximo > 0 else 0
+        if luminancia > 130:
+            return indigo_corporativo
+        if saturacion > 0.45 and maximo > 150:
+            # muy saturado y con un canal brillante → fosforito
+            return indigo_corporativo
+        return colors.HexColor(f"#{h}")
+
+    color_tabla = _color_tabla_seguro(color_hex)
+
     # -----------------------------------------------------------------
     # PALETA PREMIUM DEL INFORME — "Editorial Light", la misma línea visual
     # que el resto de la app: negro casi puro, índigo de marca y grises
@@ -1511,9 +1541,9 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
 
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
     estilos = getSampleStyleSheet()
-    estilo_titulo = ParagraphStyle("TituloInforme", parent=estilos["Title"], textColor=color_rl, fontSize=20)
+    estilo_titulo = ParagraphStyle("TituloInforme", parent=estilos["Title"], textColor=color_tabla, fontSize=20)
     estilo_subtitulo = ParagraphStyle("Subtitulo", parent=estilos["Normal"], textColor=PDF_MUTED, fontSize=11)
-    estilo_seccion = ParagraphStyle("Seccion", parent=estilos["Heading2"], textColor=color_rl, spaceBefore=14)
+    estilo_seccion = ParagraphStyle("Seccion", parent=estilos["Heading2"], textColor=color_tabla, spaceBefore=14)
     estilo_resumen_ejecutivo = ParagraphStyle(
         "ResumenEjecutivo", parent=estilos["Normal"], fontSize=11.5, leading=16,
         textColor=PDF_INK, spaceBefore=2, spaceAfter=2
@@ -1558,7 +1588,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
         logo_pil.save(logo_buffer, format="PNG")
         logo_buffer.seek(0)
         imagen_logo = RLImage(logo_buffer, width=ancho_logo, height=alto_logo)
-        imagen_logo.hAlign = "LEFT"
+        imagen_logo.hAlign = "CENTER"
         story.append(imagen_logo)
         story.append(Spacer(1, 14))
     except Exception:
@@ -1685,7 +1715,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
         [f"{total}{delta_total}", str(positivas), str(negativas), f"{pct_positivas}%{delta_pct}"]
     ], colWidths=[4 * cm, 4 * cm, 4 * cm, 5 * cm])
     tabla_resumen.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), color_rl),
+        ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
@@ -1710,7 +1740,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
         serie_neg.append(n)
     tabla_locales = Table(filas_tabla_local, colWidths=[7 * cm, 3 * cm, 3 * cm, 3 * cm])
     tabla_locales.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), color_rl),
+        ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"),
@@ -1735,7 +1765,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
                          [[u, str(n)] for u, n in sorted(conteo_usuario.items(), key=lambda x: -x[1])]
         tabla_usuarios = Table(filas_usuario, colWidths=[10 * cm, 5 * cm])
         tabla_usuarios.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), color_rl),
+            ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTSIZE", (0, 0), (-1, -1), 9),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
@@ -1768,7 +1798,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
                     [[t, str(n)] for t, n in sorted(conteo_tipo.items(), key=lambda x: -x[1])]
         tabla_seo = Table(filas_seo, colWidths=[10 * cm, 5 * cm])
         tabla_seo.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), color_rl),
+            ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTSIZE", (0, 0), (-1, -1), 9),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
