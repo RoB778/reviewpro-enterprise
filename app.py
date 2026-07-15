@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import re
@@ -3187,7 +3188,24 @@ with tab_pedir_resenas:
                 st.markdown("**Código QR para imprimir en el local:**")
                 png_qr = generar_qr_png(nuevo_enlace.strip())
                 st.image(png_qr, width=180)
-                st.download_button("Descargar QR (PNG)", data=png_qr, file_name=f"qr_resenas_{nombre_local_pr}.png", mime="image/png")
+                # Mismo motivo que el PDF: enlace con data URI para que el proxy
+                # de Render no sirva el PNG como .txt con nombre de hash.
+                b64_qr = base64.b64encode(png_qr).decode("utf-8")
+                st.markdown(
+                    f"""
+                    <a href="data:image/png;base64,{b64_qr}" download="qr_resenas_{nombre_local_pr}.png" style="
+                        display:inline-block;
+                        padding:0.5rem 1.2rem;
+                        background:{ACCENT_INDIGO};
+                        color:#ffffff;
+                        text-decoration:none;
+                        border-radius:8px;
+                        font-weight:600;
+                        font-size:0.85rem;
+                    ">⬇ Descargar QR (PNG)</a>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
 # ---------------------------------------------------------
 # PESTAÑA: CONTENIDO SEO EXTRA
@@ -3417,11 +3435,30 @@ with tab_analitica:
                     cliente_ia=client, resultado_score=score_agencia, dias_periodo=dias_periodo,
                     roi=roi_informe, roi_estrellas_actuales=est_act_roi, roi_estrellas_objetivo=est_obj_roi
                 )
-                st.download_button(
-                    "Descargar informe PDF",
-                    data=pdf_bytes,
-                    file_name=f"informe_{agencia['nombre_agencia'].replace(' ', '_')}_{fecha_hasta_dt.strftime('%Y%m%d')}.pdf",
-                    mime="application/pdf"
+                nombre_pdf = f"informe_{agencia['nombre_agencia'].replace(' ', '_')}_{fecha_hasta_dt.strftime('%Y%m%d')}.pdf"
+                # Descarga por enlace con data URI en vez de st.download_button.
+                # Motivo: detrás del proxy de Render, download_button a veces sirve
+                # el archivo sin las cabeceras correctas y el navegador lo guarda
+                # como .txt con un nombre de hash. Un enlace <a download="...pdf">
+                # con el PDF embebido en base64 y el tipo MIME application/pdf
+                # explícito fuerza el nombre y la extensión correctos, sin depender
+                # de que el proxy respete las cabeceras.
+                b64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+                href_pdf = f"data:application/pdf;base64,{b64_pdf}"
+                st.markdown(
+                    f"""
+                    <a href="{href_pdf}" download="{nombre_pdf}" style="
+                        display:inline-block;
+                        padding:0.6rem 1.4rem;
+                        background:{ACCENT_INDIGO};
+                        color:#ffffff;
+                        text-decoration:none;
+                        border-radius:8px;
+                        font-weight:600;
+                        font-size:0.9rem;
+                    ">⬇ Descargar informe PDF</a>
+                    """,
+                    unsafe_allow_html=True,
                 )
             except Exception as e:
                 causa_raiz = log_error_completo("generar informe PDF", e)
