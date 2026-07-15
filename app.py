@@ -70,6 +70,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.graphics.shapes import Drawing
 from reportlab.graphics.charts.barcharts import VerticalBarChart
@@ -1401,8 +1402,8 @@ def render_formulario_alta_pendiente():
 
 
 def grafico_barras_pos_neg(categorias, valores_positivas, valores_negativas,
-                            color_positivas=colors.HexColor("#3C7A5B"),
-                            color_negativas=colors.HexColor("#B0473B"),
+                            color_positivas=colors.HexColor("#3B3A6B"),
+                            color_negativas=colors.HexColor("#B8B7C9"),
                             ancho=16 * cm, alto=6 * cm):
     """Gráfico de barras agrupadas (positivas vs. negativas) hecho con
     reportlab.graphics puro — sin pandas ni numpy, para no repetir el
@@ -1490,24 +1491,23 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
 
     # -----------------------------------------------------------------
     # PALETA PREMIUM DEL INFORME — "Editorial Light", la misma línea visual
-    # que el resto de la app (fondo cálido, negro casi puro, índigo profundo).
-    # Sustituye al navy genérico (#1B2233 / #2A3448) que se usaba antes: ese
-    # azul oscuro no tenía relación con la identidad de la app ni con la
-    # marca de cada agencia, y es justo el aspecto "cutre" a corregir.
-    # PDF_INK se usa para los bloques "hero" (la tarjeta grande del Reputation
-    # Score), independiente del color que cada agencia elija como color_marca,
-    # para que quede premium pase lo que pase. El resto de cabeceras de tabla
-    # usan color_rl (el color propio de cada agencia) para que el informe se
-    # sienta realmente "suyo", no genérico.
+    # que el resto de la app: negro casi puro, índigo de marca y grises
+    # cálidos. Sin verde/rojo tipo semáforo ni azul navy genérico: todo el
+    # informe se mueve dentro de la identidad corporativa (tinta + índigo).
+    # PDF_INK se usa para el bloque "hero" (la tarjeta del Reputation Score),
+    # independiente del color que elija cada agencia, para que quede premium
+    # pase lo que pase. Las cabeceras de tabla usan color_rl (el color propio
+    # de cada agencia) para que el informe se sienta realmente "suyo".
     # -----------------------------------------------------------------
     PDF_INK = colors.HexColor("#16151A")     # negro casi puro, igual que --er-ink
     PDF_BODY = colors.HexColor("#46454C")    # gris de cuerpo, igual que --er-body
     PDF_MUTED = colors.HexColor("#8A8880")   # gris cálido para notas/pies
-    PDF_POSITIVO = colors.HexColor("#3C7A5B")  # verde apagado, tono premium (no neón)
-    PDF_NEGATIVO = colors.HexColor("#B0473B")  # rojo ladrillo apagado, mismo criterio
-    PDF_ROI_BG = colors.HexColor("#EEF3EE")
-    PDF_ROI_BORDE = colors.HexColor("#3C7A5B")
-    PDF_ROI_BORDE_SUAVE = colors.HexColor("#CFE0D5")
+    PDF_ACENTO = colors.HexColor("#3B3A6B")  # índigo de marca — el único color de acento
+    # Bloque de ROI en tonos índigo/tinta (antes era verde): sobrio y corporativo,
+    # coherente con el resto de la identidad. Nada de verde/rojo tipo semáforo.
+    PDF_ROI_BG = colors.HexColor("#F1F1F5")       # lavanda muy tenue, casi gris
+    PDF_ROI_BORDE = colors.HexColor("#3B3A6B")    # índigo
+    PDF_ROI_BORDE_SUAVE = colors.HexColor("#D6D5E0")
 
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
     estilos = getSampleStyleSheet()
@@ -1526,12 +1526,27 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
 
     story = []
 
-    # Logo (si se puede descargar; si falla, se omite sin romper el informe)
+    # Logo (si se puede descargar; si falla, se omite sin romper el informe).
+    # Se escala preservando la proporción original dentro de una caja más amplia,
+    # en vez de forzar unas medidas fijas que aplastaban logos no apaisados.
     try:
         resp_logo = requests.get(agencia["logo_url"], timeout=5)
-        imagen_logo = RLImage(BytesIO(resp_logo.content), width=4 * cm, height=1.2 * cm)
+        datos_logo = BytesIO(resp_logo.content)
+        # Medimos el logo real para respetar su relación de aspecto.
+        logo_reader = ImageReader(datos_logo)
+        ancho_px, alto_px = logo_reader.getSize()
+        proporcion = alto_px / ancho_px if ancho_px else 0.4
+        ancho_logo = 5.5 * cm                       # más ancho que antes (era 4 cm)
+        alto_logo = ancho_logo * proporcion
+        alto_maximo = 3.0 * cm                      # techo por si el logo es muy vertical
+        if alto_logo > alto_maximo:
+            alto_logo = alto_maximo
+            ancho_logo = alto_logo / proporcion if proporcion else 5.5 * cm
+        datos_logo.seek(0)
+        imagen_logo = RLImage(datos_logo, width=ancho_logo, height=alto_logo)
+        imagen_logo.hAlign = "LEFT"
         story.append(imagen_logo)
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 14))
     except Exception:
         pass
 
@@ -1615,12 +1630,12 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     # --- Calculadora de ROI (si se han pasado datos de facturación/estrellas) ---
     if roi and roi.get("delta_estrellas", 0) > 0:
         estilo_roi_titulo = ParagraphStyle(
-            "RoiTitulo", parent=estilos["Normal"], fontSize=10, textColor=PDF_POSITIVO,
+            "RoiTitulo", parent=estilos["Normal"], fontSize=10, textColor=PDF_ACENTO,
             spaceBefore=2, spaceAfter=4
         )
         estilo_roi_cifra = ParagraphStyle(
             "RoiCifra", parent=estilos["Normal"], fontSize=13, leading=16,
-            textColor=PDF_POSITIVO, alignment=1
+            textColor=PDF_ACENTO, alignment=1
         )
         estilo_roi_label = ParagraphStyle(
             "RoiLabel", parent=estilos["Normal"], fontSize=8, textColor=PDF_BODY, alignment=1
