@@ -1401,8 +1401,8 @@ def render_formulario_alta_pendiente():
 
 
 def grafico_barras_pos_neg(categorias, valores_positivas, valores_negativas,
-                            color_positivas=colors.HexColor("#2ECC71"),
-                            color_negativas=colors.HexColor("#E74C3C"),
+                            color_positivas=colors.HexColor("#3C7A5B"),
+                            color_negativas=colors.HexColor("#B0473B"),
                             ancho=16 * cm, alto=6 * cm):
     """Gráfico de barras agrupadas (positivas vs. negativas) hecho con
     reportlab.graphics puro — sin pandas ni numpy, para no repetir el
@@ -1488,20 +1488,41 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     color_hex = agencia.get("color_marca", "#2A2C31").lstrip("#")
     color_rl = colors.HexColor(f"#{color_hex}")
 
+    # -----------------------------------------------------------------
+    # PALETA PREMIUM DEL INFORME — "Editorial Light", la misma línea visual
+    # que el resto de la app (fondo cálido, negro casi puro, índigo profundo).
+    # Sustituye al navy genérico (#1B2233 / #2A3448) que se usaba antes: ese
+    # azul oscuro no tenía relación con la identidad de la app ni con la
+    # marca de cada agencia, y es justo el aspecto "cutre" a corregir.
+    # PDF_INK se usa para los bloques "hero" (la tarjeta grande del Reputation
+    # Score), independiente del color que cada agencia elija como color_marca,
+    # para que quede premium pase lo que pase. El resto de cabeceras de tabla
+    # usan color_rl (el color propio de cada agencia) para que el informe se
+    # sienta realmente "suyo", no genérico.
+    # -----------------------------------------------------------------
+    PDF_INK = colors.HexColor("#16151A")     # negro casi puro, igual que --er-ink
+    PDF_BODY = colors.HexColor("#46454C")    # gris de cuerpo, igual que --er-body
+    PDF_MUTED = colors.HexColor("#8A8880")   # gris cálido para notas/pies
+    PDF_POSITIVO = colors.HexColor("#3C7A5B")  # verde apagado, tono premium (no neón)
+    PDF_NEGATIVO = colors.HexColor("#B0473B")  # rojo ladrillo apagado, mismo criterio
+    PDF_ROI_BG = colors.HexColor("#EEF3EE")
+    PDF_ROI_BORDE = colors.HexColor("#3C7A5B")
+    PDF_ROI_BORDE_SUAVE = colors.HexColor("#CFE0D5")
+
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
     estilos = getSampleStyleSheet()
     estilo_titulo = ParagraphStyle("TituloInforme", parent=estilos["Title"], textColor=color_rl, fontSize=20)
-    estilo_subtitulo = ParagraphStyle("Subtitulo", parent=estilos["Normal"], textColor=colors.grey, fontSize=11)
+    estilo_subtitulo = ParagraphStyle("Subtitulo", parent=estilos["Normal"], textColor=PDF_MUTED, fontSize=11)
     estilo_seccion = ParagraphStyle("Seccion", parent=estilos["Heading2"], textColor=color_rl, spaceBefore=14)
     estilo_resumen_ejecutivo = ParagraphStyle(
         "ResumenEjecutivo", parent=estilos["Normal"], fontSize=11.5, leading=16,
-        textColor=colors.HexColor("#1A1A1A"), spaceBefore=2, spaceAfter=2
+        textColor=PDF_INK, spaceBefore=2, spaceAfter=2
     )
     estilo_caso = ParagraphStyle(
         "Caso", parent=estilos["Normal"], fontSize=9.5, leading=13.5,
-        textColor=colors.HexColor("#333333"), leftIndent=8, spaceAfter=4
+        textColor=PDF_BODY, leftIndent=8, spaceAfter=4
     )
-    estilo_nota = ParagraphStyle("Nota", parent=estilos["Normal"], fontSize=8, textColor=colors.grey, spaceBefore=4)
+    estilo_nota = ParagraphStyle("Nota", parent=estilos["Normal"], fontSize=8, textColor=PDF_MUTED, spaceBefore=4)
 
     story = []
 
@@ -1574,11 +1595,11 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
         ]
         tabla_score = Table(celda_score, colWidths=[16 * cm])
         tabla_score.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#1B2233")),
+            ("BACKGROUND", (0, 0), (-1, -1), PDF_INK),
             ("TOPPADDING", (0, 0), (-1, 0), 12),
             ("BOTTOMPADDING", (0, 1), (-1, 1), 10),
             ("TOPPADDING", (0, 1), (-1, 1), 0),
-            ("LINEBELOW", (0, 0), (-1, 0), 0, colors.HexColor("#1B2233")),
+            ("LINEBELOW", (0, 0), (-1, 0), 0, PDF_INK),
             ("BOX", (0, 0), (-1, -1), 1, color_banda),
         ]))
         story.append(tabla_score)
@@ -1594,15 +1615,15 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     # --- Calculadora de ROI (si se han pasado datos de facturación/estrellas) ---
     if roi and roi.get("delta_estrellas", 0) > 0:
         estilo_roi_titulo = ParagraphStyle(
-            "RoiTitulo", parent=estilos["Normal"], fontSize=10, textColor=colors.HexColor("#1E7A46"),
+            "RoiTitulo", parent=estilos["Normal"], fontSize=10, textColor=PDF_POSITIVO,
             spaceBefore=2, spaceAfter=4
         )
         estilo_roi_cifra = ParagraphStyle(
             "RoiCifra", parent=estilos["Normal"], fontSize=13, leading=16,
-            textColor=colors.HexColor("#1E7A46"), alignment=1
+            textColor=PDF_POSITIVO, alignment=1
         )
         estilo_roi_label = ParagraphStyle(
-            "RoiLabel", parent=estilos["Normal"], fontSize=8, textColor=colors.HexColor("#4A5568"), alignment=1
+            "RoiLabel", parent=estilos["Normal"], fontSize=8, textColor=PDF_BODY, alignment=1
         )
         story.append(Paragraph(
             f"Potencial de ingresos: subir de {roi_estrellas_actuales}★ a {roi_estrellas_objetivo}★",
@@ -1614,9 +1635,9 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
              Paragraph(f"<b>{_fmt_eur(roi['anual_min'])} – {_fmt_eur(roi['anual_max'])}</b>", estilo_roi_cifra)],
         ], colWidths=[8 * cm, 8 * cm])
         tabla_roi.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EAF7EF")),
-            ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#2ECC71")),
-            ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#C7E8D3")),
+            ("BACKGROUND", (0, 0), (-1, -1), PDF_ROI_BG),
+            ("BOX", (0, 0), (-1, -1), 1, PDF_ROI_BORDE),
+            ("INNERGRID", (0, 0), (-1, -1), 0.5, PDF_ROI_BORDE_SUAVE),
             ("TOPPADDING", (0, 0), (-1, -1), 8),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
         ]))
@@ -1660,7 +1681,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
         serie_neg.append(n)
     tabla_locales = Table(filas_tabla_local, colWidths=[7 * cm, 3 * cm, 3 * cm, 3 * cm])
     tabla_locales.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A3448")),
+        ("BACKGROUND", (0, 0), (-1, 0), color_rl),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"),
@@ -1685,7 +1706,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
                          [[u, str(n)] for u, n in sorted(conteo_usuario.items(), key=lambda x: -x[1])]
         tabla_usuarios = Table(filas_usuario, colWidths=[10 * cm, 5 * cm])
         tabla_usuarios.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A3448")),
+            ("BACKGROUND", (0, 0), (-1, 0), color_rl),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTSIZE", (0, 0), (-1, -1), 9),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
@@ -1718,7 +1739,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
                     [[t, str(n)] for t, n in sorted(conteo_tipo.items(), key=lambda x: -x[1])]
         tabla_seo = Table(filas_seo, colWidths=[10 * cm, 5 * cm])
         tabla_seo.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A3448")),
+            ("BACKGROUND", (0, 0), (-1, 0), color_rl),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTSIZE", (0, 0), (-1, -1), 9),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
@@ -1733,7 +1754,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     story.append(Paragraph(
         f"Informe generado automáticamente por ReviewPro Enterprise en nombre de {agencia['nombre_agencia']}. "
         "Documento de uso interno/comercial para justificar la gestión de reputación online frente a sus clientes.",
-        ParagraphStyle("Pie", parent=estilos["Normal"], fontSize=7, textColor=colors.grey)
+        ParagraphStyle("Pie", parent=estilos["Normal"], fontSize=7, textColor=PDF_MUTED)
     ))
 
     doc.build(story)
@@ -2634,6 +2655,44 @@ st.markdown(f"""
 col_logo, col_titulo, col_cuenta = st.columns([1, 3, 1])
 with col_logo:
     st.image(agencia["logo_url"], use_container_width=True)
+    with st.popover("Cambiar logo", use_container_width=True):
+        st.caption(
+            "PNG o JPG, a poder ser con fondo transparente. Se usará tanto en la "
+            "app como en los informes PDF de marca blanca."
+        )
+        archivo_logo = st.file_uploader(
+            "Sube tu logo", type=["png", "jpg", "jpeg"],
+            key="uploader_logo_agencia", label_visibility="collapsed",
+        )
+        if archivo_logo is not None:
+            st.image(archivo_logo, width=160, caption="Vista previa")
+            if st.button("Guardar logo", key="guardar_logo_agencia", type="primary", use_container_width=True):
+                try:
+                    extension = archivo_logo.name.rsplit(".", 1)[-1].lower()
+                    ruta_storage = f"{agencia['id']}.{extension}"
+                    content_type = archivo_logo.type or "image/png"
+                    # upsert=true: si ya existe un logo con esta ruta (misma agencia,
+                    # misma extensión), lo sobreescribe en vez de dar error de duplicado.
+                    supabase.storage.from_("logos").upload(
+                        ruta_storage,
+                        archivo_logo.getvalue(),
+                        file_options={"content-type": content_type, "upsert": "true"},
+                    )
+                    resultado_url = supabase.storage.from_("logos").get_public_url(ruta_storage)
+                    nueva_url = (
+                        resultado_url if isinstance(resultado_url, str)
+                        else (resultado_url.get("publicUrl") or resultado_url.get("publicURL"))
+                    )
+                    # Cache-busting: la ruta no cambia entre subidas (mismo agencia_id +
+                    # extensión), así que sin esto el navegador o el CDN podrían seguir
+                    # sirviendo el logo antiguo cacheado con la misma URL de siempre.
+                    nueva_url = f"{nueva_url}?v={int(datetime.utcnow().timestamp())}"
+                    supabase.table("agencias").update({"logo_url": nueva_url}).eq("id", agencia["id"]).execute()
+                    st.session_state.agencia_actual["logo_url"] = nueva_url
+                    st.success("Logo actualizado. Ya se usará también en los próximos informes PDF.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(redactar_secretos(f"No se pudo actualizar el logo: {e}"))
 with col_titulo:
     st.markdown(
         f"<div style='padding-top:6px;'>"
