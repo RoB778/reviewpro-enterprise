@@ -1242,25 +1242,27 @@ def _obtener_ip_cliente():
     return None
 
 
-LIMITE_ALTAS_FREE_POR_IP_AL_DIA = 3
+LIMITE_ALTAS_FREE_POR_IP = 3
 
 
 def _ip_supera_limite_altas_free(ip):
     """
-    Cuenta cuántas cuentas Free se han creado desde esta IP en las últimas 24h.
-    Requiere la tabla 'intentos_registro_free' (ver migración adjunta) — si no
-    existe todavía, falla en silencio y no bloquea nada.
+    Cuenta cuántas cuentas Free se han creado desde esta IP EN TOTAL, desde
+    siempre (no por día ni por mes). Tres cuentas gratis por conexión es de
+    sobra para cualquier caso legítimo — probar el producto, enseñárselo a un
+    socio, una segunda cuenta de prueba — y a partir de ahí lo natural es
+    pasar a un plan de pago en vez de seguir abriendo cuentas nuevas.
+    Requiere la tabla 'intentos_registro_free' (ver schema_completo.sql) — si
+    no existe todavía, falla en silencio y no bloquea nada.
     """
     if not ip:
         return False
     try:
-        hace_un_dia = (datetime.utcnow() - timedelta(days=1)).isoformat()
         resultado = supabase.table("intentos_registro_free") \
             .select("id", count="exact") \
             .eq("ip", ip) \
-            .gte("creado_en", hace_un_dia) \
             .execute()
-        return (resultado.count or 0) >= LIMITE_ALTAS_FREE_POR_IP_AL_DIA
+        return (resultado.count or 0) >= LIMITE_ALTAS_FREE_POR_IP
     except Exception:
         return False
 
@@ -1305,8 +1307,9 @@ def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_pla
 
     ip_cliente = _obtener_ip_cliente()
     if _ip_supera_limite_altas_free(ip_cliente):
-        return False, ("Se han creado ya varias cuentas gratuitas desde tu conexión hoy. "
-                        "Inténtalo de nuevo mañana, o escríbenos si necesitas varias cuentas legítimas.")
+        return False, ("Ya se han creado el máximo de cuentas gratuitas desde esta conexión. "
+                        "Si necesitas seguir usando el servicio, echa un vistazo a los planes de pago "
+                        "— o escríbenos si tu caso es legítimo y necesitas más cuentas de prueba.")
 
     try:
         nueva_agencia = supabase.table("agencias").insert({
@@ -2356,6 +2359,40 @@ def verificar_velocidad(agencia):
     return {"permitido": True, "razon": None, "advertencia": advertencia}
 
 
+def _css_boton_enlace_stripe():
+    """
+    Fuerza texto BLANCO en los botones de enlace a Stripe (st.link_button con
+    type="primary"). Sin esto, Streamlit hereda el color de texto oscuro del
+    tema sobre el fondo morado/índigo del botón y la etiqueta queda ilegible.
+    Se inyecta aquí (y no solo en el bloque de CSS del panel) porque estos
+    botones también aparecen en la landing, ANTES de iniciar sesión, donde
+    aquel bloque todavía no se ha cargado.
+    Cubre los distintos data-testid que ha usado Streamlit entre versiones.
+    """
+    st.markdown(f"""
+        <style>
+        div[data-testid="stLinkButton"] a,
+        div[data-testid="stLinkButton"] a *,
+        a[data-testid="stBaseLinkButton-primary"],
+        a[data-testid="stBaseLinkButton-primary"] * {{
+            color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important;
+        }}
+        div[data-testid="stLinkButton"] a[kind="primary"],
+        a[data-testid="stBaseLinkButton-primary"] {{
+            background-color: {ACCENT_INDIGO} !important;
+            border: 1px solid {ACCENT_INDIGO} !important;
+            font-weight: 500 !important;
+        }}
+        div[data-testid="stLinkButton"] a[kind="primary"]:hover,
+        a[data-testid="stBaseLinkButton-primary"]:hover {{
+            background-color: {ACCENT_INDIGO_HOVER} !important;
+            border-color: {ACCENT_INDIGO_HOVER} !important;
+        }}
+        </style>
+    """, unsafe_allow_html=True)
+
+
 def redirigir_a_stripe(url_pago):
     """
     Lleva al usuario a la pasarela de pago de Stripe.
@@ -2368,6 +2405,7 @@ def redirigir_a_stripe(url_pago):
     st.link_button, que genera un ancla nativa y navega de forma fiable a Stripe
     al pulsarlo, escapando correctamente del iframe.
     """
+    _css_boton_enlace_stripe()
     st.success("Sesión de pago creada correctamente.")
     st.link_button(
         "Continuar al pago seguro con Stripe →",
@@ -2990,6 +3028,7 @@ with col_cuenta:
         if st.button("Gestionar suscripción", use_container_width=True):
             url_portal_cuenta = crear_portal_cliente(customer_id_cuenta)
             if url_portal_cuenta:
+                _css_boton_enlace_stripe()
                 st.link_button(
                     "Ir al portal de Stripe →",
                     url_portal_cuenta,
