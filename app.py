@@ -937,19 +937,19 @@ ROI_FUENTE = "Estudio de Michael Luca, Harvard Business School (Reviews, Reputat
 STRIPE_PRICES = {
     "individual": {
         "mensual": "price_1TsLo0Kwc34DG74MzRU5g3YH",   # ⚠️ crear en Stripe (25€/mes)
-        "anual":   "price_TODO_INDIVIDUAL_240EUR_ANO",   # ⚠️ crear en Stripe (240€/año = 25×12×0,8)
+        "anual":   "price_1TsW1YKwc34DG74MApu6Giii",   # ⚠️ crear en Stripe (240€/año = 25×12×0,8)
     },
     "starter": {
         "mensual": "price_1TqCVYKwc34DG74MpaWMOaKt",     # existente (ajusta el importe a 79€ en Stripe)
-        "anual":   "price_TODO_STARTER_758EUR_ANO",       # ⚠️ crear en Stripe (758€/año = 79×12×0,8)
+        "anual":   "price_1TsW2nKwc34DG74MXp79Iky5",       # ⚠️ crear en Stripe (758€/año = 79×12×0,8)
     },
     "growth": {
         "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 199€ en Stripe)
-        "anual":   "price_TODO_GROWTH_1910EUR_ANO",       # ⚠️ crear en Stripe (1.910€/año = 199×12×0,8)
+        "anual":   "price_1TsW3QKwc34DG74Md0o6bJMo",       # ⚠️ crear en Stripe (1.910€/año = 199×12×0,8)
     },
     "enterprise": {
         "mensual": "price_1Tr1RoKwc34DG74M8L4sjSVL",     # existente (ajusta el importe a 449€ en Stripe)
-        "anual":   "price_TODO_ENTERPRISE_4310EUR_ANO",   # ⚠️ crear en Stripe (4.310€/año = 449×12×0,8)
+        "anual":   "price_1TsW4AKwc34DG74MXOvRm2JA",   # ⚠️ crear en Stripe (4.310€/año = 449×12×0,8)
     },
 }
 
