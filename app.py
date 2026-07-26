@@ -2359,38 +2359,41 @@ def verificar_velocidad(agencia):
     return {"permitido": True, "razon": None, "advertencia": advertencia}
 
 
-def _css_boton_enlace_stripe():
+def boton_enlace_stripe(texto, url, key=None):
     """
-    Fuerza texto BLANCO en los botones de enlace a Stripe (st.link_button con
-    type="primary"). Sin esto, Streamlit hereda el color de texto oscuro del
-    tema sobre el fondo morado/índigo del botón y la etiqueta queda ilegible.
-    Se inyecta aquí (y no solo en el bloque de CSS del panel) porque estos
-    botones también aparecen en la landing, ANTES de iniciar sesión, donde
-    aquel bloque todavía no se ha cargado.
-    Cubre los distintos data-testid que ha usado Streamlit entre versiones.
+    Renderiza un botón-enlace a Stripe como un ANCLA HTML pura, con los colores
+    puestos en línea (inline styles).
+
+    Por qué así y no con st.link_button + CSS:
+    El color del texto de st.link_button(type="primary") lo controla Streamlit
+    con reglas de especificidad alta y con nombres de data-testid que han ido
+    cambiando entre versiones; forzarlo por CSS externo es frágil y en algunas
+    versiones simplemente no engancha (el texto sale oscuro e ilegible sobre el
+    fondo índigo). Aquí el <a> es nuestro: el blanco va en el propio style del
+    elemento, así que se ve bien en cualquier versión de Streamlit, sin depender
+    de ningún data-testid ni de que el CSS alcance al botón.
+
+    key: se ignora (existe solo por compatibilidad con las llamadas antiguas).
     """
-    st.markdown(f"""
-        <style>
-        div[data-testid="stLinkButton"] a,
-        div[data-testid="stLinkButton"] a *,
-        a[data-testid="stBaseLinkButton-primary"],
-        a[data-testid="stBaseLinkButton-primary"] * {{
-            color: #FFFFFF !important;
-            -webkit-text-fill-color: #FFFFFF !important;
-        }}
-        div[data-testid="stLinkButton"] a[kind="primary"],
-        a[data-testid="stBaseLinkButton-primary"] {{
-            background-color: {ACCENT_INDIGO} !important;
-            border: 1px solid {ACCENT_INDIGO} !important;
-            font-weight: 500 !important;
-        }}
-        div[data-testid="stLinkButton"] a[kind="primary"]:hover,
-        a[data-testid="stBaseLinkButton-primary"]:hover {{
-            background-color: {ACCENT_INDIGO_HOVER} !important;
-            border-color: {ACCENT_INDIGO_HOVER} !important;
-        }}
-        </style>
-    """, unsafe_allow_html=True)
+    import html as _html
+    texto_seguro = _html.escape(texto)
+    url_segura = _html.escape(url, quote=True)
+    st.markdown(
+        f"""
+        <a href="{url_segura}" target="_blank" rel="noopener noreferrer"
+           style="display:block; width:100%; box-sizing:border-box;
+                  background-color:{ACCENT_INDIGO}; color:#FFFFFF !important;
+                  -webkit-text-fill-color:#FFFFFF; text-align:center;
+                  padding:0.6rem 1rem; border-radius:0.5rem; font-weight:600;
+                  text-decoration:none; border:1px solid {ACCENT_INDIGO};
+                  transition:background-color .15s ease;"
+           onmouseover="this.style.backgroundColor='{ACCENT_INDIGO_HOVER}';this.style.borderColor='{ACCENT_INDIGO_HOVER}';"
+           onmouseout="this.style.backgroundColor='{ACCENT_INDIGO}';this.style.borderColor='{ACCENT_INDIGO}';">
+            {texto_seguro}
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def redirigir_a_stripe(url_pago):
@@ -2405,14 +2408,8 @@ def redirigir_a_stripe(url_pago):
     st.link_button, que genera un ancla nativa y navega de forma fiable a Stripe
     al pulsarlo, escapando correctamente del iframe.
     """
-    _css_boton_enlace_stripe()
     st.success("Sesión de pago creada correctamente.")
-    st.link_button(
-        "Continuar al pago seguro con Stripe →",
-        url_pago,
-        type="primary",
-        use_container_width=True,
-    )
+    boton_enlace_stripe("Continuar al pago seguro con Stripe →", url_pago)
     st.caption("Pasarela cifrada de Stripe. Pulsa el botón para completar la contratación.")
 
 
@@ -3028,13 +3025,7 @@ with col_cuenta:
         if st.button("Gestionar suscripción", use_container_width=True):
             url_portal_cuenta = crear_portal_cliente(customer_id_cuenta)
             if url_portal_cuenta:
-                _css_boton_enlace_stripe()
-                st.link_button(
-                    "Ir al portal de Stripe →",
-                    url_portal_cuenta,
-                    type="primary",
-                    use_container_width=True,
-                )
+                boton_enlace_stripe("Ir al portal de Stripe →", url_portal_cuenta)
     if st.button("Cerrar sesión", use_container_width=True):
         for key in ["sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia", "local_activo"]:
             st.session_state[key] = False if key == "sesion_activa" else None if "actual" in key else []
