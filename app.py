@@ -3363,6 +3363,9 @@ Si el cliente sugiere que lo que cuenta no es aislado ("no es la primera vez", "
 ✗ PROHIBIDO: "no es la primera vez que alguien se va sin poder sentarse", "sabemos que en horas punta esto ocurre", "es algo que nos han comentado más veces", "entiendo que no sea la primera vez que le pasa".
 ✓ CORRECTO: "nadie debería irse de una terraza llena sin haber podido sentarse", "lo que usted describe de esa tarde no es la experiencia que queremos dar".
 Trata SIEMPRE lo narrado como referido a esa visita concreta, nunca como fenómeno general.
+CUIDADO CON LA VERSIÓN DISFRAZADA — prometer que algo DEJE de ser habitual confirma, por elevación, que YA lo era. "Que esto no vuelva a ser la tónica", "que no se convierta en costumbre", "que deje de ser lo normal", "para que esto no sea el patrón" son tan graves como decir "sabemos que pasa a menudo", solo que con la lógica invertida: hablan del futuro pero confirman el pasado. La promesa de mejora va SIEMPRE sobre el caso concreto de este cliente, nunca enmarcada como corrección de una tendencia general.
+✗ PROHIBIDO (versión disfrazada): "para que no vuelva a ser la tónica", "que no se repita como viene pasando", "trabajaremos para que deje de ser lo habitual".
+✓ CORRECTO: "tomaré nota para revisarlo", "esto lo trasladaré para que se revise", sin ninguna palabra que implique que ya era costumbre.
 
 --- R2. REGLA DEL JUICIO NORMATIVO ---
 Prohibido emitir juicios sobre si el HECHO debía o no ocurrir, porque para juzgarlo hay que darlo por cierto. La prohibición no depende de las palabras exactas: cualquier construcción equivalente está igual de prohibida.
