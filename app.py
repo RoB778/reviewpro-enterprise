@@ -1101,16 +1101,16 @@ STRIPE_PRICES = {
         "anual":   "price_TODO_INDIVIDUAL_240EUR_ANO",   # ⚠️ crear en Stripe (240€/año = 25×12×0,8)
     },
     "starter": {
-        "mensual": "price_1TqCVYKwc34DG74MpaWMOaKt",     # existente (ajusta el importe a 79€ en Stripe)
-        "anual":   "price_TODO_STARTER_758EUR_ANO",       # ⚠️ crear en Stripe (758€/año = 79×12×0,8)
+        "mensual": "price_1TqCVYKwc34DG74MpaWMOaKt",     # existente (ajusta el importe a 89€ en Stripe)
+        "anual":   "price_TODO_STARTER_850EUR_ANO",       # ⚠️ crear en Stripe (850€/año = 89×12×0,8)
     },
     "growth": {
-        "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 199€ en Stripe)
-        "anual":   "price_TODO_GROWTH_1910EUR_ANO",       # ⚠️ crear en Stripe (1.910€/año = 199×12×0,8)
+        "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 179€ en Stripe)
+        "anual":   "price_TODO_GROWTH_1720EUR_ANO",       # ⚠️ crear en Stripe (1.720€/año = 179×12×0,8)
     },
     "enterprise": {
-        "mensual": "price_1Tr1RoKwc34DG74M8L4sjSVL",     # existente (ajusta el importe a 449€ en Stripe)
-        "anual":   "price_TODO_ENTERPRISE_4310EUR_ANO",   # ⚠️ crear en Stripe (4.310€/año = 449×12×0,8)
+        "mensual": "price_1Tr1RoKwc34DG74M8L4sjSVL",     # existente (ajusta el importe a 349€ en Stripe)
+        "anual":   "price_TODO_ENTERPRISE_3350EUR_ANO",   # ⚠️ crear en Stripe (3.350€/año = 349×12×0,8)
     },
 }
 
@@ -1142,10 +1142,10 @@ def _precio_anual_total(precio_mensual):
     de este número. Si un plan no está en la tabla, usa la fórmula automática.
     """
     precios_anuales = {
-        25: 240,    # Individual
-        79: 760,    # Starter
-        199: 1900,  # Growth
-        449: 4300,  # Enterprise
+        39:  370,   # Individual  (39×12×0,8 = 374 → 370)
+        89:  850,   # Starter     (89×12×0,8 = 854 → 850)
+        179: 1720,  # Growth      (179×12×0,8 = 1.718 → 1.720)
+        349: 3350,  # Enterprise  (349×12×0,8 = 3.350)
     }
     if precio_mensual in precios_anuales:
         return precios_anuales[precio_mensual]
@@ -1154,29 +1154,29 @@ def _precio_anual_total(precio_mensual):
 PLANES_AUTOSERVICIO = {
     "individual": {
         "nombre": "Individual", "target": "Un solo local · sin límite de reseñas",
-        "precio_mensual": 25, "price_ids": STRIPE_PRICES["individual"],
+        "precio_mensual": 39, "price_ids": STRIPE_PRICES["individual"],
         "features": ["1 local", "Respuestas ILIMITADAS", "Reputation Score + calculadora de ROI",
                      "Blindaje legal + informe PDF de marca"],
         "gancho": "Para el bar, restaurante o camping que gestiona sus propias reseñas.",
     },
     "starter": {
         "nombre": "Starter", "target": "Agencias pequeñas · hasta 10 locales",
-        "precio_mensual": 79, "price_ids": STRIPE_PRICES["starter"],
+        "precio_mensual": 89, "price_ids": STRIPE_PRICES["starter"],
         "features": ["Hasta 10 locales", "Respuestas ilimitadas", "Marca blanca completa",
                      "SEO invisible por local"],
-        "gancho": "Desde 7,90€ por local al mes.",
+        "gancho": "Desde 8,90€ por local al mes.",
     },
     "growth": {
         "nombre": "Growth", "target": "Agencias medianas · hasta 30 locales",
-        "precio_mensual": 199, "price_ids": STRIPE_PRICES["growth"],
+        "precio_mensual": 179, "price_ids": STRIPE_PRICES["growth"],
         "features": ["Hasta 30 locales", "Respuestas ilimitadas", "Marca blanca completa",
                      "Multi-usuario + analítica + ROI"],
-        "gancho": "Solo 6,60€ por local — el favorito de las agencias.",
+        "gancho": "Menos de 6€ por local — el favorito de las agencias.",
         "destacado": True,
     },
     "enterprise": {
         "nombre": "Enterprise", "target": "Agencias grandes · locales ilimitados",
-        "precio_mensual": 449, "price_ids": STRIPE_PRICES["enterprise"],
+        "precio_mensual": 349, "price_ids": STRIPE_PRICES["enterprise"],
         "features": ["Locales ilimitados", "Soporte prioritario", "Marca blanca completa",
                      "Multi-usuario + analítica + ROI"],
         "gancho": "Sin techo de crecimiento. Cuantos más locales, más barato sale cada uno.",
