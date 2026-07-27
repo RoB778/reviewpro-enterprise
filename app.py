@@ -184,7 +184,7 @@ def log_error_completo(contexto, e):
 # el pago. OBLIGATORIA: si falta o está mal puesta, Stripe redirige a una URL que no existe
 # y el usuario se queda "colgado" en la pantalla de éxito de Stripe sin volver nunca a la app.
 # Configúrala en secrets.toml con la URL exacta de tu app en Streamlit Cloud, ej:
-# APP_URL = "https://reviewpro-enterprise.streamlit.app"  (sin barra final)
+# APP_URL = "https://app.reselia.com"  (sin barra final)
 if "APP_URL" not in st.secrets:
     st.error(
         "Falta configurar APP_URL en los secrets de la app. Sin esto, Stripe no puede "
@@ -210,14 +210,14 @@ if not (APP_URL.startswith("http://") or APP_URL.startswith("https://")):
     st.stop()
 
 # 1. Configuración de página limpia y profesional
-st.set_page_config(page_title="ReviewPro Enterprise", page_icon="▪", layout="centered")
+st.set_page_config(page_title="Reselia · Reputación con criterio", page_icon="▪", layout="centered")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
     /* =========================================================
-       REVIEWPRO — SISTEMA DE DISEÑO "TINTA & PAPEL"
+       RESELIA — SISTEMA DE DISEÑO "TINTA & PAPEL"
        Papel hueso, azul tinta profundo, acento ámbar de sello.
        Misma familia visual que la landing: al pasar de la web
        a la herramienta no debe haber salto estético.
@@ -333,6 +333,40 @@ st.markdown("""
         border-color: var(--er-accent-2) !important;
     }
     .stButton > button[kind="primary"]:hover * { color: #FFFFFF !important; }
+
+    /* Botón primario DENTRO DE UN FORMULARIO (st.form_submit_button).
+       Streamlit lo renderiza bajo stFormSubmitButton, NO bajo stButton, así que
+       las reglas de arriba no le llegaban y el texto salía oscuro sobre el fondo
+       índigo (ilegible). Se cubren aquí todos los data-testid que ha usado
+       Streamlit entre versiones, y se fuerza también -webkit-text-fill-color
+       porque en algunos navegadores el color solo no basta. */
+    .stFormSubmitButton > button[kind="primary"],
+    .stFormSubmitButton > button[kind="primary"] *,
+    div[data-testid="stFormSubmitButton"] button[kind="primary"],
+    div[data-testid="stFormSubmitButton"] button[kind="primary"] *,
+    button[data-testid="stBaseButton-primaryFormSubmit"],
+    button[data-testid="stBaseButton-primaryFormSubmit"] * {
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }
+    .stFormSubmitButton > button[kind="primary"],
+    div[data-testid="stFormSubmitButton"] button[kind="primary"],
+    button[data-testid="stBaseButton-primaryFormSubmit"] {
+        background: var(--er-accent) !important;
+        border: 1px solid var(--er-accent) !important;
+        box-shadow: 0 1px 2px rgba(26,34,56,0.18) !important;
+    }
+    .stFormSubmitButton > button[kind="primary"]:hover,
+    div[data-testid="stFormSubmitButton"] button[kind="primary"]:hover,
+    button[data-testid="stBaseButton-primaryFormSubmit"]:hover {
+        background: var(--er-accent-2) !important;
+        border-color: var(--er-accent-2) !important;
+    }
+    /* Cinturón y tirantes: cualquier botón primario, esté donde esté, en blanco. */
+    button[kind="primary"], button[kind="primary"] * {
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }
 
     /* Inputs — superficie hundida, borde hairline, foco índigo */
     .stTextInput > div > div > input,
@@ -683,7 +717,7 @@ def verificar_password(password_plano, password_hash):
 
 
 # =========================================================
-# 🏆 REVIEWPRO REPUTATION SCORE
+# 🏆 RESELIA REPUTATION SCORE
 # Índice propio 0-100 que resume la salud reputacional de un local o de toda
 # la agencia en un solo número, para que la agencia lo enseñe a su cliente.
 # Se calcula como una media ponderada de 4 factores, todos derivables de datos
@@ -2180,7 +2214,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     story.append(Spacer(1, 20))
 
     story.append(Paragraph(
-        f"Informe generado automáticamente por ReviewPro Enterprise en nombre de {agencia['nombre_agencia']}. "
+        f"Informe generado automáticamente por Reselia en nombre de {agencia['nombre_agencia']}. "
         "Documento de uso interno/comercial para justificar la gestión de reputación online frente a sus clientes.",
         ParagraphStyle("Pie", parent=estilos["Normal"], fontSize=7, textColor=PDF_MUTED)
     ))
@@ -2788,7 +2822,7 @@ if not st.session_state.sesion_activa:
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div style="font-size:0.72rem; color:#1a2238; letter-spacing:0.16em; text-transform:uppercase; margin-bottom:14px; font-weight:600;">Enterprise Review</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.72rem; color:#1a2238; letter-spacing:0.16em; text-transform:uppercase; margin-bottom:14px; font-weight:600;">Reselia</div>', unsafe_allow_html=True)
     st.markdown('<div class="rp-hero-title">Reputación bajo control.<br>Respuestas con precisión.</div>', unsafe_allow_html=True)
     st.markdown('<div class="rp-hero-sub">Plataforma de inteligencia de reputación para agencias. Respuestas redactadas con IA, con tu marca y SEO local integrado, para toda tu cartera de clientes.</div>', unsafe_allow_html=True)
 
@@ -3911,7 +3945,7 @@ with tab_analitica:
                     except Exception:
                         dias_periodo = 90
 
-            # ---------- 🏆 REVIEWPRO REPUTATION SCORE (protagonista) ----------
+            # ---------- 🏆 RESELIA REPUTATION SCORE (protagonista) ----------
             st.markdown("### Reputation Score")
             opciones_score = ["Toda la agencia"] + [l["nombre"] for l in st.session_state.locales_agencia]
             local_score_sel = st.selectbox("Calcular para:", opciones_score, key="selector_score")
