@@ -214,30 +214,32 @@ st.set_page_config(page_title="ReviewPro Enterprise", page_icon="▪", layout="c
 
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
     /* =========================================================
-       ENTERPRISE REVIEW — SISTEMA DE DISEÑO "EDITORIAL LIGHT"
-       Lienzo hueso cálido, tinta casi negra, un único acento índigo
-       usado con extrema contención. Aire, hairlines, sentence case.
-       Registro Stripe / Linear / McKinsey: confianza silenciosa.
+       REVIEWPRO — SISTEMA DE DISEÑO "TINTA & PAPEL"
+       Papel hueso, azul tinta profundo, acento ámbar de sello.
+       Misma familia visual que la landing: al pasar de la web
+       a la herramienta no debe haber salto estético.
        ========================================================= */
     :root {
-        --er-canvas:     #FAFAF8;   /* lienzo, blanco hueso cálido */
-        --er-surface:    #FFFFFF;   /* tarjetas, blanco puro */
-        --er-sunken:     #F4F3EF;   /* superficies hundidas / inputs */
-        --er-line:       #E6E4DE;   /* hairline por defecto */
-        --er-line-2:     #D6D3CA;   /* hairline con énfasis */
-        --er-ink:        #16151A;   /* texto primario, casi negro */
-        --er-body:       #46454C;   /* texto de cuerpo */
-        --er-muted:      #8A8880;   /* texto secundario / captions */
-        --er-faint:      #A8A69E;   /* placeholders / metadatos */
-        --er-accent:     #3B3A6B;   /* índigo profundo — el único color */
-        --er-accent-2:   #4E4C8A;   /* índigo hover */
-        --er-accent-bg:  #EEEEF4;   /* fondo índigo muy pálido */
-        --er-danger:     #A23A34;   /* rojo controlado para errores */
-        --er-danger-bg:  #F7EDEC;
-        --er-ok:         #3B6B52;   /* verde controlado, casi nunca */
+        --er-canvas:     #F7F4EE;   /* papel hueso */
+        --er-surface:    #FDFBF7;   /* tarjetas, papel puro */
+        --er-sunken:     #F1EDE4;   /* superficies hundidas / inputs */
+        --er-line:       rgba(26,34,56,.12);  /* hairline por defecto */
+        --er-line-2:     rgba(26,34,56,.20);  /* hairline con énfasis */
+        --er-ink:        #1a2238;   /* azul tinta profundo, texto primario */
+        --er-body:       #232c47;   /* texto de cuerpo */
+        --er-muted:      #6b7280;   /* texto secundario / captions */
+        --er-faint:      #9aa0ac;   /* placeholders / metadatos */
+        --er-accent:     #1a2238;   /* tinta — estructura y botones */
+        --er-accent-2:   #232c47;   /* tinta hover */
+        --er-accent-bg:  #ECEAF1;   /* fondo tinta muy pálido */
+        --er-amber:      #c8892a;   /* ámbar de sello — acento cálido */
+        --er-amber-2:    #e0a742;   /* ámbar claro */
+        --er-danger:     #a8321f;   /* rojo tachado / errores */
+        --er-danger-bg:  #F7EDEB;
+        --er-ok:         #2f6b4f;   /* verde aprobado */
     }
 
     /* Ocultar cromo de Streamlit */
@@ -416,7 +418,7 @@ st.markdown("""
 
     /* Métricas — cifras en serif editorial */
     [data-testid="stMetricValue"] {
-        font-family: 'Newsreader', Georgia, serif !important;
+        font-family: 'Fraunces', Georgia, serif !important;
         color: var(--er-ink) !important;
         font-weight: 500 !important;
     }
@@ -486,8 +488,9 @@ st.markdown("""
 
 
 # Acento de la app (índigo). Fuente única de verdad para Python + CSS dinámico.
-ACCENT_INDIGO = "#3B3A6B"
-ACCENT_INDIGO_HOVER = "#4E4C8A"
+ACCENT_INDIGO = "#1a2238"
+ACCENT_INDIGO_HOVER = "#232c47"
+ACCENT_AMBER = "#c8892a"
 
 
 def mostrar_barras_simples(conteo, color=ACCENT_INDIGO):
@@ -503,8 +506,8 @@ def mostrar_barras_simples(conteo, color=ACCENT_INDIGO):
         ancho_pct = int((valor / maximo) * 100)
         filas_html += f"""
         <div style="margin-bottom:12px;">
-            <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#46454C; margin-bottom:5px;">
-                <span>{_html.escape(str(etiqueta))}</span><span style="font-family:'IBM Plex Mono',monospace; color:#16151A;">{valor}</span>
+            <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#232c47; margin-bottom:5px;">
+                <span>{_html.escape(str(etiqueta))}</span><span style="font-family:'IBM Plex Mono',monospace; color:#1a2238;">{valor}</span>
             </div>
             <div style="background:#F4F3EF; border:1px solid #E6E4DE; border-radius:4px; height:8px; width:100%;">
                 <div style="background:{color}; border-radius:4px; height:8px; width:{ancho_pct}%;"></div>
@@ -621,13 +624,13 @@ def etiqueta_reputation_score(score):
     El índigo marca la excelencia; el resto gradúa en tinta; solo el riesgo
     real usa un rojo controlado."""
     if score is None:
-        return ("Sin datos", "#8A8880")
+        return ("Sin datos", "#6b7280")
     if score >= 80:
-        return ("Excelente", "#3B3A6B")   # índigo — el acento
+        return ("Excelente", "#1a2238")   # índigo — el acento
     if score >= 60:
-        return ("Buena", "#46454C")        # tinta cuerpo
+        return ("Buena", "#232c47")        # tinta cuerpo
     if score >= 40:
-        return ("Mejorable", "#8A8880")    # gris medio
+        return ("Mejorable", "#6b7280")    # gris medio
     return ("En riesgo", "#A23A34")        # rojo controlado
 
 
@@ -704,10 +707,10 @@ def mostrar_medidor_score(resultado_score, titulo, interpretacion):
     # Cabecera: número grande en serif + banda en versalitas
     st.markdown(f"""
     <div style="background:#FFFFFF; border:1px solid #E6E4DE; border-radius:10px; padding:24px 28px; margin-bottom:16px;">
-        <div style="font-size:0.72rem; color:#8A8880; margin-bottom:14px; text-transform:uppercase; letter-spacing:0.14em;">{_html.escape(titulo)}</div>
+        <div style="font-size:0.72rem; color:#6b7280; margin-bottom:14px; text-transform:uppercase; letter-spacing:0.14em;">{_html.escape(titulo)}</div>
         <div style="display:flex; align-items:baseline; gap:14px;">
-            <span style="font-family:'Newsreader',Georgia,serif; font-size:4rem; font-weight:500; color:{color}; line-height:0.9;">{score}</span>
-            <span style="font-family:'Newsreader',Georgia,serif; font-size:1.2rem; color:#8A8880;">/ 100</span>
+            <span style="font-family:'Fraunces',Georgia,serif; font-size:4rem; font-weight:500; color:{color}; line-height:0.9;">{score}</span>
+            <span style="font-family:'Fraunces',Georgia,serif; font-size:1.2rem; color:#6b7280;">/ 100</span>
             <span style="margin-left:auto; border:1px solid {color}; color:{color}; font-weight:600; font-size:0.7rem; padding:5px 14px; border-radius:6px; text-transform:uppercase; letter-spacing:0.12em;">{banda}</span>
         </div>
         <div style="background:#F4F3EF; border:1px solid #E6E4DE; border-radius:4px; height:6px; width:100%; margin-top:20px;">
@@ -716,12 +719,12 @@ def mostrar_medidor_score(resultado_score, titulo, interpretacion):
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<div style='color:#46454C; font-size:0.95rem; line-height:1.6; margin-bottom:16px;'>{_html.escape(interpretacion)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='color:#232c47; font-size:0.95rem; line-height:1.6; margin-bottom:16px;'>{_html.escape(interpretacion)}</div>", unsafe_allow_html=True)
 
     # Desglose de factores
     factores = resultado_score.get("factores", {})
     if factores:
-        st.markdown("<div style='font-size:0.72rem; color:#8A8880; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:10px;'>Composición de la puntuación</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:0.72rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:10px;'>Composición de la puntuación</div>", unsafe_allow_html=True)
         topes = {"Sentimiento": 50, "Volumen": 20, "Constancia": 20, "Tendencia": 10}
         filas_html = ""
         for nombre, pts in factores.items():
@@ -729,8 +732,8 @@ def mostrar_medidor_score(resultado_score, titulo, interpretacion):
             ancho_pct = int((pts / tope) * 100) if tope else 0
             filas_html += f"""
             <div style="margin-bottom:10px;">
-                <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:#8A8880; margin-bottom:4px;">
-                    <span>{_html.escape(nombre)}</span><span style="font-family:'IBM Plex Mono',monospace; color:#46454C;">{pts} / {tope}</span>
+                <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:#6b7280; margin-bottom:4px;">
+                    <span>{_html.escape(nombre)}</span><span style="font-family:'IBM Plex Mono',monospace; color:#232c47;">{pts} / {tope}</span>
                 </div>
                 <div style="background:#F4F3EF; border:1px solid #E6E4DE; border-radius:4px; height:6px; width:100%;">
                     <div style="background:{color}; border-radius:4px; height:6px; width:{ancho_pct}%;"></div>
@@ -790,20 +793,20 @@ def mostrar_calculadora_roi(roi, estrellas_actuales, estrellas_objetivo):
         return
 
     st.markdown(f"""
-    <div style="background:#FFFFFF; border:1px solid #E6E4DE; border-left:3px solid #3B3A6B; border-radius:0 10px 10px 0; padding:20px 24px; margin:10px 0;">
-        <div style="font-size:0.72rem; color:#8A8880; margin-bottom:16px; text-transform:uppercase; letter-spacing:0.1em;">
+    <div style="background:#FDFBF7; border:1px solid rgba(26,34,56,.12); border-left:3px solid #c8892a; border-radius:0 10px 10px 0; padding:20px 24px; margin:10px 0;">
+        <div style="font-size:0.72rem; color:#6b7280; margin-bottom:16px; text-transform:uppercase; letter-spacing:0.1em;">
             Proyección · {estrellas_actuales}★ → {estrellas_objetivo}★ (+{roi['delta_estrellas']})
         </div>
         <div style="display:flex; gap:48px; flex-wrap:wrap;">
             <div>
-                <div style="font-size:0.72rem; color:#8A8880; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px;">Ingresos extra / mes</div>
-                <div style="font-family:'Newsreader',Georgia,serif; font-size:1.9rem; font-weight:500; color:#16151A; line-height:1.2;">
+                <div style="font-size:0.72rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px;">Ingresos extra / mes</div>
+                <div style="font-family:'Fraunces',Georgia,serif; font-size:1.9rem; font-weight:500; color:#1a2238; line-height:1.2;">
                     {_html.escape(_fmt_eur(roi['mensual_min']))} – {_html.escape(_fmt_eur(roi['mensual_max']))}
                 </div>
             </div>
             <div>
-                <div style="font-size:0.72rem; color:#8A8880; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px;">Ingresos extra / año</div>
-                <div style="font-family:'Newsreader',Georgia,serif; font-size:1.9rem; font-weight:500; color:#3B3A6B; line-height:1.2;">
+                <div style="font-size:0.72rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px;">Ingresos extra / año</div>
+                <div style="font-family:'Fraunces',Georgia,serif; font-size:1.9rem; font-weight:500; color:#1a2238; line-height:1.2;">
                     {_html.escape(_fmt_eur(roi['anual_min']))} – {_html.escape(_fmt_eur(roi['anual_max']))}
                 </div>
             </div>
@@ -937,19 +940,19 @@ ROI_FUENTE = "Estudio de Michael Luca, Harvard Business School (Reviews, Reputat
 STRIPE_PRICES = {
     "individual": {
         "mensual": "price_1TsLo0Kwc34DG74MzRU5g3YH",   # ⚠️ crear en Stripe (25€/mes)
-        "anual":   "price_1TsW1YKwc34DG74MApu6Giii",   # ⚠️ crear en Stripe (240€/año = 25×12×0,8)
+        "anual":   "price_TODO_INDIVIDUAL_240EUR_ANO",   # ⚠️ crear en Stripe (240€/año = 25×12×0,8)
     },
     "starter": {
         "mensual": "price_1TqCVYKwc34DG74MpaWMOaKt",     # existente (ajusta el importe a 79€ en Stripe)
-        "anual":   "price_1TsW2nKwc34DG74MXp79Iky5",       # ⚠️ crear en Stripe (758€/año = 79×12×0,8)
+        "anual":   "price_TODO_STARTER_758EUR_ANO",       # ⚠️ crear en Stripe (758€/año = 79×12×0,8)
     },
     "growth": {
         "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 199€ en Stripe)
-        "anual":   "price_1TsW3QKwc34DG74Md0o6bJMo",       # ⚠️ crear en Stripe (1.910€/año = 199×12×0,8)
+        "anual":   "price_TODO_GROWTH_1910EUR_ANO",       # ⚠️ crear en Stripe (1.910€/año = 199×12×0,8)
     },
     "enterprise": {
         "mensual": "price_1Tr1RoKwc34DG74M8L4sjSVL",     # existente (ajusta el importe a 449€ en Stripe)
-        "anual":   "price_1TsW4AKwc34DG74MXOvRm2JA",   # ⚠️ crear en Stripe (4.310€/año = 449×12×0,8)
+        "anual":   "price_TODO_ENTERPRISE_4310EUR_ANO",   # ⚠️ crear en Stripe (4.310€/año = 449×12×0,8)
     },
 }
 
@@ -1610,7 +1613,7 @@ def render_formulario_alta_pendiente():
 
 
 def grafico_barras_pos_neg(categorias, valores_positivas, valores_negativas,
-                            color_positivas=colors.HexColor("#3B3A6B"),
+                            color_positivas=colors.HexColor("#1a2238"),
                             color_negativas=colors.HexColor("#B8B7C9"),
                             ancho=16 * cm, alto=6 * cm):
     """Gráfico de barras agrupadas (positivas vs. negativas) hecho con
@@ -1704,7 +1707,7 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     # defecto en el esquema antiguo) se sustituyen por el índigo corporativo
     # sobrio, que combina con la paleta neutra del resto del informe.
     def _color_tabla_seguro(hex_str):
-        indigo_corporativo = colors.HexColor("#3B3A6B")
+        indigo_corporativo = colors.HexColor("#1a2238")
         try:
             h = hex_str.lstrip("#")
             r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
@@ -1737,14 +1740,14 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     # pase lo que pase. Las cabeceras de tabla usan color_rl (el color propio
     # de cada agencia) para que el informe se sienta realmente "suyo".
     # -----------------------------------------------------------------
-    PDF_INK = colors.HexColor("#16151A")     # negro casi puro, igual que --er-ink
-    PDF_BODY = colors.HexColor("#46454C")    # gris de cuerpo, igual que --er-body
-    PDF_MUTED = colors.HexColor("#8A8880")   # gris cálido para notas/pies
-    PDF_ACENTO = colors.HexColor("#3B3A6B")  # índigo de marca — el único color de acento
+    PDF_INK = colors.HexColor("#1a2238")     # negro casi puro, igual que --er-ink
+    PDF_BODY = colors.HexColor("#232c47")    # gris de cuerpo, igual que --er-body
+    PDF_MUTED = colors.HexColor("#6b7280")   # gris cálido para notas/pies
+    PDF_ACENTO = colors.HexColor("#1a2238")  # índigo de marca — el único color de acento
     # Bloque de ROI en tonos índigo/tinta (antes era verde): sobrio y corporativo,
     # coherente con el resto de la identidad. Nada de verde/rojo tipo semáforo.
     PDF_ROI_BG = colors.HexColor("#F1F1F5")       # lavanda muy tenue, casi gris
-    PDF_ROI_BORDE = colors.HexColor("#3B3A6B")    # índigo
+    PDF_ROI_BORDE = colors.HexColor("#1a2238")    # índigo
     PDF_ROI_BORDE_SUAVE = colors.HexColor("#D6D5E0")
 
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
@@ -2593,41 +2596,41 @@ if not st.session_state.sesion_activa:
 
     st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap');
         html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
         .rp-hero-title {
             font-family: 'Inter', sans-serif; font-weight: 500; font-size: 2.4rem;
-            color: #16151A; line-height: 1.1; margin-bottom: 0.6rem; letter-spacing: -0.03em;
+            color: #1a2238; line-height: 1.1; margin-bottom: 0.6rem; letter-spacing: -0.03em;
         }
-        .rp-hero-sub { color: #46454C; font-size: 1.02rem; margin-bottom: 2rem; letter-spacing: -0.008em; line-height: 1.6; max-width: 620px; }
+        .rp-hero-sub { color: #232c47; font-size: 1.02rem; margin-bottom: 2rem; letter-spacing: -0.008em; line-height: 1.6; max-width: 620px; }
         .rp-card {
-            background: #FFFFFF; border: 1px solid #E6E4DE; border-radius: 12px;
-            padding: 28px 26px; height: 100%; box-shadow: 0 1px 2px rgba(22,21,26,0.03);
+            background: #FDFBF7; border: 1px solid rgba(26,34,56,.12); border-radius: 12px;
+            padding: 28px 26px; height: 100%; box-shadow: 0 1px 3px rgba(26,34,56,0.05);
         }
-        .rp-card-destacado { border: 1.5px solid #3B3A6B; box-shadow: 0 2px 8px rgba(59,58,107,0.08); }
-        .rp-plan-nombre { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 1.1rem; color: #16151A; margin-bottom: 4px; letter-spacing: -0.01em; }
-        .rp-plan-target { color: #8A8880; font-size: 0.82rem; margin-bottom: 18px; letter-spacing: 0; }
-        .rp-precio { font-family: 'Newsreader', Georgia, serif; font-size: 2.3rem; font-weight: 500; color: #16151A; }
-        .rp-precio-periodo { color: #8A8880; font-size: 0.85rem; }
-        .rp-feature { color: #46454C; font-size: 0.87rem; margin: 8px 0; letter-spacing: -0.005em; }
-        .rp-badge { display:inline-block; background:#EEEEF4; color:#3B3A6B; border:none; font-size:0.66rem;
+        .rp-card-destacado { border: 1.5px solid #1a2238; box-shadow: 0 4px 14px rgba(26,34,56,0.10); }
+        .rp-plan-nombre { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 1.1rem; color: #1a2238; margin-bottom: 4px; letter-spacing: -0.01em; }
+        .rp-plan-target { color: #6b7280; font-size: 0.82rem; margin-bottom: 18px; letter-spacing: 0; }
+        .rp-precio { font-family: 'Fraunces', Georgia, serif; font-size: 2.3rem; font-weight: 500; color: #1a2238; }
+        .rp-precio-periodo { color: #6b7280; font-size: 0.85rem; }
+        .rp-feature { color: #232c47; font-size: 0.87rem; margin: 8px 0; letter-spacing: -0.005em; }
+        .rp-badge { display:inline-block; background:#1a2238; color:#FDFBF7; border:none; font-size:0.66rem;
             padding: 4px 11px; border-radius: 6px; margin-bottom: 14px; font-weight:600; letter-spacing: 0.08em; text-transform:uppercase; }
-        .rp-badge-verde { display:inline-block; background:#F4F3EF; color:#8A8880; border:none; font-size:0.66rem;
+        .rp-badge-verde { display:inline-block; background:#ECEAF1; color:#6b7280; border:none; font-size:0.66rem;
             padding: 4px 11px; border-radius: 6px; margin-bottom: 14px; font-weight:600; letter-spacing: 0.08em; text-transform:uppercase; }
-        .rp-precio-tachado { color:#A8A69E; font-size:1rem; text-decoration:line-through; margin-right:8px; font-family:'Newsreader',serif; }
-        .rp-precio-ahorro { color:#3B3A6B; font-size:0.78rem; font-weight:500; margin-top:4px; letter-spacing:0; }
-        .rp-por-local { color:#8A8880; font-size:0.8rem; font-weight:500; margin-top:8px; font-family:'IBM Plex Mono',monospace; }
-        .rp-gancho { color:#8A8880; font-size:0.8rem; margin-top:12px; min-height:34px; line-height:1.55; }
+        .rp-precio-tachado { color:#9aa0ac; font-size:1rem; text-decoration:line-through; margin-right:8px; font-family:'Fraunces',serif; }
+        .rp-precio-ahorro { color:#1a2238; font-size:0.78rem; font-weight:500; margin-top:4px; letter-spacing:0; }
+        .rp-por-local { color:#6b7280; font-size:0.8rem; font-weight:500; margin-top:8px; font-family:'IBM Plex Mono',monospace; }
+        .rp-gancho { color:#6b7280; font-size:0.8rem; margin-top:12px; min-height:34px; line-height:1.55; }
         .rp-roi-banner {
-            background:#FFFFFF; border:1px solid #E6E4DE; border-left:3px solid #3B3A6B;
-            border-radius:0 10px 10px 0; padding:18px 24px; margin:6px 0 24px 0; color:#46454C; line-height:1.6;
+            background:#FDFBF7; border:1px solid rgba(26,34,56,.12); border-left:3px solid #c8892a;
+            border-radius:0 10px 10px 0; padding:18px 24px; margin:6px 0 24px 0; color:#232c47; line-height:1.6;
         }
-        .rp-roi-banner strong { color:#3B3A6B; font-weight:600; }
-        .rp-garantia { color:#8A8880; font-size:0.82rem; text-align:center; margin-top:16px; letter-spacing:0; }
+        .rp-roi-banner strong { color:#1a2238; font-weight:600; }
+        .rp-garantia { color:#6b7280; font-size:0.82rem; text-align:center; margin-top:16px; letter-spacing:0; }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div style="font-size:0.72rem; color:#3B3A6B; letter-spacing:0.16em; text-transform:uppercase; margin-bottom:14px; font-weight:600;">Enterprise Review</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.72rem; color:#1a2238; letter-spacing:0.16em; text-transform:uppercase; margin-bottom:14px; font-weight:600;">Enterprise Review</div>', unsafe_allow_html=True)
     st.markdown('<div class="rp-hero-title">Reputación bajo control.<br>Respuestas con precisión.</div>', unsafe_allow_html=True)
     st.markdown('<div class="rp-hero-sub">Plataforma de inteligencia de reputación para agencias. Respuestas redactadas con IA, con tu marca y SEO local integrado, para toda tu cartera de clientes.</div>', unsafe_allow_html=True)
 
@@ -2638,19 +2641,19 @@ if not st.session_state.sesion_activa:
         col_a, col_b, col_c = st.columns(3)
         with col_a:
             st.markdown("""<div class="rp-card">
-                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#3B3A6B; letter-spacing:0.1em; margin-bottom:8px;">01</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#1a2238; letter-spacing:0.1em; margin-bottom:8px;">01</div>
                 <div class="rp-plan-nombre" style="font-size:1.05rem;">Blindaje legal</div>
                 <div class="rp-feature">Nunca admite negligencias ni usa términos de alerta sanitaria. Cada respuesta pasa por reglas de redacción pensadas para proteger la reputación del negocio.</div>
             </div>""", unsafe_allow_html=True)
         with col_b:
             st.markdown("""<div class="rp-card">
-                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#3B3A6B; letter-spacing:0.1em; margin-bottom:8px;">02</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#1a2238; letter-spacing:0.1em; margin-bottom:8px;">02</div>
                 <div class="rp-plan-nombre" style="font-size:1.05rem;">SEO invisible</div>
                 <div class="rp-feature">Cada respuesta integra de forma natural las palabras clave de posicionamiento de ese local concreto, sin que se note ni al cliente final ni a Google.</div>
             </div>""", unsafe_allow_html=True)
         with col_c:
             st.markdown("""<div class="rp-card">
-                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#3B3A6B; letter-spacing:0.1em; margin-bottom:8px;">03</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#1a2238; letter-spacing:0.1em; margin-bottom:8px;">03</div>
                 <div class="rp-plan-nombre" style="font-size:1.05rem;">Marca blanca real</div>
                 <div class="rp-feature">Tu agencia entra con su propio logo y color corporativo. Tus clientes ven tu marca, no la nuestra.</div>
             </div>""", unsafe_allow_html=True)
@@ -2692,7 +2695,7 @@ if not st.session_state.sesion_activa:
                 text-align: center;
                 font-size: 0.88rem;
             ">
-                <span style="color:#8A8880;">
+                <span style="color:#6b7280;">
                     ¿Has pagado y no puedes acceder, o necesitas ayuda?
                 </span>
                 &nbsp;
@@ -2701,7 +2704,7 @@ if not st.session_state.sesion_activa:
                     text-decoration: none;
                     font-weight: 600;
                 ">Contactar con soporte →</a>
-                <div style="color:#8A8880; margin-top:0.4rem; font-size:0.8rem;">
+                <div style="color:#6b7280; margin-top:0.4rem; font-size:0.8rem;">
                     {_email_soporte}
                 </div>
             </div>
@@ -3012,7 +3015,7 @@ with col_logo:
 with col_titulo:
     st.markdown(
         f"<div style='padding-top:6px;'>"
-        f"<div style='font-size:0.66rem; color:#8A8880; letter-spacing:0.18em; text-transform:uppercase; margin-bottom:2px;'>Console</div>"
+        f"<div style='font-size:0.66rem; color:#6b7280; letter-spacing:0.18em; text-transform:uppercase; margin-bottom:2px;'>Console</div>"
         f"<h2 style='margin:0; font-size:1.4rem;'>{agencia['nombre_agencia']}</h2>"
         f"</div>",
         unsafe_allow_html=True
@@ -3068,7 +3071,7 @@ if usuario.get("rol") == "admin":
             for m in activos:
                 col_m1, col_m2, col_m3 = st.columns([3, 1.4, 1.2])
                 with col_m1:
-                    st.markdown(f"{m['nombre_usuario']}  \n<span style='color:#8A8880; font-size:0.82rem;'>{m['email']}</span>", unsafe_allow_html=True)
+                    st.markdown(f"{m['nombre_usuario']}  \n<span style='color:#6b7280; font-size:0.82rem;'>{m['email']}</span>", unsafe_allow_html=True)
                 with col_m2:
                     es_tu = m["id"] == usuario["id"]
                     etiqueta_rol = "Administrador" if m.get("rol") == "admin" else "Gestor"
@@ -3588,7 +3591,7 @@ with tab_pedir_resenas:
             with col_wa:
                 st.markdown("**Mensaje listo para WhatsApp:**")
                 enlace_wa = generar_mensaje_whatsapp(nombre_local_pr, nuevo_enlace.strip())
-                st.markdown(f'<a href="{enlace_wa}" target="_blank" style="text-decoration:none;"><div style="background:#FFFFFF;color:#16151A;padding:11px 20px;border:1px solid #D6D3CA;border-radius:6px;font-weight:500;cursor:pointer;width:100%;text-align:center;box-shadow:0 1px 1px rgba(22,21,26,0.03);">Abrir en WhatsApp &rarr;</div></a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{enlace_wa}" target="_blank" style="text-decoration:none;"><div style="background:#FFFFFF;color:#1a2238;padding:11px 20px;border:1px solid #D6D3CA;border-radius:6px;font-weight:500;cursor:pointer;width:100%;text-align:center;box-shadow:0 1px 1px rgba(22,21,26,0.03);">Abrir en WhatsApp &rarr;</div></a>', unsafe_allow_html=True)
                 st.caption("Se abre con el mensaje ya escrito; solo hay que elegir el contacto.")
             with col_qr:
                 st.markdown("**Código QR para imprimir en el local:**")
@@ -3806,7 +3809,7 @@ with tab_analitica:
 
             st.markdown("**Reparto de trabajo por usuario del equipo:**")
             st.caption("Útil para ver qué gestores de tu agencia están usando más la herramienta.")
-            mostrar_barras_simples(conteo_por_usuario, color="#8A8880")
+            mostrar_barras_simples(conteo_por_usuario, color="#6b7280")
 
             # Contenido SEO generado en el periodo (tabla nueva — si aún no se ha
             # ejecutado la migración, esto falla en silencio y el informe lo indica)
