@@ -493,6 +493,164 @@ ACCENT_INDIGO_HOVER = "#232c47"
 ACCENT_AMBER = "#c8892a"
 
 
+def mostrar_guia_uso():
+    """
+    Guía de uso integrada, con la estética tinta / papel / ámbar de la marca.
+    Pensada para que un cliente nuevo (agencia o local) sepa en 2 minutos
+    cómo pasar del registro a su primera respuesta publicada, y descubra
+    el resto de funcionalidades sin tener que preguntar. Tono: elegante,
+    cercano, con chispa, sin caer en lo cursi.
+    """
+    st.markdown("""
+    <style>
+      .guia-wrap { max-width: 820px; }
+      .guia-hero {
+        background: #1a2238; color: #F7F4EE; border-radius: 18px;
+        padding: 34px 36px; margin-bottom: 30px; position: relative; overflow: hidden;
+      }
+      .guia-hero::after {
+        content: "§"; position: absolute; right: 18px; top: -40px;
+        font-family: 'Fraunces', serif; font-size: 12rem; color: rgba(224,167,66,.08); line-height: 1;
+      }
+      .guia-hero .kick {
+        font-size: .74rem; letter-spacing: .14em; text-transform: uppercase;
+        color: #e0a742; font-weight: 600; margin-bottom: 12px;
+      }
+      .guia-hero h2 {
+        font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.9rem;
+        line-height: 1.15; margin: 0 0 10px 0; color: #FDFBF7; position: relative;
+      }
+      .guia-hero p { font-size: 1.02rem; opacity: .82; margin: 0; max-width: 560px; position: relative; }
+
+      .paso {
+        display: flex; gap: 20px; align-items: flex-start;
+        background: #FDFBF7; border: 1px solid rgba(26,34,56,.12);
+        border-radius: 14px; padding: 24px 26px; margin-bottom: 16px;
+        transition: transform .15s ease, box-shadow .2s ease;
+      }
+      .paso:hover { transform: translateX(3px); box-shadow: 0 10px 30px -16px rgba(26,34,56,.3); }
+      .paso-num {
+        flex-shrink: 0; width: 42px; height: 42px; border-radius: 11px;
+        background: #1a2238; color: #e0a742; font-family: 'Fraunces', serif;
+        font-size: 1.3rem; font-weight: 600; display: flex; align-items: center;
+        justify-content: center;
+      }
+      .paso-cuerpo h3 {
+        font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.18rem;
+        color: #1a2238; margin: 2px 0 6px 0;
+      }
+      .paso-cuerpo p { font-size: .95rem; color: #232c47; opacity: .86; margin: 0 0 6px 0; line-height: 1.6; }
+      .paso-tip {
+        font-size: .84rem; color: #8a6a1f; background: rgba(200,137,42,.1);
+        border-radius: 8px; padding: 7px 12px; display: inline-block; margin-top: 4px;
+      }
+      .paso-tip b { color: #7a5a15; }
+
+      .guia-sec-titulo {
+        font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.3rem;
+        color: #1a2238; margin: 34px 0 14px 0; display: flex; align-items: center; gap: 10px;
+      }
+      .guia-sec-titulo::before { content: ""; width: 26px; height: 2px; background: #c8892a; }
+
+      .func-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .func {
+        background: #FDFBF7; border: 1px solid rgba(26,34,56,.12);
+        border-radius: 12px; padding: 20px 22px;
+      }
+      .func .ico {
+        width: 38px; height: 38px; border-radius: 9px; background: #ECEAF1;
+        color: #1a2238; display: flex; align-items: center; justify-content: center;
+        font-size: 1.1rem; margin-bottom: 12px;
+      }
+      .func h4 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.05rem; color: #1a2238; margin: 0 0 5px 0; }
+      .func p { font-size: .9rem; color: #232c47; opacity: .84; margin: 0; line-height: 1.55; }
+
+      .guia-cierre {
+        background: #F1EDE4; border-left: 3px solid #c8892a; border-radius: 0 12px 12px 0;
+        padding: 20px 26px; margin-top: 30px;
+      }
+      .guia-cierre p { margin: 0; font-size: .96rem; color: #232c47; line-height: 1.65; }
+      .guia-cierre b { color: #1a2238; }
+
+      @media (max-width: 640px) { .func-grid { grid-template-columns: 1fr; } }
+    </style>
+
+    <div class="guia-wrap">
+      <div class="guia-hero">
+        <div class="kick">Guía de uso · 2 minutos</div>
+        <h2>De cero a tu primera respuesta publicada</h2>
+        <p>Sin manuales de 40 páginas. Cuatro pasos para tener tu primera reseña contestada con blindaje legal, y un mapa de todo lo demás que puedes hacer aquí.</p>
+      </div>
+
+      <div class="guia-sec-titulo">Los cuatro pasos para empezar</div>
+
+      <div class="paso">
+        <div class="paso-num">1</div>
+        <div class="paso-cuerpo">
+          <h3>Da de alta tu primer local</h3>
+          <p>En la pestaña <b>Generar respuesta</b>, abre "Añadir establecimiento" y rellena el nombre, la ciudad y el enlace de reseñas de Google del negocio. Si eres agencia, repite esto por cada cliente: todos conviven en el mismo panel.</p>
+          <span class="paso-tip"><b>Truco:</b> pega también un par de palabras clave del negocio ("arrocería en Valencia") y el SEO trabajará solo.</span>
+        </div>
+      </div>
+
+      <div class="paso">
+        <div class="paso-num">2</div>
+        <div class="paso-cuerpo">
+          <h3>Pega una reseña y elige el tono</h3>
+          <p>Copia la reseña de Google —buena o mala, en el idioma que sea— y pégala. Escoge uno de los tres registros: muy formal, profesional estándar o cercano y cálido. Pulsa generar.</p>
+          <span class="paso-tip"><b>Descuida:</b> detecta el idioma solo y te da también la traducción al español para que sepas exactamente qué vas a publicar.</span>
+        </div>
+      </div>
+
+      <div class="paso">
+        <div class="paso-num">3</div>
+        <div class="paso-cuerpo">
+          <h3>Revisa y publica</h3>
+          <p>En 10 segundos tienes la respuesta, ya pasada por las 16 reglas de blindaje legal. Léela, y si te convence, cópiala y pégala en la respuesta de Google. Tú tienes siempre la última palabra antes de que salga.</p>
+          <span class="paso-tip"><b>Por qué copiar y pegar:</b> ese último vistazo humano es justo el control que da valor a tu servicio.</span>
+        </div>
+      </div>
+
+      <div class="paso">
+        <div class="paso-num">4</div>
+        <div class="paso-cuerpo">
+          <h3>Cierra el círculo: pide más reseñas</h3>
+          <p>En la pestaña <b>Pedir reseñas</b> generas un código QR y un mensaje de WhatsApp listo para enviar. Cuantas más reseñas buenas entren, más sube el Reputation Score, y más tienes que contestar aquí. Rueda que gira sola.</p>
+          <span class="paso-tip"><b>Idea:</b> imprime el QR en el ticket, la mesa o la puerta. Reseñas nuevas sin pedirlas de viva voz.</span>
+        </div>
+      </div>
+
+      <div class="guia-sec-titulo">Todo lo demás que tienes aquí</div>
+      <div class="func-grid">
+        <div class="func">
+          <div class="ico">◆</div>
+          <h4>Contenido SEO</h4>
+          <p>Seis tipos de contenido con tres variantes cada uno para las fichas de Google de tus clientes. Publícalo o véndelo como gestión de ficha.</p>
+        </div>
+        <div class="func">
+          <div class="ico">▤</div>
+          <h4>Analítica e informes</h4>
+          <p>Reputation Score, evolución por periodo, calculadora de retorno y el informe PDF con tu logo que le mandas al cliente cada mes.</p>
+        </div>
+        <div class="func">
+          <div class="ico">⛉</div>
+          <h4>Tu marca</h4>
+          <p>Sube tu logo y tu color en los ajustes de agencia. Todo —panel e informes— sale con tu identidad, no con la nuestra.</p>
+        </div>
+        <div class="func">
+          <div class="ico">⚏</div>
+          <h4>Tu equipo</h4>
+          <p>Añade a tu gente con roles de administrador o gestor. Cada respuesta queda registrada por autor: sabes quién hizo qué.</p>
+        </div>
+      </div>
+
+      <div class="guia-cierre">
+        <p><b>¿Te atascas en algo?</b> No hay pregunta tonta. Escríbenos desde el enlace de soporte y te echamos una mano. Y recuerda la mejor forma de probar esto: coge tus tres peores reseñas, esas que llevas semanas sin saber cómo contestar, y pásalas por aquí. Ahí se ve la diferencia.</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def mostrar_barras_simples(conteo, color=ACCENT_INDIGO):
     """Barras horizontales en HTML puro, sin pasar por pandas/pyarrow (evita el
     Segmentation fault de Python 3.14 + pyarrow en Streamlit Cloud)."""
@@ -3121,9 +3279,12 @@ if usuario.get("rol") == "admin":
 # =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
 # =========================================================
-tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
-    ["Generar respuesta", "Pedir reseñas", "Contenido SEO", "Analítica"]
+tab_guia, tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
+    ["Guía", "Generar respuesta", "Pedir reseñas", "Contenido SEO", "Analítica"]
 )
+
+with tab_guia:
+    mostrar_guia_uso()
 
 # ---------------------------------------------------------
 # PESTAÑA 1: GENERACIÓN DE RESPUESTAS
