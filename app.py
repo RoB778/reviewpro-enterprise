@@ -514,13 +514,13 @@ def mostrar_guia_uso():
       }
       .guia-hero .kick {
         font-size: .74rem; letter-spacing: .14em; text-transform: uppercase;
-        color: #e0a742; font-weight: 600; margin-bottom: 12px;
+        color: #e0a742 !important; font-weight: 600; margin-bottom: 12px;
       }
       .guia-hero h2 {
         font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.9rem;
-        line-height: 1.15; margin: 0 0 10px 0; color: #FDFBF7; position: relative;
+        line-height: 1.15; margin: 0 0 10px 0; color: #FDFBF7 !important; position: relative;
       }
-      .guia-hero p { font-size: 1.02rem; opacity: .82; margin: 0; max-width: 560px; position: relative; }
+      .guia-hero p { font-size: 1.02rem; color: #F7F4EE !important; opacity: .88; margin: 0; max-width: 560px; position: relative; }
 
       .paso {
         display: flex; gap: 20px; align-items: flex-start;
@@ -537,9 +537,9 @@ def mostrar_guia_uso():
       }
       .paso-cuerpo h3 {
         font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.18rem;
-        color: #1a2238; margin: 2px 0 6px 0;
+        color: #1a2238 !important; margin: 2px 0 6px 0;
       }
-      .paso-cuerpo p { font-size: .95rem; color: #232c47; opacity: .86; margin: 0 0 6px 0; line-height: 1.6; }
+      .paso-cuerpo p { font-size: .95rem; color: #232c47 !important; opacity: .86; margin: 0 0 6px 0; line-height: 1.6; }
       .paso-tip {
         font-size: .84rem; color: #8a6a1f; background: rgba(200,137,42,.1);
         border-radius: 8px; padding: 7px 12px; display: inline-block; margin-top: 4px;
@@ -548,7 +548,7 @@ def mostrar_guia_uso():
 
       .guia-sec-titulo {
         font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.3rem;
-        color: #1a2238; margin: 34px 0 14px 0; display: flex; align-items: center; gap: 10px;
+        color: #1a2238 !important; margin: 34px 0 14px 0; display: flex; align-items: center; gap: 10px;
       }
       .guia-sec-titulo::before { content: ""; width: 26px; height: 2px; background: #c8892a; }
 
@@ -562,14 +562,14 @@ def mostrar_guia_uso():
         color: #1a2238; display: flex; align-items: center; justify-content: center;
         font-size: 1.1rem; margin-bottom: 12px;
       }
-      .func h4 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.05rem; color: #1a2238; margin: 0 0 5px 0; }
-      .func p { font-size: .9rem; color: #232c47; opacity: .84; margin: 0; line-height: 1.55; }
+      .func h4 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.05rem; color: #1a2238 !important; margin: 0 0 5px 0; }
+      .func p { font-size: .9rem; color: #232c47 !important; opacity: .84; margin: 0; line-height: 1.55; }
 
       .guia-cierre {
         background: #F1EDE4; border-left: 3px solid #c8892a; border-radius: 0 12px 12px 0;
         padding: 20px 26px; margin-top: 30px;
       }
-      .guia-cierre p { margin: 0; font-size: .96rem; color: #232c47; line-height: 1.65; }
+      .guia-cierre p { margin: 0; font-size: .96rem; color: #232c47 !important; line-height: 1.65; }
       .guia-cierre b { color: #1a2238; }
 
       @media (max-width: 640px) { .func-grid { grid-template-columns: 1fr; } }
