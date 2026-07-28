@@ -3906,11 +3906,19 @@ with tab_analitica:
             .select("*") \
             .eq("agencia_id", agencia["id"]) \
             .gte("creado_en", fecha_desde) \
+            .order("creado_en", desc=True) \
+            .limit(4000) \
             .execute().data
 
         if not historico:
             st.info("Todavía no hay respuestas generadas en este periodo.")
         else:
+            if len(historico) >= 4000:
+                st.caption(
+                    "⚠️ Este negocio tiene más de 4.000 respuestas registradas. Para no sobrecargar "
+                    "el servidor, el score y el informe se calculan sobre las 4.000 más recientes, "
+                    "no sobre el histórico completo desde el primer día."
+                )
             total_respuestas = len(historico)
             positivas = sum(1 for r in historico if r["sentimiento"] == "positivo")
             negativas = total_respuestas - positivas
@@ -3931,6 +3939,8 @@ with tab_analitica:
                         .eq("agencia_id", agencia["id"]) \
                         .gte("creado_en", fecha_desde_anterior.isoformat()) \
                         .lt("creado_en", fecha_desde_dt.isoformat()) \
+                        .order("creado_en", desc=True) \
+                        .limit(4000) \
                         .execute().data
                 except Exception:
                     historico_anterior = []
@@ -4013,6 +4023,8 @@ with tab_analitica:
                     .select("*") \
                     .eq("agencia_id", agencia["id"]) \
                     .gte("creado_en", fecha_desde) \
+                    .order("creado_en", desc=True) \
+                    .limit(2000) \
                     .execute().data
             except Exception:
                 contenido_seo_periodo = []
