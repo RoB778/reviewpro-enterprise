@@ -11,7 +11,6 @@ from io import BytesIO
 
 import bcrypt
 import httpx
-import qrcode
 import requests
 import stripe
 import streamlit as st
@@ -73,14 +72,20 @@ class _SecretsConEntorno:
 if not hasattr(st, "_secrets_originales"):
     st._secrets_originales = st.secrets
     st.secrets = _SecretsConEntorno()
+# Solo lo estrictamente ligero se importa arriba: 'colors' y 'cm' se usan
+# como VALOR POR DEFECTO en las firmas de grafico_barras_pos_neg más abajo,
+# y los valores por defecto se calculan al cargar el módulo, no al llamar a
+# la función — así que estos dos sí tienen que estar disponibles desde ya.
+# Son módulos de solo constantes, sin motor gráfico detrás: coste casi nulo.
+#
+# Todo lo demás de reportlab (el motor de maquetación PDF y el de gráficos
+# de barras) y qrcode se cargan ahora DIFERIDOS, dentro de las funciones que
+# los usan (generar_informe_pdf_mensual, grafico_barras_pos_neg y
+# generar_qr_png). Antes se cargaban al arrancar el proceso, en cada
+# instancia, aunque nadie hubiera pedido nunca un informe ni un QR. En un
+# servicio con 512 MB de límite eso es peso muerto pagado por adelantado.
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
-from reportlab.graphics.shapes import Drawing
-from reportlab.graphics.charts.barcharts import VerticalBarChart
-from reportlab.graphics.charts.legends import Legend
 from supabase import create_client
 
 # Configuración de las claves secretas de los servidores
@@ -1817,6 +1822,12 @@ def grafico_barras_pos_neg(categorias, valores_positivas, valores_negativas,
     """Gráfico de barras agrupadas (positivas vs. negativas) hecho con
     reportlab.graphics puro — sin pandas ni numpy, para no repetir el
     segfault que ya tuvimos con pyarrow en Streamlit Cloud."""
+    # Import diferido: el motor de gráficos de reportlab solo se carga
+    # cuando de verdad se genera un informe, no en cada arranque del proceso.
+    from reportlab.graphics.shapes import Drawing
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics.charts.legends import Legend
+
     dibujo = Drawing(ancho, alto)
     grafico = VerticalBarChart()
     grafico.x = 40
@@ -1894,6 +1905,13 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
     gráfico, reparto por usuario del equipo, un caso destacado real y la
     actividad de contenido SEO generado. Devuelve los bytes del PDF.
     """
+    # Import diferido: el motor de maquetación de PDF de reportlab (y sus
+    # tablas de fuentes) solo se carga cuando alguien pide de verdad un
+    # informe, no en cada arranque del proceso.
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+
     buffer = BytesIO()
     color_hex = agencia.get("color_marca", "#2A2C31").lstrip("#")
     color_rl = colors.HexColor(f"#{color_hex}")
@@ -2244,6 +2262,10 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
 
 def generar_qr_png(url_destino):
     """Genera un código QR en PNG (bytes) que apunta a la URL indicada."""
+    # Import diferido: qrcode solo hace falta cuando alguien pide de verdad
+    # un código, no en cada arranque del proceso.
+    import qrcode
+
     qr = qrcode.QRCode(box_size=8, border=2)
     qr.add_data(url_destino)
     qr.make(fit=True)
