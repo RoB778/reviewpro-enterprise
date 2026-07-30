@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 import traceback
 import urllib.parse
 from datetime import datetime, timedelta
@@ -15,6 +16,11 @@ import requests
 import stripe
 import streamlit as st
 from anthropic import Anthropic
+
+# Blindaje reforzado en cuatro capas (saneado anti-inyección, filtro
+# determinista, auditor independiente y reescritura correctiva).
+# Vive en blindaje.py, en la misma carpeta que este archivo.
+from blindaje import generar_respuesta_blindada
 
 # -----------------------------------------------------------------------
 # PUENTE DE SECRETOS: st.secrets <-> variables de entorno
@@ -2653,30 +2659,185 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
                         redirigir_a_stripe(url_pago)
 
 
-def cargar_perfil_login(email):
+def cargar_perfil_login(email, password_plano, nombre_usuario=None):
     """
-    Busca el usuario por email y, si existe y está activo, devuelve también los
-    datos de la agencia a la que pertenece y su cartera de locales.
-    Devuelve None si el email no existe.
-    """
-    resultado_usuario = supabase.table("usuarios").select("*").eq("email", email).eq("activo", True).execute()
-    if not resultado_usuario.data:
-        return None
+    Resuelve el login y devuelve (perfil, error).
 
-    usuario = resultado_usuario.data[0]
+    POR QUÉ RECIBE LA CONTRASEÑA
+    ----------------------------
+    El esquema permite VARIOS usuarios con el mismo email (se quitó
+    usuarios_email_key a propósito, para que una empresa pueda tener varios
+    perfiles con su correo corporativo). La versión anterior de esta función
+    buscaba por email y cogía data[0], el primero que devolviera Postgres.
+
+    Con correos genéricos —info@, hola@, gerencia@, que son justo los que usan
+    las agencias— eso provocaba dos cosas: que el segundo usuario registrado
+    no pudiera entrar nunca (su contraseña se comparaba contra el hash del
+    primero), y que si ambos coincidían en contraseña, entrara en la agencia
+    ajena y viera sus locales, su histórico y sus clientes.
+
+    Por eso ahora la contraseña se prueba contra TODOS los candidatos: es la
+    única forma de saber cuál de ellos es. Y si encaja más de uno, no se
+    adivina —adivinar ahí es exactamente lo que causaba la fuga—, se pide el
+    nombre de usuario.
+    """
+    candidatos = (
+        supabase.table("usuarios")
+        .select("*")
+        .eq("email", email)
+        .eq("activo", True)
+        .execute()
+    )
+
+    if not candidatos.data:
+        # Comparación falsa contra un hash real para que el tiempo de respuesta
+        # sea parecido exista o no el email. Sin esto, cronometrando el login
+        # se puede averiguar qué correos están dados de alta.
+        try:
+            bcrypt.checkpw(
+                b"x",
+                b"$2b$12$abcdefghijklmnopqrstuuMFPRr/6H1MTmDkQZ0oCQMDIQeGmnHi"
+            )
+        except Exception:
+            pass
+        return None, "Email o contraseña incorrectos."
+
+    filas = candidatos.data
+    if nombre_usuario:
+        filtradas = [
+            u for u in filas
+            if (u.get("nombre_usuario") or "").strip().lower() == nombre_usuario.strip().lower()
+        ]
+        if filtradas:
+            filas = filtradas
+
+    coincidencias = []
+    for u in filas:
+        try:
+            if verificar_password(password_plano, u.get("password_hash") or ""):
+                coincidencias.append(u)
+        except Exception:
+            continue
+
+    if not coincidencias:
+        return None, "Email o contraseña incorrectos."
+
+    if len(coincidencias) > 1:
+        nombres = ", ".join(sorted(u["nombre_usuario"] for u in coincidencias))
+        return None, (
+            "Hay varias cuentas con ese email y esa contraseña. "
+            f"Escribe también tu nombre de usuario en el campo de abajo ({nombres})."
+        )
+
+    usuario = coincidencias[0]
 
     resultado_agencia = supabase.table("agencias").select("*").eq("id", usuario["agencia_id"]).execute()
     if not resultado_agencia.data:
-        return None
-    agencia = resultado_agencia.data[0]
+        return None, "La agencia asociada a este usuario no existe."
 
     resultado_locales = supabase.table("locales").select("*").eq("agencia_id", usuario["agencia_id"]).execute()
 
     return {
         "usuario": usuario,
-        "agencia": agencia,
+        "agencia": resultado_agencia.data[0],
         "locales": resultado_locales.data or []
-    }
+    }, None
+
+
+# =========================================================================
+# FRENO DE FUERZA BRUTA Y CADUCIDAD DE SESIÓN
+# =========================================================================
+INTENTOS_ANTES_DE_ESPERAR = 5
+ESPERA_BASE_SEGUNDOS = 30
+CADUCIDAD_SESION_SEGUNDOS = 8 * 60 * 60      # una jornada
+REFRESCO_CONTEXTO_SEGUNDOS = 300             # 5 minutos
+
+
+def comprobar_freno_login():
+    """Devuelve (permitido, segundos_restantes). Llamar ANTES de validar."""
+    ahora = time.time()
+    bloqueado_hasta = st.session_state.get("_login_bloqueado_hasta", 0)
+    if ahora < bloqueado_hasta:
+        return False, int(bloqueado_hasta - ahora)
+
+    fallos = st.session_state.get("_fallos_login", 0)
+    if fallos >= INTENTOS_ANTES_DE_ESPERAR:
+        espera = min(ESPERA_BASE_SEGUNDOS * (2 ** (fallos - INTENTOS_ANTES_DE_ESPERAR)), 900)
+        st.session_state["_login_bloqueado_hasta"] = ahora + espera
+        return False, int(espera)
+
+    return True, 0
+
+
+def registrar_fallo_login():
+    st.session_state["_fallos_login"] = st.session_state.get("_fallos_login", 0) + 1
+
+
+def limpiar_fallos_login():
+    st.session_state["_fallos_login"] = 0
+    st.session_state["_login_bloqueado_hasta"] = 0
+
+
+def marcar_actividad():
+    st.session_state["_ultima_actividad"] = time.time()
+
+
+def _cerrar_sesion_local():
+    for clave in ("sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia"):
+        st.session_state.pop(clave, None)
+
+
+def sesion_valida():
+    """False si la sesión caducó por inactividad. Si caduca, la cierra."""
+    ultima = st.session_state.get("_ultima_actividad")
+    if ultima is None:
+        marcar_actividad()
+        return True
+    if time.time() - ultima > CADUCIDAD_SESION_SEGUNDOS:
+        _cerrar_sesion_local()
+        return False
+    marcar_actividad()
+    return True
+
+
+def refrescar_contexto_si_toca():
+    """
+    Recarga agencia y usuario desde la base de datos cada pocos minutos.
+
+    Sin esto, si el webhook de Stripe baja el plan por un impago, o un admin
+    desactiva a alguien, la sesión abierta conserva los permisos viejos hasta
+    que esa persona cierre sesión. Pueden ser días con un plan que ya no paga.
+
+    Devuelve False si el usuario ha sido desactivado.
+    """
+    if time.time() - st.session_state.get("_ultimo_refresco", 0) < REFRESCO_CONTEXTO_SEGUNDOS:
+        return True
+
+    usuario_sesion = st.session_state.get("usuario_actual")
+    if not usuario_sesion:
+        return True
+
+    try:
+        u = supabase.table("usuarios").select("*").eq("id", usuario_sesion["id"]).execute()
+        if not u.data or not u.data[0].get("activo", False):
+            _cerrar_sesion_local()
+            return False
+
+        st.session_state["usuario_actual"] = u.data[0]
+
+        a = supabase.table("agencias").select("*").eq("id", u.data[0]["agencia_id"]).execute()
+        if a.data:
+            st.session_state["agencia_actual"] = a.data[0]
+
+        l = supabase.table("locales").select("*").eq("agencia_id", u.data[0]["agencia_id"]).execute()
+        st.session_state["locales_agencia"] = l.data or []
+
+        st.session_state["_ultimo_refresco"] = time.time()
+    except Exception:
+        # Un corte de red no debe echar a nadie de su sesión.
+        pass
+
+    return True
 
 
 def registrar_respuesta_en_historico(agencia_id, local_id, usuario_id, sentimiento, idioma_detectado,
@@ -3088,20 +3249,35 @@ if not st.session_state.sesion_activa:
         email_usuario = st.text_input("Email de usuario:")
         password_usuario = st.text_input("Contraseña:", type="password")
 
+        nombre_usuario_login = st.text_input(
+            "Nombre de usuario (solo si tu agencia tiene varias cuentas con el mismo email):",
+            key="_nombre_usuario_login",
+        )
+
         if st.button("Iniciar sesión", use_container_width=True):
-            if not email_usuario.strip() or not password_usuario:
+            _permitido, _espera = comprobar_freno_login()
+            if not _permitido:
+                st.error(
+                    f"Demasiados intentos fallidos. Vuelve a probar en {_espera} segundos."
+                )
+            elif not email_usuario.strip() or not password_usuario:
                 st.warning("Introduce email y contraseña.")
             else:
                 email_normalizado = email_usuario.lower().strip()
                 with st.spinner("Verificando credenciales..."):
                     try:
-                        perfil = cargar_perfil_login(email_normalizado)
+                        perfil, error_login = cargar_perfil_login(
+                            email_normalizado,
+                            password_usuario,
+                            nombre_usuario=(nombre_usuario_login or "").strip() or None,
+                        )
 
                         if perfil is None:
-                            st.error("Email o contraseña incorrectos.")
-                        elif not verificar_password(password_usuario, perfil["usuario"]["password_hash"]):
-                            st.error("Email o contraseña incorrectos.")
+                            registrar_fallo_login()
+                            st.error(error_login or "Email o contraseña incorrectos.")
                         else:
+                            limpiar_fallos_login()
+                            marcar_actividad()
                             st.session_state.sesion_activa = True
                             st.session_state.usuario_actual = perfil["usuario"]
                             st.session_state.agencia_actual = perfil["agencia"]
@@ -3114,6 +3290,21 @@ if not st.session_state.sesion_activa:
     st.stop()
 
 # A partir de aquí: sesión válida.
+
+# Caducidad por inactividad. Sin esto, una sesión abierta en el ordenador
+# compartido de una agencia sigue viva indefinidamente mientras no cierren
+# la pestaña.
+if not sesion_valida():
+    st.warning("Tu sesión ha caducado por inactividad. Vuelve a entrar.")
+    st.rerun()
+
+# Refresco periódico de agencia y usuario contra la base de datos, para que
+# un cambio de plan por impago o una revocación de acceso surtan efecto sin
+# esperar a que la persona cierre sesión.
+if not refrescar_contexto_si_toca():
+    st.warning("Tu acceso ha sido revocado por el administrador de tu agencia.")
+    st.rerun()
+
 agencia = st.session_state.agencia_actual
 usuario = st.session_state.usuario_actual
 color_agencia = agencia["color_marca"]
@@ -3666,82 +3857,89 @@ REGLAS COMUNES:
 - Integra el nombre del negocio de forma fluida, una sola vez si es posible.
 - Sin asteriscos, comillas externas, emojis (salvo lo indicado en la guía de tono) ni encabezados."""
 
-                    bloque_dinamico = f"""CONTEXTO DEL NEGOCIO (aplica solo a esta llamada):
-- Nombre del establecimiento: {nombre_local_final}
-- Nicho: {nicho_local}
-- Keywords SEO a integrar de forma natural (2-3 mínimo): {keywords_texto}
-
-GUÍA DE TONO — {tono}:
-{guia_tono_activa}
-
-REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):
-- Integra de forma fluida y natural al menos 2-3 de las keywords del contexto donde el contexto lo permita.
-- Nunca menciones que estás optimizando para SEO ni las enumeres como etiquetas.
-- La naturalidad del texto y el sonar humano siempre prevalecen sobre la densidad de keywords: si meter una keyword rompe la naturalidad de la frase, prescinde de ella."""
-
-                    response = client.messages.create(
-                        model="claude-sonnet-4-6",
-                        max_tokens=1800,
-                        system=[
-                            {
-                                "type": "text",
-                                "text": bloque_estatico,
-                                "cache_control": {"type": "ephemeral"},
-                            },
-                            {
-                                "type": "text",
-                                "text": bloque_dinamico,
-                            },
-                        ],
-                        messages=[{"role": "user", "content": f"Nombre del negocio: {nombre_local_final}\nReseña: \"\"\"{resena_cliente}\"\"\""}]
+                    # ── GENERACIÓN CON BLINDAJE EN CUATRO CAPAS ───────────────
+                    # Antes aquí había una sola llamada a la API y la respuesta
+                    # se daba por buena. Ahora pasa por:
+                    #   Capa 0 · saneado anti-inyección de la reseña
+                    #   Capa 1 · filtro determinista (regex, sin coste)
+                    #   Capa 2 · auditor independiente (segunda llamada)
+                    #   Capa 3 · reescritura correctiva si algo falla
+                    # Todo el detalle está en blindaje.py.
+                    # ──────────────────────────────────────────────────────────
+                    resultado_blindaje = generar_respuesta_blindada(
+                        client=client,
+                        resena=resena_cliente,
+                        nombre_local=nombre_local_final,
+                        nicho=nicho_local,
+                        keywords=keywords_texto,
+                        tono=tono,
+                        guia_tono=guia_tono_activa,
+                        bloque_estatico=bloque_estatico,
                     )
 
-                    texto_bruto = None
-                    for bloque in response.content:
-                        if getattr(bloque, "type", None) == "text":
-                            texto_bruto = bloque.text.strip()
-                            break
+                    for _alerta in resultado_blindaje.alertas_entrada:
+                        st.warning(_alerta)
 
-                    if texto_bruto is None:
-                        raise ValueError("La respuesta del modelo no contenía ningún bloque de texto.")
-
-                    texto_bruto = texto_bruto.strip()
-                    if texto_bruto.startswith("```"):
-                        texto_bruto = texto_bruto.strip("`")
-                        if texto_bruto.lower().startswith("json"):
-                            texto_bruto = texto_bruto[4:].strip()
-
-                    datos_respuesta = json.loads(texto_bruto)
-
-                    respuesta_nativa = datos_respuesta.get("respuesta_nativa", "").replace("*", "").replace('"', "")
-                    traduccion = datos_respuesta.get("traduccion_espanol")
-                    idioma_detectado = datos_respuesta.get("idioma_detectado", "es")
-                    sentimiento = datos_respuesta.get("sentimiento", "positivo")
-
-                    st.success("Respuesta generada con éxito:")
-
-                    if traduccion:
-                        st.subheader("Texto para copiar y pegar en tu reseña")
-                        st.caption("Respuesta oficial (Nativa) — pasa el ratón por encima para copiar:")
-                        st.code(respuesta_nativa, language=None, wrap_lines=True)
-                        st.info(f"**Traducción al español para el propietario:**\n\n{traduccion}")
+                    if resultado_blindaje.bloqueada:
+                        st.error(resultado_blindaje.motivo_bloqueo)
+                        st.caption(
+                            "No se ha generado ninguna respuesta. Si la reseña es legítima "
+                            "y crees que es un falso positivo, revísala y vuelve a intentarlo."
+                        )
                     else:
-                        st.caption("Copia este texto y pégalo directamente — pasa el ratón por encima para copiar:")
-                        st.code(respuesta_nativa, language=None, wrap_lines=True)
+                        respuesta_nativa = resultado_blindaje.respuesta_nativa
+                        traduccion = resultado_blindaje.traduccion_espanol
+                        idioma_detectado = resultado_blindaje.idioma_detectado
+                        sentimiento = resultado_blindaje.sentimiento
 
-                    registrar_respuesta_en_historico(
-                        agencia_id=agencia["id"],
-                        local_id=local_activo["id"],
-                        usuario_id=usuario["id"],
-                        sentimiento=sentimiento,
-                        idioma_detectado=idioma_detectado,
-                        longitud_palabras=len(respuesta_nativa.split()),
-                        resena_cliente=resena_cliente,
-                        respuesta_generada=respuesta_nativa
-                    )
+                        if resultado_blindaje.violaciones_residuales:
+                            st.warning(
+                                "Esta respuesta no ha quedado del todo limpia tras la auditoría. "
+                                "Léela con atención antes de publicarla."
+                            )
+                            with st.expander("Ver qué ha señalado la auditoría", expanded=True):
+                                for _v in resultado_blindaje.violaciones_residuales:
+                                    st.markdown(f"- **{_v.regla}** · «{_v.fragmento}» — {_v.motivo}")
+                        else:
+                            st.success("Respuesta generada y auditada:")
 
-                except json.JSONDecodeError:
-                    st.error("El modelo devolvió un formato inesperado. Inténtalo de nuevo.")
+                        if traduccion:
+                            st.subheader("Texto para copiar y pegar en tu reseña")
+                            st.caption("Respuesta oficial (Nativa) — pasa el ratón por encima para copiar:")
+                            st.code(respuesta_nativa, language=None, wrap_lines=True)
+                            st.info(f"**Traducción al español para el propietario:**\n\n{traduccion}")
+                        else:
+                            st.caption("Copia este texto y pégalo directamente — pasa el ratón por encima para copiar:")
+                            st.code(respuesta_nativa, language=None, wrap_lines=True)
+
+                        # Sello de auditoría. Es el argumento de venta hecho
+                        # visible: el blindaje deja de ser una promesa y pasa a
+                        # ser un registro que el gestor puede enseñar.
+                        st.caption(f"🛡️ {resultado_blindaje.informe_auditoria}")
+
+                        if resultado_blindaje.violaciones_corregidas:
+                            with st.expander(
+                                f"Ver las {len(resultado_blindaje.violaciones_corregidas)} "
+                                "incidencia(s) que la auditoría corrigió"
+                            ):
+                                st.caption(
+                                    "Estas frases aparecían en un borrador previo y se reescribieron "
+                                    "antes de enseñarte la respuesta."
+                                )
+                                for _v in resultado_blindaje.violaciones_corregidas:
+                                    st.markdown(f"- **{_v.regla}** · «{_v.fragmento}» — {_v.motivo}")
+
+                        registrar_respuesta_en_historico(
+                            agencia_id=agencia["id"],
+                            local_id=local_activo["id"],
+                            usuario_id=usuario["id"],
+                            sentimiento=sentimiento,
+                            idioma_detectado=idioma_detectado,
+                            longitud_palabras=len(respuesta_nativa.split()),
+                            resena_cliente=resena_cliente,
+                            respuesta_generada=respuesta_nativa
+                        )
+
                 except Exception as e:
                     causa_raiz = log_error_completo("generar respuesta a reseña", e)
                     st.error(redactar_secretos(f"Error al conectar con el servidor: {type(e).__name__}: {e}"))
