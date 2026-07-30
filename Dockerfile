@@ -10,8 +10,13 @@ COPY requirements.txt .
 # Instalar dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar el código de la app
+# Copiar el código de la app.
+# OJO: antes aquí solo estaba "COPY app.py .". Ahora hay que copiar también
+# blindaje.py, porque app.py lo importa en el arranque. Si falta, el
+# contenedor construye bien pero revienta al primer inicio con
+# ModuleNotFoundError: No module named 'blindaje'.
 COPY app.py .
+COPY blindaje.py .
 
 # Variables de entorno para Streamlit en headless mode
 ENV STREAMLIT_SERVER_HEADLESS=true
