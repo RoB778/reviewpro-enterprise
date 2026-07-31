@@ -33,25 +33,125 @@ tocar.
 CSS_GLOBAL = """
 <style>
 /* =========================================================
-   SELECTOR DE VÍA — el radio nativo convertido en dos fichas
-   Usa las variables --er-* del sistema de diseño existente.
+   LAYOUT ANCHO — contener la medida de lectura
+   Con layout="wide", Streamlit deja el contenido ocupar toda la
+   pantalla. En un monitor de 27" eso da líneas de 200 caracteres,
+   ilegibles. Se limita el ancho del área principal, no de la app.
    ========================================================= */
-div[role="radiogroup"] { gap:12px !important; }
-div[role="radiogroup"] > label {
+section[data-testid="stMain"] .block-container {
+  max-width:1120px !important;
+  padding-top:2.4rem !important;
+  padding-bottom:4rem !important;
+}
+
+/* =========================================================
+   BARRA LATERAL
+   ========================================================= */
+section[data-testid="stSidebar"] {
+  background:var(--er-surface);
+  border-right:1px solid var(--er-line);
+  width:290px !important;
+}
+section[data-testid="stSidebar"] .block-container { padding-top:1.6rem; }
+
+/* Nombre de la agencia bajo el logo */
+.rs-marca {
+  font-family:'Fraunces',Georgia,serif;
+  font-size:1.05rem; font-weight:600; color:var(--er-ink);
+  letter-spacing:-.02em; margin:10px 0 2px; line-height:1.25;
+}
+
+/* Separador fino entre bloques de la barra */
+.rs-sep {
+  height:1px; background:var(--er-line);
+  margin:18px 0 14px;
+}
+
+/* Etiquetita de sección dentro de la barra */
+.rs-lbl {
+  font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-size:.63rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--er-faint); margin-bottom:7px;
+}
+
+/* Metadatos del local activo */
+.rs-meta {
+  font-size:.78rem; color:var(--er-muted); margin-top:5px;
+}
+
+/* Bloque de plan y consumo */
+.rs-plan {
+  display:flex; flex-direction:column; gap:2px;
+  font-size:.82rem; color:var(--er-ink); margin-bottom:8px;
+}
+.rs-plan span { font-size:.75rem; color:var(--er-muted); }
+
+/* Bloque de cuenta */
+.rs-cuenta {
+  display:flex; flex-direction:column; gap:2px;
+  font-size:.83rem; font-weight:500; color:var(--er-ink); margin-bottom:10px;
+}
+.rs-cuenta span {
+  font-size:.72rem; font-weight:400; color:var(--er-faint);
+  word-break:break-all; line-height:1.4;
+}
+
+/* Navegación: el radio de la barra convertido en menú */
+section[data-testid="stSidebar"] div[role="radiogroup"] {
+  gap:1px !important;
+}
+section[data-testid="stSidebar"] div[role="radiogroup"] > label {
+  background:transparent !important; border:none !important;
+  border-radius:5px !important; padding:8px 10px !important;
+  align-items:center !important;
+}
+section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
+  background:rgba(26,34,56,.05) !important;
+}
+section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
+  background:var(--er-accent-bg) !important;
+  box-shadow:inset 2px 0 0 var(--er-accent);
+}
+section[data-testid="stSidebar"] div[role="radiogroup"] p {
+  font-size:.87rem !important; color:var(--er-body) !important;
+}
+section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p {
+  color:var(--er-ink) !important; font-weight:600 !important;
+}
+/* El círculo del radio sobra en un menú de navegación */
+section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {
+  display:none !important;
+}
+
+/* Barra de progreso del consumo */
+section[data-testid="stSidebar"] [data-testid="stProgress"] > div > div {
+  background:var(--er-accent) !important;
+}
+
+/* =========================================================
+   SELECTOR DE VÍA — el radio nativo convertido en dos fichas
+   (solo en el área principal, no en la barra lateral)
+   ========================================================= */
+section[data-testid="stMain"] div[role="radiogroup"] { gap:12px !important; }
+section[data-testid="stMain"] div[role="radiogroup"] > label {
   flex:1; background:var(--er-surface);
   border:1px solid var(--er-line); border-radius:8px;
   padding:15px 17px !important; margin:0 !important;
   cursor:pointer; transition:border-color .16s ease, background .16s ease;
   align-items:flex-start !important;
 }
-div[role="radiogroup"] > label:hover { border-color:var(--er-line-2); }
-div[role="radiogroup"] > label:has(input:checked) {
+section[data-testid="stMain"] div[role="radiogroup"] > label:hover {
+  border-color:var(--er-line-2);
+}
+section[data-testid="stMain"] div[role="radiogroup"] > label:has(input:checked) {
   border-color:var(--er-accent); border-width:1.5px;
   background:#fff;
   box-shadow:0 1px 2px rgba(26,34,56,.05);
 }
-div[role="radiogroup"] > label > div:first-child { margin-top:2px; }
-div[role="radiogroup"] p {
+section[data-testid="stMain"] div[role="radiogroup"] > label > div:first-child {
+  margin-top:2px;
+}
+section[data-testid="stMain"] div[role="radiogroup"] p {
   font-size:.9rem !important; line-height:1.5 !important; color:var(--er-ink) !important;
 }
 
