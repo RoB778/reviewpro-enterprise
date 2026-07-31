@@ -233,17 +233,34 @@ def _normalizar(texto: str) -> str:
 
 # Señales de que alguien intenta hablarle al modelo en vez de dejar una reseña.
 _PATRONES_INYECCION = [
-    (r"\bignor(a|ar|e|en|ad)\b.{0,40}\b(instruccion|regla|anterior|previo|sistema|prompt)", "orden de ignorar instrucciones"),
-    (r"\bolvid(a|ar|e|en|ad)\b.{0,40}\b(instruccion|regla|anterior|todo|sistema)", "orden de olvidar instrucciones"),
-    (r"\bnuev(a|as|o|os)\s+(instruccion|orden|regla|directriz)", "intento de dar instrucciones nuevas"),
-    (r"\b(system|assistant|user)\s*[:>]", "marcador de rol de conversación"),
-    (r"\b(prompt|system prompt|instrucciones del sistema)\b", "referencia explícita al prompt"),
-    (r"\bactua\s+como\b|\bcomportate\s+como\b|\bharas\s+de\b", "intento de reasignar el papel del modelo"),
-    (r"\bresponde\s+(unicamente|solo|exclusivamente)\s+con\b", "intento de forzar la salida"),
-    (r"\b(reconoce|admite|confiesa)\s+(que|expresamente|publicamente)\b", "intento de forzar una admisión"),
-    (r"\bdisregard\b|\bignore\s+(previous|above|all)\b|\boverride\b", "inyección en inglés"),
-    (r"</?\s*(system|instruction|prompt|resena)[^>]{0,20}>", "etiqueta estructural falsificada"),
-    (r"\{\s*\"(respuesta_nativa|sentimiento|idioma_detectado)\"", "intento de falsificar el JSON de salida"),
+    # Órdenes explícitas tras cierre de comilla (intento de escapar del bloque de datos)
+    (r'["""\'`]\s*(ignore?|olvida?|nuevas? instrucciones?|nuevo sistema|como si|actua)', "cierre de comilla + orden"),
+    
+    # Órdenes imperativas de descartar instrucciones previas (con "ignora" o "olvida" + objetivo claro)
+    (r'\b(ignora?|olvida?)\s+(el prompt|el sistema|lo anterior|estas reglas)\b', 
+     "orden de descartar instrucciones previas"),
+    
+    # "NUEVA INSTRUCCIÓN:" con dos puntos (contexto de orden, no descripción)
+    (r'\bNUEVA\s+INSTRUCCIÓN\s*:', "nueva instrucción explícita con dos puntos"),
+    (r'\b(instrucción nueva|nuevo sistema|nuevo rol)\s*:', "definición de instrucción/sistema/rol"),
+    
+    # Marcadores de cambio de rol/contexto
+    (r'\b(system|assistant|user)\s*[:>\|]', "marcador de rol de conversación"),
+    (r'\b(prompt)\s*[:=]', "definición explícita de prompt"),
+    
+    # Órdenes de control
+    (r'\b(actúa?|comportate?|hazte?)\s+como\b', "reasignación de rol"),
+    (r'\bresponde?\s+(solo|sólo|únicamente|exclusivamente)\s+', "forzar formato de salida"),
+    
+    # Inyecciones en inglés
+    (r'\b(disregard|forget|ignore).{0,25}(previous|instructions|prompt)\b', "inyección en inglés"),
+    (r'\b(override|jailbreak|bypass)\b', "terminología de ataque"),
+    
+    # Etiquetas XML/HTML falsificadas (solo si cierran sin abrir)
+    (r'</(system|instruction|prompt|usuario)>', "etiqueta de cierre sin apertura"),
+    
+    # JSON falsificado (cierre de llave con key que no pertenece a datos)
+    (r'\}\s*{\s*["\']?(sistema|instrucciones|prompt)', "intento de inyectar JSON de control"),
 ]
 
 
