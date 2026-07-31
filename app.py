@@ -1,5 +1,6 @@
 import base64
 import json
+import secrets as _secrets_modulo
 import os
 import re
 import sys
@@ -1829,6 +1830,7 @@ def render_formulario_alta_pendiente():
                 st.session_state.usuario_actual = resultado["usuario"]
                 st.session_state.agencia_actual = resultado["agencia"]
                 st.session_state.locales_agencia = resultado["locales"]
+                _crear_token_sesion(resultado["usuario"]["id"])
                 st.success(f"¡Cuenta creada! Bienvenido/a, {resultado['usuario']['nombre_usuario']}.")
                 st.rerun()
             else:
@@ -2824,7 +2826,145 @@ def marcar_actividad():
     st.session_state["_ultima_actividad"] = time.time()
 
 
+# =========================================================
+# SESIÓN PERSISTENTE ENTRE RECARGAS
+# =========================================================
+#
+# EL PROBLEMA
+# -----------
+# st.session_state vive en memoria del servidor, atado a la conexión
+# WebSocket del navegador. Cuando esa conexión se corta y se abre otra —un
+# F5, un redeploy en Render, o simplemente el navegador reconectando tras
+# unos segundos dormido— Streamlit crea una sesión nueva y session_state
+# empieza vacío. El usuario ve la pantalla de login aunque no haya pasado
+# ni un minuto.
+#
+# LA SOLUCIÓN
+# -----------
+# Un token opaco en la URL (?s=...) que apunta a una fila en la tabla
+# `sesiones_persistentes` de Supabase. Al arrancar el script, si
+# session_state no tiene sesión pero la URL trae un token válido y no
+# caducado, se reconstruye la sesión desde la base de datos ANTES de
+# pintar el login. Es exactamente lo mismo que hace una cookie de sesión
+# en cualquier web normal — aquí se implementa a mano porque Streamlit no
+# trae cookies de sesión propias.
+#
+# POR QUÉ NO ALTERA LA LÓGICA YA EXISTENTE
+# -----------------------------------------
+# sesion_valida() sigue cerrando por inactividad exactamente igual que
+# antes (CADUCIDAD_SESION_SEGUNDOS). refrescar_contexto_si_toca() sigue
+# revisando bajas de usuario exactamente igual que antes. Esto solo
+# resuelve DÓNDE vive la prueba de que alguien inició sesión: antes solo
+# en la memoria RAM de esa conexión concreta, ahora también en la base de
+# datos, con la MISMA fecha de caducidad. Un token nunca dura más que lo
+# que ya duraba la sesión.
+# =========================================================
+
+TABLA_SESIONES_PERSISTENTES = "sesiones_persistentes"
+
+
+def _crear_token_sesion(usuario_id: str) -> str:
+    """Genera un token opaco, lo guarda en BD y lo deja en la URL."""
+    token = _secrets_modulo.token_urlsafe(32)
+    expira_en = (datetime.utcnow() + timedelta(seconds=CADUCIDAD_SESION_SEGUNDOS)).isoformat()
+    try:
+        supabase.table(TABLA_SESIONES_PERSISTENTES).insert({
+            "token": token,
+            "usuario_id": usuario_id,
+            "expira_en": expira_en,
+        }).execute()
+        st.session_state["_token_sesion"] = token
+        st.query_params["s"] = token
+    except Exception:
+        # Si la tabla no existe todavía (SQL no ejecutado) o falla la
+        # escritura, la sesión sigue funcionando igual que antes: solo en
+        # memoria, sin sobrevivir a una recarga. No debe romper el login.
+        pass
+    return token
+
+
+def _restaurar_sesion_desde_token():
+    """
+    Se llama una vez, al principio del script, antes de decidir si se
+    enseña el login o el panel. Si hay un token válido en la URL y
+    session_state está vacío, reconstruye la sesión desde la BD.
+    """
+    if st.session_state.get("sesion_activa"):
+        return  # ya hay sesión en memoria, no hace falta tocar nada
+
+    token = st.query_params.get("s")
+    if not token:
+        return
+
+    try:
+        fila = (
+            supabase.table(TABLA_SESIONES_PERSISTENTES)
+            .select("usuario_id, expira_en")
+            .eq("token", token)
+            .execute()
+        )
+    except Exception:
+        return  # tabla ausente o fallo de red: se cae al login, sin romper nada
+
+    if not fila.data:
+        st.query_params.pop("s", None)
+        return
+
+    fila_token = fila.data[0]
+    expira = fila_token.get("expira_en")
+    if expira and datetime.fromisoformat(expira.replace("Z", "+00:00")).replace(tzinfo=None) < datetime.utcnow():
+        # Token caducado: se borra y se manda al login, igual que ya
+        # pasaba con la caducidad por inactividad.
+        try:
+            supabase.table(TABLA_SESIONES_PERSISTENTES).delete().eq("token", token).execute()
+        except Exception:
+            pass
+        st.query_params.pop("s", None)
+        return
+
+    try:
+        u = supabase.table("usuarios").select("*").eq("id", fila_token["usuario_id"]).execute()
+    except Exception:
+        return
+
+    if not u.data or u.data[0].get("activo") is False:
+        st.query_params.pop("s", None)
+        return
+
+    usuario = u.data[0]
+
+    try:
+        a = supabase.table("agencias").select("*").eq("id", usuario["agencia_id"]).execute()
+        l = supabase.table("locales").select("*").eq("agencia_id", usuario["agencia_id"]).execute()
+    except Exception:
+        return
+
+    if not a.data:
+        return
+
+    # Evidencia suficiente para restaurar: token válido, usuario activo,
+    # agencia encontrada. Se reconstruye la sesión igual que hace el login.
+    st.session_state.sesion_activa = True
+    st.session_state.usuario_actual = usuario
+    st.session_state.agencia_actual = a.data[0]
+    st.session_state.locales_agencia = l.data or []
+    st.session_state["_token_sesion"] = token
+    marcar_actividad()
+
+
+def _revocar_token_sesion():
+    """Borra el token de la BD y de la URL. Se llama al cerrar sesión."""
+    token = st.session_state.pop("_token_sesion", None)
+    if token:
+        try:
+            supabase.table(TABLA_SESIONES_PERSISTENTES).delete().eq("token", token).execute()
+        except Exception:
+            pass
+    st.query_params.pop("s", None)
+
+
 def _cerrar_sesion_local():
+    _revocar_token_sesion()
     for clave in ("sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia"):
         st.session_state.pop(clave, None)
 
@@ -2975,6 +3115,12 @@ if "mostrar_pagina_planes" not in st.session_state:
     st.session_state.mostrar_pagina_planes = False
 if "alta_pendiente" not in st.session_state:
     st.session_state.alta_pendiente = None
+
+# Se restaura ANTES que cualquier otra cosa toque la URL (en concreto, antes
+# del bloque de Stripe de abajo, que hace st.query_params.clear() en varias
+# ramas). Si esto fuera después, una vuelta desde Stripe podría borrar el
+# token de la URL antes de que diera tiempo a leerlo.
+_restaurar_sesion_desde_token()
 
 # =========================================================
 # 💳 VUELTA DESDE STRIPE: activación automática del plan
@@ -3357,6 +3503,7 @@ if not st.session_state.sesion_activa:
                             st.session_state.usuario_actual = perfil["usuario"]
                             st.session_state.agencia_actual = perfil["agencia"]
                             st.session_state.locales_agencia = perfil["locales"]
+                            _crear_token_sesion(perfil["usuario"]["id"])
                             st.success(f"Bienvenido, {perfil['usuario']['nombre_usuario']}.")
                             st.rerun()
                     except Exception as e:
@@ -3757,6 +3904,7 @@ with st.sidebar:
                 boton_enlace_stripe("Ir al portal de Stripe →", _url_portal)
 
     if st.button("Cerrar sesión", use_container_width=True, key="barra_salir"):
+        _revocar_token_sesion()
         for key in ["sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia", "local_activo"]:
             st.session_state[key] = False if key == "sesion_activa" else None if "actual" in key else []
         st.session_state.vista_landing = "info"
