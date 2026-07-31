@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 
 import bcrypt
-import httpx 
+import httpx
 import requests
 import stripe
 import streamlit as st
@@ -235,7 +235,7 @@ if not (APP_URL.startswith("http://") or APP_URL.startswith("https://")):
     st.stop()
 
 # 1. Configuración de página limpia y profesional
-st.set_page_config(page_title="Reselia · Reputación con criterio", page_icon="▪", layout="centered")
+st.set_page_config(page_title="Reselia · Reputación con criterio", page_icon="▪", layout="wide", initial_sidebar_state="expanded")
 
 # Componentes visuales nuevos de la v2 (selector de vía, sello de auditoría,
 # etapas de progreso). El sistema de diseño base — botones, pestañas,
@@ -2850,7 +2850,23 @@ def refrescar_contexto_si_toca():
     desactiva a alguien, la sesión abierta conserva los permisos viejos hasta
     que esa persona cierre sesión. Pueden ser días con un plan que ya no paga.
 
-    Devuelve False si el usuario ha sido desactivado.
+    REGLA DE ORO DE ESTA FUNCIÓN
+    ----------------------------
+    Solo cierra la sesión con EVIDENCIA POSITIVA de que el usuario está dado
+    de baja: es decir, cuando la consulta devuelve una fila y esa fila dice
+    activo = False.
+
+    La versión anterior hacía `if not u.data: cerrar_sesion()`, y eso estaba
+    mal: una consulta vacía no significa "este usuario ya no existe", puede
+    significar RLS bloqueando, una clave equivocada, un fallo de red que
+    devuelve 200 con cuerpo vacío o un despliegue a medias. Ante cualquiera
+    de esos casos echaba al usuario. Y como además hacía `return False` antes
+    de actualizar el marcador de tiempo, no esperaba los cinco minutos:
+    reintentaba y volvía a echarlo en CADA interacción, así que cambiar de
+    local cerraba la sesión.
+
+    Una función de mantenimiento que se ejecuta de fondo nunca debe tomar la
+    acción destructiva ante datos ambiguos. Si no está segura, no hace nada.
     """
     if time.time() - st.session_state.get("_ultimo_refresco", 0) < REFRESCO_CONTEXTO_SEGUNDOS:
         return True
@@ -2859,22 +2875,39 @@ def refrescar_contexto_si_toca():
     if not usuario_sesion:
         return True
 
+    # Se marca el intento ANTES de consultar. Así, pase lo que pase —error,
+    # respuesta vacía, timeout—, no se reintenta hasta dentro de cinco
+    # minutos. Sin esta línea, un fallo persistente convierte esta función
+    # en una consulta a la base de datos en cada clic del usuario.
+    st.session_state["_ultimo_refresco"] = time.time()
+
     try:
         u = supabase.table("usuarios").select("*").eq("id", usuario_sesion["id"]).execute()
-        if not u.data or not u.data[0].get("activo", False):
+
+        if not u.data:
+            # Ambiguo: puede ser RLS, una clave sin permisos o un fallo
+            # transitorio. NO es prueba de que el usuario esté de baja.
+            # Se deja la sesión como está y se reintenta más tarde.
+            return True
+
+        fila = u.data[0]
+
+        # Única condición que justifica cerrar la sesión: la base de datos
+        # responde correctamente y dice, de forma explícita, que está inactivo.
+        if fila.get("activo") is False:
             _cerrar_sesion_local()
             return False
 
-        st.session_state["usuario_actual"] = u.data[0]
+        st.session_state["usuario_actual"] = fila
 
-        a = supabase.table("agencias").select("*").eq("id", u.data[0]["agencia_id"]).execute()
+        a = supabase.table("agencias").select("*").eq("id", fila["agencia_id"]).execute()
         if a.data:
             st.session_state["agencia_actual"] = a.data[0]
 
-        l = supabase.table("locales").select("*").eq("agencia_id", u.data[0]["agencia_id"]).execute()
-        st.session_state["locales_agencia"] = l.data or []
+        l = supabase.table("locales").select("*").eq("agencia_id", fila["agencia_id"]).execute()
+        if l.data is not None:
+            st.session_state["locales_agencia"] = l.data
 
-        st.session_state["_ultimo_refresco"] = time.time()
     except Exception:
         # Un corte de red no debe echar a nadie de su sesión.
         pass
@@ -3583,9 +3616,24 @@ REGLAS COMUNES:
 # =========================================================
 # 🏢 CABECERA DE MARCA BLANCA
 # =========================================================
-col_logo, col_titulo, col_cuenta = st.columns([1, 3, 1])
-with col_logo:
+# =========================================================
+# BARRA LATERAL — navegación, local activo y cuenta
+# =========================================================
+# Antes todo esto era una cabecera horizontal + cinco pestañas. El problema
+# no era estético: con pestañas, el local activo y el plan quedaban fuera de
+# vista al cambiar de sección, y no había forma de saber dónde estabas sin
+# mirar arriba. Una barra lateral persistente mantiene visible el contexto
+# (qué local, qué plan, cuánto te queda) mientras trabajas.
+
+with st.sidebar:
+    # ---- Identidad de la agencia ----
     st.image(agencia["logo_url"], use_container_width=True)
+
+    st.markdown(
+        f"<div class='rs-marca'>{agencia['nombre_agencia']}</div>",
+        unsafe_allow_html=True,
+    )
+
     with st.popover("Cambiar logo", use_container_width=True):
         st.caption(
             "PNG o JPG, a poder ser con fondo transparente. Se usará tanto en la "
@@ -3602,8 +3650,6 @@ with col_logo:
                     extension = archivo_logo.name.rsplit(".", 1)[-1].lower()
                     ruta_storage = f"{agencia['id']}.{extension}"
                     content_type = archivo_logo.type or "image/png"
-                    # upsert=true: si ya existe un logo con esta ruta (misma agencia,
-                    # misma extensión), lo sobreescribe en vez de dar error de duplicado.
                     supabase.storage.from_("logos").upload(
                         ruta_storage,
                         archivo_logo.getvalue(),
@@ -3614,41 +3660,107 @@ with col_logo:
                         resultado_url if isinstance(resultado_url, str)
                         else (resultado_url.get("publicUrl") or resultado_url.get("publicURL"))
                     )
-                    # Cache-busting: la ruta no cambia entre subidas (mismo agencia_id +
-                    # extensión), así que sin esto el navegador o el CDN podrían seguir
-                    # sirviendo el logo antiguo cacheado con la misma URL de siempre.
                     nueva_url = f"{nueva_url}?v={int(datetime.utcnow().timestamp())}"
                     supabase.table("agencias").update({"logo_url": nueva_url}).eq("id", agencia["id"]).execute()
                     st.session_state.agencia_actual["logo_url"] = nueva_url
-                    st.success("Logo actualizado. Ya se usará también en los próximos informes PDF.")
+                    st.success("Logo actualizado.")
                     st.rerun()
                 except Exception as e:
                     st.error(redactar_secretos(f"No se pudo actualizar el logo: {e}"))
-with col_titulo:
-    st.markdown(
-        f"<div style='padding-top:6px;'>"
-        f"<div style='font-size:0.66rem; color:#6b7280; letter-spacing:0.18em; text-transform:uppercase; margin-bottom:2px;'>Console</div>"
-        f"<h2 style='margin:0; font-size:1.4rem;'>{agencia['nombre_agencia']}</h2>"
-        f"</div>",
-        unsafe_allow_html=True
+
+    st.markdown("<div class='rs-sep'></div>", unsafe_allow_html=True)
+
+    # ---- Local activo: visible SIEMPRE, en todas las secciones ----
+    _locales_barra = st.session_state.locales_agencia or []
+    if _locales_barra:
+        st.markdown("<div class='rs-lbl'>Local activo</div>", unsafe_allow_html=True)
+        _nombres_barra = [l["nombre"] for l in _locales_barra]
+        _elegido_barra = st.selectbox(
+            "Local activo",
+            options=_nombres_barra,
+            key="selector_local_activo",
+            label_visibility="collapsed",
+        )
+        local_activo = next(l for l in _locales_barra if l["nombre"] == _elegido_barra)
+        st.session_state.local_activo = local_activo
+        st.markdown(
+            f"<div class='rs-meta'>{local_activo.get('nicho','—')}"
+            + (f" · {local_activo['ciudad']}" if local_activo.get("ciudad") else "")
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        local_activo = None
+        st.info("Crea tu primer establecimiento para empezar.")
+
+    st.markdown("<div class='rs-sep'></div>", unsafe_allow_html=True)
+
+    # ---- Navegación ----
+    st.markdown("<div class='rs-lbl'>Secciones</div>", unsafe_allow_html=True)
+    SECCIONES = [
+        "Responder reseña",
+        "Pedir reseñas",
+        "Contenido SEO",
+        "Analítica",
+        "Guía de uso",
+    ]
+    vista_activa = st.radio(
+        "Navegación",
+        options=SECCIONES,
+        key="nav_seccion",
+        label_visibility="collapsed",
     )
-with col_cuenta:
-    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-    # Portal de facturación a un clic, solo para agencias que ya son clientes de pago.
-    customer_id_cuenta = agencia.get("stripe_customer_id")
-    if customer_id_cuenta:
-        if st.button("Gestionar suscripción", use_container_width=True):
-            url_portal_cuenta = crear_portal_cliente(customer_id_cuenta)
-            if url_portal_cuenta:
-                boton_enlace_stripe("Ir al portal de Stripe →", url_portal_cuenta)
-    if st.button("Cerrar sesión", use_container_width=True):
+
+    st.markdown("<div class='rs-sep'></div>", unsafe_allow_html=True)
+
+    # ---- Estado del plan: siempre a la vista, no escondido en una pestaña ----
+    _plan_barra = agencia.get("plan", "free")
+    _nombre_plan_barra = PLANES_AUTOSERVICIO.get(_plan_barra, {}).get(
+        "nombre", _plan_barra.capitalize()
+    )
+    _limite_barra = LIMITE_USOS_POR_PLAN.get(_plan_barra)
+
+    if agencia_en_beta(agencia):
+        _uso_txt = "Beta · sin límite"
+    elif _limite_barra is None:
+        _uso_txt = f"{contar_usos_del_mes(agencia['id'])} respuestas este mes"
+    else:
+        _hechos = contar_usos_del_mes(agencia["id"])
+        _uso_txt = f"{_hechos} de {_limite_barra} este mes"
+
+    st.markdown(
+        f"<div class='rs-plan'><b>{_nombre_plan_barra}</b><span>{_uso_txt}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    if _limite_barra is not None:
+        st.progress(min(1.0, contar_usos_del_mes(agencia["id"]) / max(1, _limite_barra)))
+
+    if st.button("Ver planes", use_container_width=True, key="barra_ver_planes"):
+        st.session_state.mostrar_pagina_planes = True
+        st.rerun()
+
+    st.markdown("<div class='rs-sep'></div>", unsafe_allow_html=True)
+
+    # ---- Cuenta ----
+    st.markdown(
+        f"<div class='rs-cuenta'>{usuario['nombre_usuario']}"
+        f"<span>{usuario['email']} · {usuario['rol']}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    _customer_id_cuenta = agencia.get("stripe_customer_id")
+    if _customer_id_cuenta:
+        if st.button("Gestionar suscripción", use_container_width=True, key="barra_stripe"):
+            _url_portal = crear_portal_cliente(_customer_id_cuenta)
+            if _url_portal:
+                boton_enlace_stripe("Ir al portal de Stripe →", _url_portal)
+
+    if st.button("Cerrar sesión", use_container_width=True, key="barra_salir"):
         for key in ["sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia", "local_activo"]:
             st.session_state[key] = False if key == "sesion_activa" else None if "actual" in key else []
         st.session_state.vista_landing = "info"
         st.rerun()
-
-st.markdown(f"<hr style='border:0; border-top:2px solid {ACCENT_INDIGO}; margin-top:4px; width:48px;'>", unsafe_allow_html=True)
-st.caption(f"Sesión activa · {usuario['nombre_usuario']} ({usuario['email']}) · Rol: {usuario['rol']}")
 
 
 
@@ -3733,17 +3845,23 @@ if usuario.get("rol") == "admin":
 # =========================================================
 # 🧭 NAVEGACIÓN: GENERAR RESPUESTA / VER ANALÍTICA
 # =========================================================
-tab_guia, tab_generar, tab_pedir_resenas, tab_seo_extra, tab_analitica = st.tabs(
-    ["Guía", "Generar respuesta", "Pedir reseñas", "Contenido SEO", "Analítica"]
-)
+# =========================================================
+# SECCIONES
+# =========================================================
+# Antes eran st.tabs. El cambio a navegación lateral no es cosmético: con
+# pestañas, Streamlit RENDERIZA EL CONTENIDO DE LAS CINCO en cada
+# re-ejecución (las oculta con CSS, pero las calcula). Eso significaba
+# lanzar las consultas de analítica y recorrer el histórico aunque
+# estuvieras escribiendo una respuesta. Con un if, solo se ejecuta la
+# sección que estás viendo: menos memoria, menos consultas, más rápido.
 
-with tab_guia:
+if vista_activa == "Guía de uso":
     mostrar_guia_uso()
 
 # ---------------------------------------------------------
 # PESTAÑA 1: GENERACIÓN DE RESPUESTAS
 # ---------------------------------------------------------
-with tab_generar:
+if vista_activa == "Responder reseña":
     locales_disponibles = st.session_state.locales_agencia
 
     # ---- Añadir un nuevo establecimiento (respetando el límite del plan) ----
@@ -3784,15 +3902,9 @@ with tab_generar:
         st.info("Añade tu primer establecimiento arriba para empezar a generar respuestas.")
         st.stop()
 
-    nombres_locales = [local["nombre"] for local in locales_disponibles]
-    nombre_local_elegido = st.selectbox("Selecciona el local", options=nombres_locales, key="selector_local_activo")
-
-    local_activo = next(local for local in locales_disponibles if local["nombre"] == nombre_local_elegido)
-    st.session_state.local_activo = local_activo
-
-    ciudad_display = f" · {local_activo.get('ciudad')}" if local_activo.get("ciudad") else ""
-    st.caption(f"Nicho: **{local_activo['nicho']}**{ciudad_display} · {len(local_activo['seo_keywords'])} keywords SEO cargadas.")
-    
+    # El selector de local vive ahora en la barra lateral, donde permanece
+    # visible en todas las secciones. Aquí solo se recoge lo que ya eligió.
+    local_activo = st.session_state.local_activo or locales_disponibles[0]
     # --- Editar info del local (ciudad, nicho, keywords) ---
     with st.expander("Editar info del local", expanded=False):
         st.caption("Actualiza la ciudad, nicho y palabras clave del local para mejorar la potencia SEO del contenido generado.")
@@ -4065,7 +4177,7 @@ with tab_generar:
 # ---------------------------------------------------------
 # PESTAÑA: PEDIR RESEÑAS (WhatsApp + QR)
 # ---------------------------------------------------------
-with tab_pedir_resenas:
+if vista_activa == "Pedir reseñas":
     st.subheader("Consigue más reseñas de las que ya tienes")
     st.caption("Genera un mensaje de WhatsApp y un código QR para que el propio negocio pida reseñas a sus clientes satisfechos.")
 
@@ -4129,7 +4241,7 @@ with tab_pedir_resenas:
 # ---------------------------------------------------------
 # PESTAÑA: CONTENIDO SEO EXTRA
 # ---------------------------------------------------------
-with tab_seo_extra:
+if vista_activa == "Contenido SEO":
     st.subheader("Contenido SEO adicional para el local")
     st.caption("Contenido optimizado para posicionamiento local 2026: intención de búsqueda, ubicación y estructura pensada para las AI overviews de Google. Cada generación te da 3 variantes para elegir o hacer test A/B.")
 
@@ -4198,7 +4310,7 @@ with tab_seo_extra:
 # ---------------------------------------------------------
 # PESTAÑA 2: ANALÍTICA DE LA AGENCIA
 # ---------------------------------------------------------
-with tab_analitica:
+if vista_activa == "Analítica":
     st.subheader("Actividad de tu agencia")
 
     rango = st.radio("Periodo:", ["Últimos 7 días", "Últimos 30 días", "Todo el histórico"], horizontal=True)
