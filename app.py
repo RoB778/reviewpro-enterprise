@@ -237,8 +237,10 @@ if not (APP_URL.startswith("http://") or APP_URL.startswith("https://")):
 # 1. Configuración de página limpia y profesional
 st.set_page_config(page_title="Reselia · Reputación con criterio", page_icon="▪", layout="centered")
 
-# Tema visual global (ver ui.py). Se inyecta aquí, justo tras configurar la
-# página, para que aplique a todas las vistas: landing, login y panel.
+# Componentes visuales nuevos de la v2 (selector de vía, sello de auditoría,
+# etapas de progreso). El sistema de diseño base — botones, pestañas,
+# inputs, tipografía — ya vivía en el bloque de estilos de más abajo
+# ("TINTA & PAPEL"); este archivo es aditivo, no lo sustituye.
 st.markdown(CSS_GLOBAL, unsafe_allow_html=True)
 
 st.markdown("""
