@@ -33,6 +33,44 @@ tocar.
 CSS_GLOBAL = """
 <style>
 /* =========================================================
+   PANTALLA DE LOGIN
+   ========================================================= */
+.rs-login-cab {
+  text-align:center;
+  margin:clamp(24px, 6vh, 64px) 0 26px;
+}
+.rs-login-marca {
+  font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-size:.68rem; letter-spacing:.34em; text-transform:uppercase;
+  color:var(--er-amber); margin-bottom:18px;
+}
+.rs-login-titulo {
+  font-family:'Fraunces',Georgia,serif;
+  font-size:1.85rem; font-weight:600; color:var(--er-ink);
+  letter-spacing:-.025em; line-height:1.15;
+  margin:0 0 10px;
+}
+.rs-login-sub {
+  font-size:.9rem; line-height:1.6; color:var(--er-muted);
+  margin:0 auto; max-width:340px;
+}
+.rs-login-pie {
+  text-align:center; margin-top:26px;
+  font-size:.8rem; color:var(--er-faint);
+}
+.rs-login-pie a {
+  color:var(--er-muted); text-decoration:underline;
+  text-underline-offset:2px;
+}
+.rs-login-pie a:hover { color:var(--er-ink); }
+
+/* El expander de "varias cuentas" es secundario: se atenúa para que no
+   compita con los dos campos que de verdad importan. */
+.rs-login-cab ~ div [data-testid="stExpander"] summary p {
+  font-size:.8rem !important; color:var(--er-faint) !important;
+}
+
+/* =========================================================
    LAYOUT ANCHO — contener la medida de lectura
    Con layout="wide", Streamlit deja el contenido ocupar toda la
    pantalla. En un monitor de 27" eso da líneas de 200 caracteres,
