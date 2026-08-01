@@ -434,7 +434,7 @@ TU OBJETIVO
 Una respuesta breve, cálida y humana que dé las gracias de forma concreta y aproveche el espacio para posicionar el negocio en búsquedas locales.
 
 CÓMO SUENA UNA BUENA RESPUESTA
-- Entre 30 y 60 palabras. Corta. Nadie lee párrafos en Google.
+- Entre 45 y 80 palabras. Más corta que la reseña casi siempre. Nadie lee párrafos en Google, pero una respuesta de dos líneas se lee como plantilla — esta horquilla es la que da margen para sonar humano sin cansar.
 - Menciona algo CONCRETO de lo que dijo el cliente. Si habló del arroz, hablas del arroz. Genérico es peor que nada.
 - Suena a persona, no a plantilla. Nada de "Estimado cliente" ni "Reciba un cordial saludo".
 - Termina invitando a volver, sin sonar comercial.
@@ -447,7 +447,7 @@ PROHIBIDO (delata que lo ha escrito una IA)
 - Exclamaciones dobles, emojis, mayúsculas de énfasis.
 
 SEO (invisible para el cliente)
-Integra de forma natural 2-3 de las keywords del contexto. Si meter una rompe la frase, prescinde de ella. La naturalidad manda siempre.
+Las keywords del contexto son un inventario de posibilidades, NO una cuota. Cero es una cifra correcta si ninguna encaja. Lo que más aporta es nombrar el establecimiento con normalidad y, si la reseña lo trae de forma orgánica, el tipo de negocio o la zona. Nunca inventes un dato para que una keyword encaje: si el cliente no dijo qué comió, no lo supongas para poder colocar el plato. Nunca metas dos keywords en la misma frase ni frases autopromocionales ("la mejor X de Y"). Regla: si el dueño no lo escribiría sin haber oído hablar nunca de SEO, no lo escribas.
 
 IDIOMA
 Detecta el idioma de la reseña y responde SIEMPRE en ese idioma. Si no es español, añade además una traducción al español para el propietario.
@@ -457,6 +457,70 @@ No confirmes datos concretos del cliente (importes, fechas, con quién vino, qu�
 
 DEVUELVE EXCLUSIVAMENTE ESTE JSON, sin texto alrededor ni bloques de código:
 {"idioma_detectado": "es", "sentimiento": "positivo", "respuesta_nativa": "...", "traduccion_espanol": null}"""
+
+
+# =============================================================================
+# REGLAS DE SEO LOCAL — VÍA BLINDADA
+# =============================================================================
+#
+# POR QUÉ SE REESCRIBIÓ ESTO
+# --------------------------
+# La versión anterior decía "integra 2-3 keywords MÍNIMO". Esa palabra —mínimo—
+# es la que provocaba las alucinaciones: convierte las keywords en una cuota
+# obligatoria. Si el local tiene la keyword "mejor arrocería de Valencia" y la
+# reseña dice "el arroz llegó frío", no hay forma honesta de meter esa keyword.
+# Pero el modelo tenía orden de meter 2-3 sí o sí, así que inventaba el contexto
+# necesario para que encajaran. La alucinación no era un fallo del modelo: era
+# la respuesta lógica a una instrucción imposible.
+#
+# CÓMO FUNCIONA DE VERDAD EL SEO EN RESPUESTAS A RESEÑAS
+# -------------------------------------------------------
+# Las respuestas a reseñas de Google Business Profile no rankean como una página
+# web. No hay densidad de keyword que optimizar. Lo que sí hacen es reforzar la
+# asociación semántica entre la ficha del negocio y su categoría y su zona: qué
+# ES este negocio y DÓNDE está. Eso se consigue con menciones naturales de
+# entidad, no con frases comerciales incrustadas.
+#
+# Y hay un riesgo real en la dirección contraria: repetir frases comerciales en
+# muchas respuestas seguidas es un patrón que Google detecta como contenido
+# generado en masa, y perjudica más de lo que suma. Una respuesta con cero
+# keywords forzadas y que suena a persona vale más que tres con keywords metidas
+# a martillazos.
+#
+# EN NEGATIVAS, ADEMÁS, HAY UN COSTE DE NEGOCIO
+# ----------------------------------------------
+# Un cliente cabreado que lee "sentimos su experiencia en la mejor arrocería de
+# Valencia" no ve SEO: ve cinismo. Y esa respuesta la leen los siguientes
+# cincuenta clientes potenciales que miran las reseñas antes de reservar. El
+# daño reputacional de una keyword mal colocada en una disculpa es mayor que
+# cualquier ganancia de posicionamiento.
+# =============================================================================
+
+REGLAS_SEO_PROFESIONAL = """SEO LOCAL (invisible para el cliente final):
+
+CÓMO FUNCIONA ESTO DE VERDAD
+Una respuesta a una reseña no es una página web: no rankea por densidad de palabras clave. Lo único que aporta a posicionamiento es reforzar de forma natural QUÉ es este negocio y DÓNDE está. Eso se consigue nombrando la entidad con normalidad, no incrustando frases comerciales.
+
+JERARQUÍA — en este orden, y solo si cabe con naturalidad:
+1. El nombre del establecimiento, si encaja sin sonar forzado. Es lo de mayor valor y lo más fácil de colocar.
+2. La categoría o el tipo de negocio mencionado con normalidad, cuando la frase lo pida sola.
+3. La zona o ciudad, solo si la conversación la trae de forma orgánica.
+4. Keywords de la lista: OPCIONALES. Cero es una cifra perfectamente correcta.
+
+LAS KEYWORDS NO SON UNA CUOTA
+No hay número mínimo. No tienes que meter ninguna. La lista de keywords es un inventario de posibilidades, no una lista de tareas. Si ninguna encaja de forma completamente natural en esta reseña concreta, no metes ninguna y la respuesta es MEJOR por ello.
+
+PROHIBIDO ABSOLUTAMENTE
+- Inventar o dar por supuesto cualquier hecho para que una keyword encaje. Si para colocar "arroz a banda casero" tienes que suponer que el cliente comió arroz cuando no lo ha dicho, no la coloques. Esto es más importante que cualquier consideración de SEO: la alucinación destruye la credibilidad de toda la respuesta.
+- Frases comerciales o autopromocionales dentro de una disculpa: "la mejor X de Y", "referente en", "líderes en", "reconocidos por". En una respuesta a una queja esto se lee como cinismo y lo ven todos los clientes futuros que consulten las reseñas.
+- Enumerar keywords, o meter dos en la misma frase. Delata el mecanismo al instante.
+- Repetir el nombre del establecimiento más de una vez.
+
+REGLA DE DECISIÓN, frase a frase
+Antes de colocar cualquier término, pregúntate: "¿escribiría esto el dueño del negocio si nadie le hubiera hablado nunca de SEO?" Si la respuesta es no, no lo escribas. La naturalidad no es un valor que compite con el SEO aquí: en respuestas a reseñas, la naturalidad ES el SEO.
+
+EN RESEÑAS GRAVES, EL SEO DESAPARECE
+Si la reseña habla de daño físico, enfermedad, discriminación, un menor afectado o cualquier asunto serio, el SEO se apaga por completo. Cero keywords. Cero menciones comerciales. Solo la persona respondiendo a otra persona. Cualquier optimización en ese contexto es una falta de respeto visible."""
 
 
 # =============================================================================
@@ -851,13 +915,9 @@ def generar_respuesta(
             f"CONTEXTO DEL NEGOCIO (aplica solo a esta llamada):\n"
             f"- Nombre del establecimiento: {nombre_local}\n"
             f"- Nicho: {nicho}\n"
-            f"- Keywords SEO a integrar de forma natural (2-3 mínimo): {keywords}\n\n"
+            f"- Keywords disponibles (NO son una cuota, ver reglas abajo): {keywords}\n\n"
             f"GUÍA DE TONO — {tono}:\n{guia_tono}\n\n"
-            f"REGLAS DE SEO (INVISIBLE PARA EL CLIENTE FINAL):\n"
-            f"- Integra de forma fluida y natural al menos 2-3 de las keywords donde el contexto lo permita.\n"
-            f"- Nunca menciones que estás optimizando para SEO ni las enumeres como etiquetas.\n"
-            f"- La naturalidad y el sonar humano prevalecen sobre la densidad de keywords: "
-            f"si meter una keyword rompe la frase, prescinde de ella."
+            f"{REGLAS_SEO_PROFESIONAL}"
         )
         max_vueltas = MAX_INTENTOS_CORRECCION + 1
 
