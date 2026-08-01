@@ -400,25 +400,69 @@ st.markdown("""
         -webkit-text-fill-color: #FFFFFF !important;
     }
 
-    /* Inputs — superficie hundida, borde hairline, foco índigo */
-    .stTextInput > div > div > input,
-    .stNumberInput > div > div > input,
-    .stTextArea textarea,
+    /* Inputs — superficie hundida, borde hairline, foco índigo
+       -----------------------------------------------------------------
+       IMPORTANTE: el borde y el fondo van en el CONTENEDOR
+       div[data-baseweb="input"], NO en el <input>.
+
+       Motivo: en un campo de contraseña, Streamlit mete el botón del ojo
+       como HERMANO del input, dentro de ese mismo contenedor:
+
+           div[data-baseweb="input"]
+             ├─ input
+             └─ button   ← el ojo
+
+       Al pintar fondo y borde sobre el <input>, el input quedaba como una
+       caja opaca propia que tapaba al botón y lo dejaba fuera del recuadro
+       visible, así que el ojo no se veía ni se podía pulsar. Poniendo la
+       caja en el contenedor y dejando el input transparente, el ojo vuelve
+       a quedar dentro y funciona. */
+    .stTextInput div[data-baseweb="input"],
+    .stNumberInput div[data-baseweb="input"],
+    .stTextArea div[data-baseweb="textarea"],
     .stSelectbox > div > div,
     .stMultiSelect > div > div {
         background: var(--er-surface) !important;
-        color: var(--er-ink) !important;
         border: 1px solid var(--er-line-2) !important;
         border-radius: 6px !important;
     }
-    .stTextInput > div > div > input::placeholder,
+    .stTextInput div[data-baseweb="input"] > input,
+    .stNumberInput div[data-baseweb="input"] > input,
+    .stTextArea div[data-baseweb="textarea"] > textarea {
+        background: transparent !important;
+        color: var(--er-ink) !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+    .stTextInput input::placeholder,
     .stTextArea textarea::placeholder { color: var(--er-faint) !important; }
-    .stTextInput > div > div > input:focus,
-    .stNumberInput > div > div > input:focus,
-    .stTextArea textarea:focus {
+
+    /* El foco se pinta en el contenedor, por el mismo motivo que el borde. */
+    .stTextInput div[data-baseweb="input"]:focus-within,
+    .stNumberInput div[data-baseweb="input"]:focus-within,
+    .stTextArea div[data-baseweb="textarea"]:focus-within {
         border-color: var(--er-accent) !important;
         box-shadow: 0 0 0 3px var(--er-accent-bg) !important;
     }
+
+    /* El botón del ojo: visible, pulsable y con el color del texto normal.
+       Sin esto hereda un color que en algunos temas queda casi invisible
+       sobre el fondo claro. */
+    .stTextInput div[data-baseweb="input"] button {
+        background: transparent !important;
+        border: none !important;
+        color: var(--er-muted) !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        cursor: pointer !important;
+    }
+    .stTextInput div[data-baseweb="input"] button:hover {
+        color: var(--er-ink) !important;
+    }
+    .stTextInput div[data-baseweb="input"] button svg {
+        fill: currentColor !important;
+    }
+
     .stTextInput label, .stNumberInput label, .stTextArea label,
     .stSelectbox label, .stRadio label, .stMultiSelect label,
     .stSlider label, .stCheckbox label {
@@ -3274,10 +3318,146 @@ if not st.session_state.sesion_activa:
         }
         .rp-roi-banner strong { color:#1a2238; font-weight:600; }
         .rp-garantia { color:#6b7280; font-size:0.82rem; text-align:center; margin-top:16px; letter-spacing:0; }
+
+        /* -----------------------------------------------------------------
+           CONTENCIÓN DE ANCHO
+           Con layout="wide" esta vista se estiraba a todo el monitor y por eso
+           se veía vacía y desordenada: párrafos de 200 caracteres y tarjetas
+           separadas por medio metro. Una landing necesita medida de lectura.
+           ----------------------------------------------------------------- */
+        section[data-testid="stMain"] .block-container {
+            max-width: 940px !important;
+        }
+
+        .rp-eyebrow {
+            font-family:'IBM Plex Mono',ui-monospace,monospace;
+            font-size:0.7rem; color:var(--er-amber);
+            letter-spacing:0.3em; text-transform:uppercase;
+            margin-bottom:16px; font-weight:600;
+        }
+
+        /* --- Tesis: el argumento central --- */
+        .rp-tesis {
+            border-left:2px solid var(--er-amber);
+            padding:6px 0 6px 22px;
+            margin:34px 0 30px;
+        }
+        .rp-tesis-frase {
+            font-family:'Fraunces',Georgia,serif;
+            font-size:1.32rem; line-height:1.45; color:var(--er-ink);
+            letter-spacing:-0.02em;
+        }
+        .rp-tesis-o {
+            color:var(--er-amber); font-style:italic; padding:0 2px;
+        }
+        .rp-tesis-sub {
+            font-size:0.9rem; color:var(--er-muted);
+            margin-top:10px; line-height:1.6;
+        }
+
+        /* --- Demostración por contraste --- */
+        .rp-demo {
+            background:var(--er-sunken);
+            border:1px solid var(--er-line);
+            border-radius:12px;
+            padding:22px;
+            margin-bottom:38px;
+        }
+        .rp-demo-lbl {
+            display:block;
+            font-family:'IBM Plex Mono',ui-monospace,monospace;
+            font-size:0.62rem; letter-spacing:0.15em; text-transform:uppercase;
+            color:var(--er-faint); margin-bottom:7px;
+        }
+        .rp-demo-resena {
+            font-size:0.92rem; color:var(--er-body); line-height:1.6;
+            font-style:italic;
+            padding-bottom:18px; margin-bottom:18px;
+            border-bottom:1px solid var(--er-line);
+        }
+        .rp-demo-grid {
+            display:grid; grid-template-columns:1fr 1fr; gap:16px;
+        }
+        @media (max-width: 760px) {
+            .rp-demo-grid { grid-template-columns:1fr; }
+        }
+        .rp-demo-col {
+            background:#fff; border:1px solid var(--er-line);
+            border-radius:9px; padding:15px 16px;
+        }
+        .rp-demo-mal  { border-top:2px solid var(--er-danger); }
+        .rp-demo-bien { border-top:2px solid var(--er-ok); }
+        .rp-demo-tag {
+            display:inline-block;
+            font-family:'IBM Plex Mono',ui-monospace,monospace;
+            font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase;
+            padding:2px 7px; border-radius:3px; margin-bottom:10px;
+        }
+        .rp-demo-tag-mal  { background:var(--er-danger-bg); color:var(--er-danger); }
+        .rp-demo-tag-bien { background:#E8F0EA; color:var(--er-ok); }
+        .rp-demo-col p {
+            font-size:0.86rem; line-height:1.62; color:var(--er-body);
+            margin:0 0 11px;
+        }
+        .rp-demo-col u {
+            text-decoration:underline;
+            text-decoration-color:var(--er-danger);
+            text-underline-offset:2px;
+        }
+        .rp-demo-nota {
+            display:block; font-size:0.76rem; line-height:1.55;
+            color:var(--er-muted); padding-top:10px;
+            border-top:1px dashed var(--er-line);
+        }
+
+        /* --- Etiqueta de sección --- */
+        .rp-seccion-lbl {
+            font-family:'IBM Plex Mono',ui-monospace,monospace;
+            font-size:0.63rem; letter-spacing:0.16em; text-transform:uppercase;
+            color:var(--er-faint); margin:0 0 14px;
+        }
+
+        /* --- Tarjetas de capacidad --- */
+        .rp-card-info {
+            height:100%;
+            transition:border-color .16s ease;
+        }
+        .rp-card-info:hover { border-color:var(--er-line-2); }
+        .rp-card-num {
+            font-family:'IBM Plex Mono',ui-monospace,monospace;
+            font-size:0.7rem; color:var(--er-amber);
+            letter-spacing:0.1em; margin-bottom:9px;
+        }
+        .rp-card-titulo {
+            font-family:'Fraunces',Georgia,serif;
+            font-size:1.05rem; font-weight:600; color:var(--er-ink);
+            letter-spacing:-0.015em; margin-bottom:9px;
+        }
+
+        /* --- Dato de negocio --- */
+        .rp-dato {
+            display:flex; align-items:center; gap:22px;
+            background:var(--er-accent); color:#fff;
+            border-radius:12px; padding:22px 26px;
+            margin-top:34px;
+        }
+        @media (max-width: 640px) {
+            .rp-dato { flex-direction:column; gap:12px; text-align:center; }
+        }
+        .rp-dato-cifra {
+            font-family:'Fraunces',Georgia,serif;
+            font-size:2.5rem; font-weight:600; line-height:1;
+            letter-spacing:-0.03em; color:var(--er-amber-2);
+            flex-shrink:0;
+        }
+        .rp-dato-txt {
+            font-size:0.88rem; line-height:1.62;
+            color:rgba(255,255,255,.9);
+        }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div style="font-size:0.72rem; color:#1a2238; letter-spacing:0.16em; text-transform:uppercase; margin-bottom:14px; font-weight:600;">Reselia</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rp-eyebrow">Reselia</div>', unsafe_allow_html=True)
     st.markdown('<div class="rp-hero-title">Reputación bajo control.<br>Respuestas con precisión.</div>', unsafe_allow_html=True)
     st.markdown('<div class="rp-hero-sub">Plataforma de inteligencia de reputación para agencias. Respuestas redactadas con IA, con tu marca y SEO local integrado, para toda tu cartera de clientes.</div>', unsafe_allow_html=True)
 
@@ -3285,27 +3465,96 @@ if not st.session_state.sesion_activa:
     # VISTA 1: INFO — presentación del producto antes de pedir nada
     # -----------------------------------------------------
     if st.session_state.vista_landing == "info":
+
+        # --- El argumento central, antes que cualquier característica ---
+        # Esto iba enterrado en la vista de planes o directamente no estaba.
+        # Es lo único que explica por qué esto no es "ChatGPT con otro nombre",
+        # y por tanto lo primero que tiene que leer una agencia.
+        st.markdown("""
+            <div class="rp-tesis">
+              <div class="rp-tesis-frase">
+                Una respuesta a una reseña puede ser una disculpa
+                <span class="rp-tesis-o">o</span> una confesión.
+              </div>
+              <div class="rp-tesis-sub">
+                Un modelo genérico escribe la segunda sin saberlo. Reselia solo puede escribir la primera.
+              </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # --- Demostración por contraste ---
+        # Una agencia no compra una lista de características: compra la
+        # diferencia entre estas dos respuestas. Enseñarla es más persuasivo
+        # que cualquier adjetivo, y se entiende en cinco segundos.
+        st.markdown("""
+            <div class="rp-demo">
+              <div class="rp-demo-resena">
+                <span class="rp-demo-lbl">Reseña recibida</span>
+                «Pedí el plato sin gluten porque soy celíaca y acabé en urgencias.
+                Nadie me avisó de nada.»
+              </div>
+              <div class="rp-demo-grid">
+                <div class="rp-demo-col rp-demo-mal">
+                  <span class="rp-demo-tag rp-demo-tag-mal">IA genérica</span>
+                  <p>«Lamentamos <u>el error en la preparación de su plato</u>.
+                  Revisaremos nuestros <u>protocolos de alérgenos</u> para que
+                  <u>no vuelva a ocurrir</u>.»</p>
+                  <span class="rp-demo-nota">
+                    Tres admisiones por escrito, públicas y permanentes: un fallo,
+                    su causa y que el problema es conocido.
+                  </span>
+                </div>
+                <div class="rp-demo-col rp-demo-bien">
+                  <span class="rp-demo-tag rp-demo-tag-bien">Reselia</span>
+                  <p>«Que alguien lo pase mal después de venir a comer aquí es lo
+                  último que queremos, y siento de veras el mal rato que describe.
+                  Lo he trasladado internamente para revisarlo con calma.»</p>
+                  <span class="rp-demo-nota">
+                    Valida la experiencia por completo. No confirma ni un solo hecho.
+                  </span>
+                </div>
+              </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # --- Las tres capacidades ---
+        st.markdown('<div class="rp-seccion-lbl">Cómo funciona</div>', unsafe_allow_html=True)
         col_a, col_b, col_c = st.columns(3)
         with col_a:
-            st.markdown("""<div class="rp-card">
-                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#1a2238; letter-spacing:0.1em; margin-bottom:8px;">01</div>
-                <div class="rp-plan-nombre" style="font-size:1.05rem;">Blindaje legal</div>
-                <div class="rp-feature">Nunca admite negligencias ni usa términos de alerta sanitaria. Cada respuesta pasa por reglas de redacción pensadas para proteger la reputación del negocio.</div>
+            st.markdown("""<div class="rp-card rp-card-info">
+                <div class="rp-card-num">01</div>
+                <div class="rp-card-titulo">Blindaje legal</div>
+                <div class="rp-feature">Cada respuesta se audita frase por frase contra un catálogo de reglas jurídicas antes de que la veas. Nunca admite negligencias ni usa términos de alerta sanitaria.</div>
             </div>""", unsafe_allow_html=True)
         with col_b:
-            st.markdown("""<div class="rp-card">
-                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#1a2238; letter-spacing:0.1em; margin-bottom:8px;">02</div>
-                <div class="rp-plan-nombre" style="font-size:1.05rem;">SEO invisible</div>
-                <div class="rp-feature">Cada respuesta integra de forma natural las palabras clave de posicionamiento de ese local concreto, sin que se note ni al cliente final ni a Google.</div>
+            st.markdown("""<div class="rp-card rp-card-info">
+                <div class="rp-card-num">02</div>
+                <div class="rp-card-titulo">SEO invisible</div>
+                <div class="rp-feature">Refuerza el posicionamiento local del negocio con menciones naturales, nunca con palabras clave forzadas. Si no encaja, no se mete.</div>
             </div>""", unsafe_allow_html=True)
         with col_c:
-            st.markdown("""<div class="rp-card">
-                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#1a2238; letter-spacing:0.1em; margin-bottom:8px;">03</div>
-                <div class="rp-plan-nombre" style="font-size:1.05rem;">Marca blanca real</div>
-                <div class="rp-feature">Tu agencia entra con su propio logo y color corporativo. Tus clientes ven tu marca, no la nuestra.</div>
+            st.markdown("""<div class="rp-card rp-card-info">
+                <div class="rp-card-num">03</div>
+                <div class="rp-card-titulo">Marca blanca real</div>
+                <div class="rp-feature">Tu agencia entra con su propio logo y color corporativo, también en los informes PDF. Tus clientes ven tu marca, no la nuestra.</div>
             </div>""", unsafe_allow_html=True)
 
-        st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
+        # --- El dato de negocio ---
+        # Traído desde la vista de planes, donde solo lo veía quien ya había
+        # decidido mirar precios. Aquí convierte "esto está bien" en "esto
+        # tiene un retorno medible".
+        st.markdown("""
+            <div class="rp-dato">
+              <div class="rp-dato-cifra">5–9%</div>
+              <div class="rp-dato-txt">
+                más de ingresos por cada estrella adicional en Google, según un
+                estudio de la Harvard Business School. En un local que factura
+                60.000&nbsp;€ al mes, son hasta 32.000&nbsp;€ más al año.
+              </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
         col_cta1, col_cta2 = st.columns(2)
         with col_cta1:
             if st.button("Ya tengo cuenta — Iniciar sesión", use_container_width=True):
@@ -3479,7 +3728,46 @@ if not st.session_state.sesion_activa:
                         )
                         if ok:
                             del st.session_state["free_signup_abierto_en"]
-                            st.success("Cuenta creada. Ve a la pestaña 'Ya tengo cuenta' para iniciar sesión.")
+
+                            # Entrar directamente. Acaba de escribir su email y
+                            # su contraseña: mandarle a otra pestaña a teclear
+                            # lo mismo otra vez es pedirle trabajo por nada, y
+                            # es justo el momento en el que más gente abandona.
+                            #
+                            # Se reutiliza cargar_perfil_login en lugar de
+                            # montar la sesión a mano para que el alta y el
+                            # login normal recorran exactamente el mismo camino:
+                            # si un día cambian las comprobaciones del login,
+                            # este flujo las hereda solo.
+                            try:
+                                perfil_nuevo, _err = cargar_perfil_login(
+                                    email_free.lower().strip(),
+                                    password_free,
+                                    nombre_usuario=(nombre_usuario_free or "").strip() or None,
+                                )
+                            except Exception:
+                                perfil_nuevo = None
+
+                            if perfil_nuevo:
+                                limpiar_fallos_login()
+                                marcar_actividad()
+                                st.session_state.sesion_activa = True
+                                st.session_state.usuario_actual = perfil_nuevo["usuario"]
+                                st.session_state.agencia_actual = perfil_nuevo["agencia"]
+                                st.session_state.locales_agencia = perfil_nuevo["locales"]
+                                _crear_token_sesion(perfil_nuevo["usuario"]["id"])
+                                st.session_state["_recien_registrado"] = True
+                                st.rerun()
+                            else:
+                                # La cuenta SÍ se creó; solo ha fallado el
+                                # inicio automático. Hay que decirlo así, o la
+                                # persona pensará que no se ha registrado y lo
+                                # intentará otra vez con el mismo email.
+                                st.success(
+                                    "Cuenta creada correctamente. Entra desde "
+                                    "'Ya tengo cuenta' con el email y la contraseña "
+                                    "que acabas de elegir."
+                                )
                         else:
                             st.error(error)
 
@@ -3682,6 +3970,14 @@ if not refrescar_contexto_si_toca():
 agencia = st.session_state.agencia_actual
 usuario = st.session_state.usuario_actual
 color_agencia = agencia["color_marca"]
+
+# Bienvenida tras el alta. Se consume con pop para que salga una sola vez y
+# no reaparezca en cada rerun de la sesión.
+if st.session_state.pop("_recien_registrado", False):
+    st.success(
+        f"Cuenta creada, {usuario['nombre_usuario']}. Ya estás dentro — "
+        "empieza pegando una reseña en 'Responder reseña'."
+    )
 
 # Si el usuario ha pulsado "Actualizar plan" / "Ver planes de pago", mostramos la
 # comparativa de planes dentro del propio panel en vez de saltar directo a Stripe.
