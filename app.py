@@ -210,7 +210,7 @@ def log_error_completo(contexto, e):
 # el pago. OBLIGATORIA: si falta o está mal puesta, Stripe redirige a una URL que no existe
 # y el usuario se queda "colgado" en la pantalla de éxito de Stripe sin volver nunca a la app.
 # Configúrala en secrets.toml con la URL exacta de tu app en Streamlit Cloud, ej:
-# APP_URL = "https://app.reselia.com"  (sin barra final)
+# APP_URL = "https://app.reselia.es"  (sin barra final)
 if "APP_URL" not in st.secrets:
     st.error(
         "Falta configurar APP_URL en los secrets de la app. Sin esto, Stripe no puede "
@@ -1249,6 +1249,29 @@ PLANES_AUTOSERVICIO = {
     },
 }
 
+# =========================================================
+# MODO BETA — PAGOS DESACTIVADOS
+# =========================================================
+# Durante la beta no se cobra a nadie. Este interruptor es la ÚNICA fuente de
+# verdad: se comprueba tanto en la capa de UI (para que los botones de compra
+# expliquen la situación en vez de llevar a Stripe) como dentro de las propias
+# funciones que crean la sesión de pago.
+#
+# Comprobarlo en los dos sitios es deliberado. Si solo se ocultaran los botones,
+# cualquier ruta que llame a crear_sesion_pago_* desde otro punto —un enlace
+# antiguo, una URL guardada, un flujo que se añada más adelante— seguiría
+# generando cobros reales. El bloqueo tiene que estar en la función que cobra,
+# no solo en el botón que se ve.
+#
+# PARA TERMINAR LA BETA: cambiar esta línea a False. Nada más.
+MODO_BETA_SIN_PAGOS = True
+
+BETA_MENSAJE_PLANES = (
+    "Reselia está en beta abierta y los pagos están desactivados. "
+    "Durante este periodo el acceso es gratuito y sin límite de respuestas."
+)
+
+
 # Compatibilidad hacia atrás: algunas partes del código antiguo referencian estos nombres.
 STRIPE_PRICE_ID_INDIVIDUAL = STRIPE_PRICES["individual"]["mensual"]
 STRIPE_PRICE_ID_STARTER = STRIPE_PRICES["starter"]["mensual"]
@@ -1263,6 +1286,10 @@ def crear_sesion_pago_stripe(agencia_id, plan_nombre, price_id):
     sabremos automáticamente a qué agencia activarle qué plan sin tocar nada a mano.
     Devuelve la URL de pago, o None si algo falla.
     """
+    if MODO_BETA_SIN_PAGOS:
+        st.info(BETA_MENSAJE_PLANES)
+        return None
+
     try:
         session = stripe.checkout.Session.create(
             mode="subscription",
@@ -1291,6 +1318,10 @@ def crear_sesion_pago_nueva_agencia(plan_nombre, price_id):
     una pantalla intermedia (igual que el alta del plan Free), así que aquí basta con el
     plan elegido.
     """
+    if MODO_BETA_SIN_PAGOS:
+        st.info(BETA_MENSAJE_PLANES)
+        return None
+
     try:
         session = stripe.checkout.Session.create(
             mode="subscription",
@@ -1469,7 +1500,33 @@ def _obtener_ip_cliente():
     return None
 
 
-LIMITE_ALTAS_FREE_POR_IP = 3
+LIMITE_ALTAS_FREE_POR_IP = 1
+
+# ADVERTENCIA SOBRE ESTE NÚMERO — leer antes de tocarlo
+# ------------------------------------------------------
+# Una IP NO identifica a una persona: identifica a una conexión, y muchas
+# personas comparten conexión. En concreto:
+#
+#   · Una agencia con oficina: todos sus empleados salen por la misma IP
+#     pública. Con el límite en 1, el primero que se registre bloquea a todos
+#     sus compañeros.
+#   · Datos móviles en España: Movistar, Vodafone y Orange usan CGNAT, que hace
+#     que miles de clientes compartan una misma IP pública. Un solo registro
+#     desde datos móviles puede bloquear a cualquier otro que salga por esa IP.
+#   · Coworkings, hoteles, universidades, wifi de cafetería: misma situación.
+#
+# Con el límite en 3 esto era tolerable, porque una colisión ocasional aún
+# dejaba margen. Con el límite en 1 no hay margen: la primera alta desde una
+# IP compartida cierra la puerta a todos los demás, y desde fuera se ve como
+# "la app no me deja registrarme", sin más explicación.
+#
+# Por eso el mensaje de bloqueo (más abajo) NO es un simple "no puedes":
+# nombra el motivo real —conexión compartida— y da una vía de escape por
+# correo. Durante una beta, un registro perdido en silencio es un cliente
+# potencial perdido sin que te enteres nunca.
+#
+# Si durante la beta llegan quejas de gente que no puede registrarse, subir
+# este número a 2 o 3 es el primer arreglo que hay que probar.
 
 
 def _ip_supera_limite_altas_free(ip):
@@ -1534,9 +1591,18 @@ def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_pla
 
     ip_cliente = _obtener_ip_cliente()
     if _ip_supera_limite_altas_free(ip_cliente):
-        return False, ("Ya se han creado el máximo de cuentas gratuitas desde esta conexión. "
-                        "Si necesitas seguir usando el servicio, echa un vistazo a los planes de pago "
-                        "— o escríbenos si tu caso es legítimo y necesitas más cuentas de prueba.")
+        # El mensaje nombra la conexión compartida a propósito. Con el límite
+        # en 1, la mayoría de los bloqueos NO son abusos: son la segunda
+        # persona de una oficina, o alguien en datos móviles bajo CGNAT. Si el
+        # mensaje solo dijera "no puedes", esa persona se iría pensando que la
+        # app está rota. Dar el correo convierte un registro perdido en un
+        # email que puedes atender a mano.
+        return False, (
+            "Ya existe una cuenta gratuita creada desde esta conexión. "
+            "Si estás en una oficina, un coworking o datos móviles, es posible "
+            "que compartas IP con otra persona que ya se registró. "
+            "Escríbenos a hola@reselia.es y te damos acceso en el momento."
+        )
 
     try:
         nueva_agencia = supabase.table("agencias").insert({
@@ -2696,6 +2762,13 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
                     st.caption(f"— {feature}")
                 if es_plan_actual:
                     st.success("Tu plan actual")
+                elif MODO_BETA_SIN_PAGOS:
+                    st.button(
+                        "No disponible en beta",
+                        key=f"elegir_{clave_plan}",
+                        use_container_width=True,
+                        disabled=True,
+                    )
                 elif st.button(f"Elegir {datos_plan['nombre']}", key=f"elegir_{clave_plan}", use_container_width=True, type="primary"):
                     price_id = datos_plan["price_ids"]["anual" if es_anual_up else "mensual"]
                     url_pago = crear_sesion_pago_stripe(agencia["id"], clave_plan, price_id)
@@ -3314,6 +3387,19 @@ if not st.session_state.sesion_activa:
             </div>
         """, unsafe_allow_html=True)
 
+        # --- Aviso de beta: los pagos están desactivados ---
+        # Va ANTES del selector de facturación y de las tarjetas, para que nadie
+        # recorra toda la comparativa de precios y solo descubra al final que no
+        # puede comprar. Los precios se dejan visibles a propósito: sirven para
+        # anclar el valor de lo que ahora mismo se está regalando.
+        if MODO_BETA_SIN_PAGOS:
+            st.info(
+                "**Beta abierta — acceso gratuito.** Los pagos están desactivados durante "
+                "este periodo: puedes usar Reselia sin límite y sin introducir ninguna "
+                "tarjeta. Los precios de abajo son los que se aplicarán cuando la beta "
+                "termine, y te avisaremos antes de que eso ocurra."
+            )
+
         # --- Toggle mensual / anual ---
         col_toggle, _ = st.columns([1, 2])
         with col_toggle:
@@ -3412,7 +3498,14 @@ if not st.session_state.sesion_activa:
                 '</div>'
             )
             st.markdown(individual_html, unsafe_allow_html=True)
-            if st.button("Empezar con Individual", key="landing_elegir_individual", use_container_width=True, type="primary"):
+            if MODO_BETA_SIN_PAGOS:
+                st.button(
+                    "No disponible en beta",
+                    key="landing_elegir_individual",
+                    use_container_width=True,
+                    disabled=True,
+                )
+            elif st.button("Empezar con Individual", key="landing_elegir_individual", use_container_width=True, type="primary"):
                 price_id_ind = plan_ind["price_ids"]["anual" if es_anual else "mensual"]
                 url_pago = crear_sesion_pago_nueva_agencia("individual", price_id_ind)
                 if url_pago:
@@ -3448,7 +3541,14 @@ if not st.session_state.sesion_activa:
                 )
                 st.markdown(tarjeta_html, unsafe_allow_html=True)
                 tipo_boton = "primary" if datos.get("destacado") else "secondary"
-                if st.button(f"Elegir {datos['nombre']}", key=boton_key, use_container_width=True, type=tipo_boton):
+                if MODO_BETA_SIN_PAGOS:
+                    st.button(
+                        "No disponible en beta",
+                        key=boton_key,
+                        use_container_width=True,
+                        disabled=True,
+                    )
+                elif st.button(f"Elegir {datos['nombre']}", key=boton_key, use_container_width=True, type=tipo_boton):
                     price_id = datos["price_ids"]["anual" if es_anual else "mensual"]
                     url_pago = crear_sesion_pago_nueva_agencia(clave_plan, price_id)
                     if url_pago:
@@ -3465,49 +3565,101 @@ if not st.session_state.sesion_activa:
     # VISTA: LOGIN
     # -----------------------------------------------------
     if mostrar_login:
-        st.markdown("Introduce tu email y contraseña personales. Cada usuario de tu agencia tiene su propio acceso.")
+        # El login se centra en una columna estrecha. Con layout="wide" un
+        # formulario a ancho completo queda desangelado: los campos se estiran
+        # a 1400px y la pantalla parece vacía. Tres columnas con el peso en la
+        # del medio devuelven la proporción de una pantalla de acceso.
+        _izq, _centro, _der = st.columns([1, 1.15, 1])
 
-        email_usuario = st.text_input("Email de usuario:")
-        password_usuario = st.text_input("Contraseña:", type="password")
+        with _centro:
+            st.markdown(
+                """
+                <div class="rs-login-cab">
+                  <div class="rs-login-marca">RESELIA</div>
+                  <h1 class="rs-login-titulo">Bienvenido de nuevo</h1>
+                  <p class="rs-login-sub">
+                    Accede con tu email y contraseña personales.
+                    Cada usuario de tu agencia tiene su propio acceso.
+                  </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-        nombre_usuario_login = st.text_input(
-            "Nombre de usuario (solo si tu agencia tiene varias cuentas con el mismo email):",
-            key="_nombre_usuario_login",
-        )
-
-        if st.button("Iniciar sesión", use_container_width=True):
-            _permitido, _espera = comprobar_freno_login()
-            if not _permitido:
-                st.error(
-                    f"Demasiados intentos fallidos. Vuelve a probar en {_espera} segundos."
+            # st.form permite enviar con Enter desde cualquier campo, que es lo
+            # que espera cualquiera que haya usado un login en su vida. Antes
+            # eran inputs sueltos y había que ir a buscar el botón con el ratón.
+            with st.form("form_login", border=False):
+                email_usuario = st.text_input(
+                    "Email",
+                    placeholder="tu@agencia.com",
+                    key="_email_login",
                 )
-            elif not email_usuario.strip() or not password_usuario:
-                st.warning("Introduce email y contraseña.")
-            else:
-                email_normalizado = email_usuario.lower().strip()
-                with st.spinner("Verificando credenciales..."):
-                    try:
-                        perfil, error_login = cargar_perfil_login(
-                            email_normalizado,
-                            password_usuario,
-                            nombre_usuario=(nombre_usuario_login or "").strip() or None,
-                        )
+                password_usuario = st.text_input(
+                    "Contraseña",
+                    type="password",
+                    placeholder="Tu contraseña",
+                    key="_password_login",
+                )
 
-                        if perfil is None:
-                            registrar_fallo_login()
-                            st.error(error_login or "Email o contraseña incorrectos.")
-                        else:
-                            limpiar_fallos_login()
-                            marcar_actividad()
-                            st.session_state.sesion_activa = True
-                            st.session_state.usuario_actual = perfil["usuario"]
-                            st.session_state.agencia_actual = perfil["agencia"]
-                            st.session_state.locales_agencia = perfil["locales"]
-                            _crear_token_sesion(perfil["usuario"]["id"])
-                            st.success(f"Bienvenido, {perfil['usuario']['nombre_usuario']}.")
-                            st.rerun()
-                    except Exception as e:
-                        st.error(redactar_secretos(f"Error de conexión con la base de datos: {e}"))
+                # Este campo solo lo necesita una minoría (agencias con varias
+                # cuentas compartiendo email). Dentro de un expander deja de
+                # ocupar sitio y de generar la duda de si hay que rellenarlo.
+                with st.expander("¿Varias cuentas con el mismo email?"):
+                    nombre_usuario_login = st.text_input(
+                        "Nombre de usuario",
+                        key="_nombre_usuario_login",
+                        help=(
+                            "Solo si tu agencia tiene varias cuentas registradas "
+                            "con la misma dirección de correo."
+                        ),
+                    )
+
+                enviado_login = st.form_submit_button(
+                    "Iniciar sesión", use_container_width=True, type="primary"
+                )
+
+            if enviado_login:
+                _permitido, _espera = comprobar_freno_login()
+                if not _permitido:
+                    st.error(
+                        f"Demasiados intentos fallidos. Vuelve a probar en {_espera} segundos."
+                    )
+                elif not email_usuario.strip() or not password_usuario:
+                    st.warning("Introduce email y contraseña.")
+                else:
+                    email_normalizado = email_usuario.lower().strip()
+                    with st.spinner("Verificando credenciales..."):
+                        try:
+                            perfil, error_login = cargar_perfil_login(
+                                email_normalizado,
+                                password_usuario,
+                                nombre_usuario=(nombre_usuario_login or "").strip() or None,
+                            )
+
+                            if perfil is None:
+                                registrar_fallo_login()
+                                st.error(error_login or "Email o contraseña incorrectos.")
+                            else:
+                                limpiar_fallos_login()
+                                marcar_actividad()
+                                st.session_state.sesion_activa = True
+                                st.session_state.usuario_actual = perfil["usuario"]
+                                st.session_state.agencia_actual = perfil["agencia"]
+                                st.session_state.locales_agencia = perfil["locales"]
+                                _crear_token_sesion(perfil["usuario"]["id"])
+                                st.success(f"Bienvenido, {perfil['usuario']['nombre_usuario']}.")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(redactar_secretos(f"Error de conexión con la base de datos: {e}"))
+
+            st.markdown(
+                '<div class="rs-login-pie">'
+                '¿Problemas para entrar? Escribe a '
+                '<a href="mailto:hola@reselia.es">hola@reselia.es</a>'
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
     st.stop()
 
@@ -3621,6 +3773,7 @@ REGLAS DE REDACCIÓN SEGÚN EL SENTIMIENTO:
 1. TONO OBLIGADO: el descrito en el bloque de contexto. Siempre educado y constructivo, nunca condescendiente.
 2. SI ES POSITIVA: agradecimiento genuino (no genérico), referencia a algo concreto que el cliente mencionó, invitación a volver que no suene copiada y pegada.
 3. SI ES NEGATIVA:
+   - LONGITUD OBJETIVO: entre 100 y 140 palabras. Ni menos (queda seca, distante, telegrama corporativo) ni más (queda excesiva y suena a defensa preparada). Esa horquilla es la que da sensación de que hay alguien detrás leyendo con atención. Nunca inflar con frases vacías tipo "queremos aprovechar para agradecerle una vez más" o repeticiones de la disculpa: si te quedas corto, desarrolla el hilo emocional o el detalle concreto que elegiste, no metas relleno.
    - Inicio dinámico: prohibido empezar siempre con "Gracias por su comentario" o equivalentes; varía la apertura.
    - REGLA DE LA VERDAD QUE NO TIENES: quien escribe esta respuesta no estaba en la cocina ni en la sala esa noche, así que nunca puede confirmar ni negar la causa interna concreta de lo que el cliente describe. Se puede validar por completo su experiencia como algo real y lamentable ("lo que usted describe es serio y lo lamento de verdad"), pero esa validación NUNCA se convierte en una confirmación de causa. Valida la experiencia del cliente, no confirmes el mecanismo interno que la causó — esa línea es la más importante de toda esta sección.
    - REGLA DE LOS VERBOS DE CONFIRMACIÓN (esto blinda la regla anterior frente a paráfrasis): la prohibición de confirmar una causa interna no depende de una lista de frases fijas, depende del ACTO de confirmar, diga lo que diga con esas palabras. Verbos y giros como "lo reconozco", "reconozco que...", "admito que...", "confirmo que...", "en efecto, eso fue lo que pasó", "tiene usted razón en que...", "así fue", "eso es correcto" NUNCA pueden ir seguidos de una causa, un fallo o una omisión concreta atribuible al negocio (por ejemplo: "eso es una falta de información por nuestra parte, lo reconozco" es tan grave como decir "fue culpa nuestra", aunque no use esas palabras exactas). Antes de escribir cualquier frase que empiece por un verbo de confirmación, comprueba mentalmente si lo que sigue describe qué salió mal por dentro del negocio; si es así, reformula sin ese verbo, quedándote solo en la validación de cómo se sintió el cliente.
