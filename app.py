@@ -4701,6 +4701,16 @@ if vista_activa == "Responder reseña":
     limite_locales = LIMITE_LOCALES_POR_PLAN.get(agencia.get("plan", "growth"))
     texto_limite = "sin límite" if limite_locales is None else f"{len(locales_disponibles)}/{limite_locales}"
     with st.expander(f"Añadir establecimiento ({texto_limite})"):
+        # Si el botón "Añadir seleccionadas" dejó un valor pendiente en el
+        # ciclo anterior, se aplica AQUÍ, antes de crear el widget. Streamlit
+        # no permite escribir en session_state[key] de un widget después de
+        # que ese widget ya se haya instanciado en la misma ejecución — por
+        # eso el intento de hacerlo dentro del propio botón (más abajo)
+        # lanzaba StreamlitAPIException. Aplicarlo antes de la línea del
+        # text_input es la única forma correcta de precargar un valor.
+        if "_kw_pendiente_nuevo" in st.session_state:
+            st.session_state["nuevo_local_keywords"] = st.session_state.pop("_kw_pendiente_nuevo")
+
         nombre_nuevo_local = st.text_input("Nombre del establecimiento", key="nuevo_local_nombre")
         nicho_nuevo_local = st.text_input("Nicho (ej: hotel, restaurante, clínica dental)", key="nuevo_local_nicho")
         ciudad_nuevo_local = st.text_input("Ciudad o zona (ej: Sevilla, o Triana, Sevilla)", key="nuevo_local_ciudad",
@@ -4768,7 +4778,7 @@ if vista_activa == "Responder reseña":
                     # la lista de sugerencias.
                     _ya = [k.strip() for k in (keywords_nuevo_local or "").split(",") if k.strip()]
                     _final = _ya + [k for k in _marcadas if k not in _ya]
-                    st.session_state["nuevo_local_keywords"] = ", ".join(_final)
+                    st.session_state["_kw_pendiente_nuevo"] = ", ".join(_final)
                     del st.session_state["_kw_sugeridas_nuevo"]
                     st.rerun()
 
@@ -4804,6 +4814,16 @@ if vista_activa == "Responder reseña":
     # El selector de local vive ahora en la barra lateral, donde permanece
     # visible en todas las secciones. Aquí solo se recoge lo que ya eligió.
     local_activo = st.session_state.local_activo or locales_disponibles[0]
+
+    # Mismo motivo que en el formulario de creación: hay que aplicar el valor
+    # pendiente ANTES de crear el text_input de keywords, o Streamlit lanza
+    # StreamlitAPIException al intentar escribirlo desde el botón de abajo.
+    # La key pendiente lleva el id del local para no mezclar el valor de un
+    # local con el de otro si el usuario cambia de establecimiento entre medias.
+    _kw_pendiente_key = f"_kw_pendiente_edit_{local_activo['id']}"
+    if _kw_pendiente_key in st.session_state:
+        st.session_state[f"edit_keywords_{local_activo['id']}"] = st.session_state.pop(_kw_pendiente_key)
+
     # --- Editar info del local (ciudad, nicho, keywords) ---
     with st.expander("Editar info del local", expanded=False):
         st.caption("Actualiza la ciudad, nicho y palabras clave del local para mejorar la potencia SEO del contenido generado.")
@@ -4875,7 +4895,7 @@ if vista_activa == "Responder reseña":
                 else:
                     _orig = [k.strip() for k in (keywords_edit or "").split(",") if k.strip()]
                     _final_e = _orig + [k for k in _marcadas_e if k.lower() not in _ya_e]
-                    st.session_state[f"edit_keywords_{_lid}"] = ", ".join(_final_e)
+                    st.session_state[f"_kw_pendiente_edit_{_lid}"] = ", ".join(_final_e)
                     del st.session_state[f"_kw_sug_edit_{_lid}"]
                     st.rerun()
 
