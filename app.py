@@ -238,6 +238,22 @@ if not (APP_URL.startswith("http://") or APP_URL.startswith("https://")):
 # 1. Configuración de página limpia y profesional
 st.set_page_config(page_title="Reselia · Reputación con criterio", page_icon="▪", layout="wide", initial_sidebar_state="expanded")
 
+# =========================================================
+# NOINDEX PARA app.reselia.es
+# =========================================================
+# El subdominio de la aplicación no debe aparecer en Google. Detrás de él solo
+# hay una pantalla de acceso: si se indexara, competiría con reselia.es por las
+# búsquedas de marca y llevaría a un login a gente que todavía no es cliente.
+# El SEO tiene que concentrarse en la landing, que es la que vende.
+#
+# Streamlit no permite escribir en <head>, pero Google respeta la directiva
+# robots dentro del cuerpo del documento en la práctica. Combinado con el
+# Disallow del robots.txt de la landing, es suficiente para este caso.
+st.markdown(
+    '<meta name="robots" content="noindex, nofollow">',
+    unsafe_allow_html=True,
+)
+
 # Componentes visuales nuevos de la v2 (selector de vía, sello de auditoría,
 # etapas de progreso). El sistema de diseño base — botones, pestañas,
 # inputs, tipografía — ya vivía en el bloque de estilos de más abajo
@@ -274,17 +290,76 @@ st.markdown("""
         --er-ok:         #2f6b4f;   /* verde aprobado */
     }
 
-    /* Ocultar cromo de Streamlit */
-    #MainMenu, header, footer, .stAppDeployButton, .viewerBadge_container__1QS1h {
+    /* Ocultar cromo de Streamlit
+       -----------------------------------------------------------------
+       CUIDADO al tocar esto: en móvil, el botón que despliega la barra
+       lateral vive DENTRO del <header>. Ocultar el header entero deja la
+       app sin ninguna forma de abrir el menú en el teléfono: la barra sale
+       colapsada y no hay control visible para desplegarla, así que el
+       usuario se queda encerrado en la sección en la que aterrizó, sin
+       poder cambiar de local ni de sección.
+
+       Por eso el header se hace transparente y sin altura en vez de
+       display:none, y el control de la barra lateral se rescata de forma
+       explícita más abajo. */
+    #MainMenu, footer, .stAppDeployButton, .viewerBadge_container__1QS1h {
         display: none !important;
         visibility: hidden !important;
     }
     div[data-testid="stDecoration"],
     div[data-testid="stToolbar"],
-    div[data-testid="stMainMenu"],
-    div[data-testid="stHeader"] {
+    div[data-testid="stMainMenu"] {
         display: none !important;
         height: 0px !important;
+    }
+    /* El header se neutraliza visualmente pero NO se elimina, para que su
+       contenido (el control de la barra lateral) siga existiendo. */
+    header, div[data-testid="stHeader"] {
+        background: transparent !important;
+        height: 0px !important;
+        min-height: 0px !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+
+    /* --- Control de la barra lateral: siempre accesible --- */
+    /* Streamlit ha usado varios nombres para este control según la versión,
+       así que se cubren todos los que han estado en uso. */
+    div[data-testid="stSidebarCollapsedControl"],
+    div[data-testid="collapsedControl"],
+    button[kind="header"],
+    button[data-testid="stBaseButton-headerNoPadding"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 999999 !important;
+    }
+
+    /* En pantallas estrechas se convierte en un botón flotante fijo, con
+       fondo propio para que se vea sobre cualquier contenido. */
+    @media (max-width: 900px) {
+        div[data-testid="stSidebarCollapsedControl"],
+        div[data-testid="collapsedControl"] {
+            position: fixed !important;
+            top: 10px !important;
+            left: 10px !important;
+            background: var(--er-surface) !important;
+            border: 1px solid var(--er-line-2) !important;
+            border-radius: 8px !important;
+            padding: 5px !important;
+            box-shadow: 0 2px 10px rgba(26,34,56,.14) !important;
+        }
+        div[data-testid="stSidebarCollapsedControl"] svg,
+        div[data-testid="collapsedControl"] svg {
+            fill: var(--er-ink) !important;
+            color: var(--er-ink) !important;
+            width: 22px !important;
+            height: 22px !important;
+        }
+        /* Hueco para que el botón flotante no tape el primer título. */
+        section[data-testid="stMain"] .block-container {
+            padding-top: 56px !important;
+        }
     }
     iframe { display: block; }
 
@@ -1544,55 +1619,77 @@ def _obtener_ip_cliente():
     return None
 
 
-LIMITE_ALTAS_FREE_POR_IP = 1
+LIMITE_ALTAS_FREE_POR_IP = 3
+LIMITE_ALTAS_FREE_POR_HORA = 2
 
-# ADVERTENCIA SOBRE ESTE NÚMERO — leer antes de tocarlo
-# ------------------------------------------------------
-# Una IP NO identifica a una persona: identifica a una conexión, y muchas
-# personas comparten conexión. En concreto:
+# POR QUÉ DOS LÍMITES Y NO UNO
+# -----------------------------
+# Una IP no identifica a una persona: identifica a una conexión. Una agencia
+# con oficina sale entera por la misma IP, y los operadores móviles españoles
+# usan CGNAT, con lo que miles de clientes comparten una sola IP pública. Un
+# límite rígido y bajo por IP bloquea sobre todo a gente legítima.
 #
-#   · Una agencia con oficina: todos sus empleados salen por la misma IP
-#     pública. Con el límite en 1, el primero que se registre bloquea a todos
-#     sus compañeros.
-#   · Datos móviles en España: Movistar, Vodafone y Orange usan CGNAT, que hace
-#     que miles de clientes compartan una misma IP pública. Un solo registro
-#     desde datos móviles puede bloquear a cualquier otro que salga por esa IP.
-#   · Coworkings, hoteles, universidades, wifi de cafetería: misma situación.
+# Lo que distingue a un abuso de un uso normal no es CUÁNTAS cuentas se crean,
+# sino a QUÉ RITMO. Tres compañeros de una agencia se registran a lo largo de
+# una mañana; un script crea diez cuentas en dos minutos. Por eso hay dos
+# límites que miden cosas distintas:
 #
-# Con el límite en 3 esto era tolerable, porque una colisión ocasional aún
-# dejaba margen. Con el límite en 1 no hay margen: la primera alta desde una
-# IP compartida cierra la puerta a todos los demás, y desde fuera se ve como
-# "la app no me deja registrarme", sin más explicación.
+#   · LIMITE_ALTAS_FREE_POR_IP (3, histórico): el techo total. Cubre el caso
+#     de una oficina pequeña o de alguien que abre una segunda cuenta de
+#     prueba, sin dejar la puerta abierta indefinidamente.
 #
-# Por eso el mensaje de bloqueo (más abajo) NO es un simple "no puedes":
-# nombra el motivo real —conexión compartida— y da una vía de escape por
-# correo. Durante una beta, un registro perdido en silencio es un cliente
-# potencial perdido sin que te enteres nunca.
+#   · LIMITE_ALTAS_FREE_POR_HORA (2): el freno de ritmo. Un humano no crea
+#     tres cuentas en sesenta minutos; un bot sí. Este es el límite que de
+#     verdad para los ataques, y casi nunca lo nota nadie legítimo.
 #
-# Si durante la beta llegan quejas de gente que no puede registrarse, subir
-# este número a 2 o 3 es el primer arreglo que hay que probar.
+# El resultado práctico: la oficina de tres personas entra sin fricción, y un
+# script que intenta veinte altas se detiene en la tercera.
+
+VENTANA_ALTAS_FREE_HORAS = 1
 
 
 def _ip_supera_limite_altas_free(ip):
     """
-    Cuenta cuántas cuentas Free se han creado desde esta IP EN TOTAL, desde
-    siempre (no por día ni por mes). Tres cuentas gratis por conexión es de
-    sobra para cualquier caso legítimo — probar el producto, enseñárselo a un
-    socio, una segunda cuenta de prueba — y a partir de ahí lo natural es
-    pasar a un plan de pago en vez de seguir abriendo cuentas nuevas.
-    Requiere la tabla 'intentos_registro_free' (ver schema_completo.sql) — si
-    no existe todavía, falla en silencio y no bloquea nada.
+    Comprueba los dos límites de alta gratuita para una IP.
+
+    Devuelve (bloqueado, motivo), donde motivo es 'total', 'ritmo' o None.
+    Distinguirlos importa porque el mensaje al usuario debe ser distinto: un
+    bloqueo por ritmo se resuelve esperando un rato, y conviene decirlo; uno
+    por total no, y ahí toca ofrecer otra vía.
+
+    Requiere la tabla 'intentos_registro_free'. Si no existe o falla la
+    consulta, devuelve (False, None): ante un fallo de infraestructura se
+    deja pasar el alta en vez de bloquear a alguien legítimo.
     """
     if not ip:
-        return False
+        return False, None
+
     try:
-        resultado = supabase.table("intentos_registro_free") \
+        total = supabase.table("intentos_registro_free") \
             .select("id", count="exact") \
             .eq("ip", ip) \
             .execute()
-        return (resultado.count or 0) >= LIMITE_ALTAS_FREE_POR_IP
+        if (total.count or 0) >= LIMITE_ALTAS_FREE_POR_IP:
+            return True, "total"
     except Exception:
-        return False
+        return False, None
+
+    # Freno de ritmo. Se consulta aparte porque necesita filtrar por fecha, y
+    # porque si esta segunda consulta fallara no queremos perder el resultado
+    # del límite total, que ya se ha comprobado bien.
+    try:
+        desde = (datetime.utcnow() - timedelta(hours=VENTANA_ALTAS_FREE_HORAS)).isoformat()
+        recientes = supabase.table("intentos_registro_free") \
+            .select("id", count="exact") \
+            .eq("ip", ip) \
+            .gte("creado_en", desde) \
+            .execute()
+        if (recientes.count or 0) >= LIMITE_ALTAS_FREE_POR_HORA:
+            return True, "ritmo"
+    except Exception:
+        pass
+
+    return False, None
 
 
 def _registrar_intento_alta_free(ip):
@@ -1634,18 +1731,20 @@ def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_pla
         return False, "Ya existe una cuenta con ese email. Inicia sesión en su lugar."
 
     ip_cliente = _obtener_ip_cliente()
-    if _ip_supera_limite_altas_free(ip_cliente):
-        # El mensaje nombra la conexión compartida a propósito. Con el límite
-        # en 1, la mayoría de los bloqueos NO son abusos: son la segunda
-        # persona de una oficina, o alguien en datos móviles bajo CGNAT. Si el
-        # mensaje solo dijera "no puedes", esa persona se iría pensando que la
-        # app está rota. Dar el correo convierte un registro perdido en un
-        # email que puedes atender a mano.
+    _bloqueado, _motivo = _ip_supera_limite_altas_free(ip_cliente)
+    if _bloqueado:
+        if _motivo == "ritmo":
+            # Bloqueo temporal: se resuelve solo. Decirlo evita que alguien
+            # legítimo dé por hecho que la app está rota y se marche.
+            return False, (
+                "Se han creado varias cuentas desde esta conexión en muy poco "
+                "tiempo. Espera una hora y vuelve a intentarlo. Si necesitas "
+                "acceso ahora mismo, escríbenos a hola@reselia.es."
+            )
         return False, (
-            "Ya existe una cuenta gratuita creada desde esta conexión. "
-            "Si estás en una oficina, un coworking o datos móviles, es posible "
-            "que compartas IP con otra persona que ya se registró. "
-            "Escríbenos a hola@reselia.es y te damos acceso en el momento."
+            "Ya se han creado varias cuentas gratuitas desde esta conexión. "
+            "Si estás en una oficina o un coworking y necesitas cuentas para "
+            "más compañeros, escríbenos a hola@reselia.es y te las damos."
         )
 
     try:
@@ -3990,14 +4089,32 @@ if st.session_state.mostrar_pagina_planes:
 # =========================================================
 st.markdown(f"""
     <style>
-    #MainMenu, header, footer, .stAppDeployButton, .viewerBadge_container__1QS1h {{
+    /* Mismo criterio que el bloque de estilos principal: el header NO se
+       elimina, porque en móvil contiene el control que despliega la barra
+       lateral. Si aquí se pusiera display:none, este bloque —que se inyecta
+       después— revertiría el arreglo y el menú volvería a ser inalcanzable
+       desde el teléfono. */
+    #MainMenu, footer, .stAppDeployButton, .viewerBadge_container__1QS1h {{
         display: none !important;
         visibility: hidden !important;
     }}
     div[data-testid="stDecoration"], div[data-testid="stToolbar"],
-    div[data-testid="stMainMenu"], div[data-testid="stHeader"] {{
+    div[data-testid="stMainMenu"] {{
         display: none !important;
         height: 0px !important;
+    }}
+    header, div[data-testid="stHeader"] {{
+        background: transparent !important;
+        height: 0px !important;
+        min-height: 0px !important;
+        box-shadow: none !important;
+    }}
+    div[data-testid="stSidebarCollapsedControl"],
+    div[data-testid="collapsedControl"] {{
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 999999 !important;
     }}
     /* El botón de acción principal (generar respuesta) usa SIEMPRE el índigo de la
        app, nunca el color de marca guardado en la BD (que podía ser morado y salir
@@ -5055,26 +5172,79 @@ if vista_activa == "Analítica":
 
             st.divider()
             st.markdown("**Informe de marca blanca para reenviar a tus clientes**")
-            try:
-                # El informe usa siempre el score de toda la agencia (no el del
-                # local seleccionado arriba en pantalla).
-                score_agencia = calcular_reputation_score(historico, historico_anterior, dias_periodo)
 
-                # Si el usuario ha usado la calculadora de ROI arriba, incluimos ese
-                # cálculo en el informe. Los valores viven en session_state por sus keys.
-                roi_informe = None
-                fact_roi = st.session_state.get("roi_facturacion", 0)
-                est_act_roi = st.session_state.get("roi_estrellas_act", 0.0)
-                est_obj_roi = st.session_state.get("roi_estrellas_obj", 0.0)
-                if fact_roi and est_obj_roi > est_act_roi:
-                    roi_informe = calcular_roi_estrellas(fact_roi, est_act_roi, est_obj_roi)
+            # ---------------------------------------------------------------
+            # GENERACIÓN BAJO DEMANDA
+            # ---------------------------------------------------------------
+            # Antes, todo este bloque se ejecutaba SIEMPRE que se abría la
+            # sección de Analítica, sin que nadie pidiera el informe. En cada
+            # carga —y en cada rerun provocado por cualquier clic de la
+            # sección— se hacía lo siguiente:
+            #
+            #   1. Construir el PDF entero con ReportLab (decenas de párrafos,
+            #      tablas y un gráfico renderizado).
+            #   2. Llamar al modelo de IA para redactar el resumen ejecutivo.
+            #      Segundos de espera y coste por token, cada vez.
+            #   3. Codificar el PDF a base64 e incrustarlo en el HTML de la
+            #      página. Un informe de 500 KB se convierte en unos 680 KB de
+            #      texto metido dentro del documento.
+            #
+            # De ahí venía la lentitud, y el paso 3 explica también parte del
+            # consumo de memoria: el PDF entero vivía en el árbol de la página
+            # aunque nadie fuera a descargarlo.
+            #
+            # Ahora nada de eso ocurre hasta que se pulsa el botón. El
+            # resultado se guarda en session_state con una clave que incluye
+            # el periodo, así que volver a la sección no lo regenera, pero
+            # cambiar de periodo sí produce un informe nuevo.
+            _clave_pdf = f"_pdf_{agencia['id']}_{fecha_desde}_{fecha_hasta_dt.strftime('%Y%m%d')}"
 
-                pdf_bytes = generar_informe_pdf_mensual(
-                    agencia, historico, historico_anterior, st.session_state.locales_agencia,
-                    id_a_nombre_usuario, contenido_seo_periodo, periodo_texto,
-                    cliente_ia=client, resultado_score=score_agencia, dias_periodo=dias_periodo,
-                    roi=roi_informe, roi_estrellas_actuales=est_act_roi, roi_estrellas_objetivo=est_obj_roi
-                )
+            st.caption(
+                "El informe incluye la evolución del periodo, el Reputation Score "
+                "y un resumen ejecutivo redactado con IA. Tarda unos segundos en "
+                "prepararse."
+            )
+
+            if st.button("Generar informe PDF", key="btn_generar_pdf", use_container_width=True):
+                try:
+                    # El score del informe es siempre el de toda la agencia, no
+                    # el del local seleccionado arriba en pantalla.
+                    score_agencia = calcular_reputation_score(historico, historico_anterior, dias_periodo)
+
+                    # Si se ha usado la calculadora de ROI de arriba, se incluye
+                    # ese cálculo. Los valores viven en session_state por sus keys.
+                    roi_informe = None
+                    fact_roi = st.session_state.get("roi_facturacion", 0)
+                    est_act_roi = st.session_state.get("roi_estrellas_act", 0.0)
+                    est_obj_roi = st.session_state.get("roi_estrellas_obj", 0.0)
+                    if fact_roi and est_obj_roi > est_act_roi:
+                        roi_informe = calcular_roi_estrellas(fact_roi, est_act_roi, est_obj_roi)
+
+                    with st.spinner("Preparando el informe…"):
+                        pdf_bytes = generar_informe_pdf_mensual(
+                            agencia, historico, historico_anterior, st.session_state.locales_agencia,
+                            id_a_nombre_usuario, contenido_seo_periodo, periodo_texto,
+                            cliente_ia=client, resultado_score=score_agencia, dias_periodo=dias_periodo,
+                            roi=roi_informe, roi_estrellas_actuales=est_act_roi, roi_estrellas_objetivo=est_obj_roi
+                        )
+
+                    # Solo se guarda el informe recién pedido. Sin esta limpieza,
+                    # cambiar de periodo varias veces iría acumulando un PDF
+                    # completo en memoria por cada periodo consultado.
+                    for _k in [k for k in st.session_state if k.startswith(f"_pdf_{agencia['id']}_")]:
+                        del st.session_state[_k]
+
+                    st.session_state[_clave_pdf] = pdf_bytes
+
+                except Exception as e:
+                    causa_raiz = log_error_completo("generar informe PDF", e)
+                    st.error(redactar_secretos(f"No se pudo generar el informe: {e}"))
+                    st.caption(f"Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
+
+            # El enlace de descarga solo existe si ya hay un informe generado
+            # para este periodo concreto.
+            if st.session_state.get(_clave_pdf):
+                pdf_bytes = st.session_state[_clave_pdf]
                 nombre_pdf = f"informe_{agencia['nombre_agencia'].replace(' ', '_')}_{fecha_hasta_dt.strftime('%Y%m%d')}.pdf"
                 # Descarga por enlace con data URI en vez de st.download_button.
                 # Motivo: detrás del proxy de Render, download_button a veces sirve
@@ -5100,10 +5270,7 @@ if vista_activa == "Analítica":
                     """,
                     unsafe_allow_html=True,
                 )
-            except Exception as e:
-                causa_raiz = log_error_completo("generar informe PDF", e)
-                st.error(redactar_secretos(f"No se pudo generar el informe: {e}"))
-                st.caption(f"Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
+                st.caption(f"Informe listo · {len(pdf_bytes) // 1024} KB")
 
     except Exception as e:
         st.error(redactar_secretos(f"No se pudo cargar la analítica: {e}"))
