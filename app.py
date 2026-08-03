@@ -2515,6 +2515,125 @@ def generar_mensaje_whatsapp(nombre_local, enlace_resena):
     return "https://wa.me/?text=" + urllib.parse.quote(mensaje)
 
 
+def sugerir_keywords_seo(client, nicho, ciudad=None, nombre_local=None):
+    """
+    Propone palabras clave de SEO local a partir del nicho y la zona del negocio.
+
+    POR QUÉ ESTO NO ES UNA LISTA DE SINÓNIMOS
+    ------------------------------------------
+    Lo fácil sería devolver variaciones del nicho ("dentista", "odontólogo",
+    "clínica dental"). Eso no sirve de nada: son términos genéricos, con una
+    competencia altísima, por los que un negocio local no va a posicionar
+    jamás, y además no es lo que la gente escribe realmente en Google.
+
+    Lo que sí funciona en SEO local son las búsquedas con intención concreta,
+    que se agrupan en cuatro familias:
+
+      · LOCAL      — el término más la zona ("clínica dental en Chamberí").
+                     Es la base: menos volumen, pero convierte muchísimo más.
+      · SERVICIO   — lo que la persona quiere hacer, no cómo se llama el
+                     negocio ("implantes dentales", "blanqueamiento").
+      · PROBLEMA   — cómo lo describe alguien que no conoce la jerga del
+                     sector ("me duele una muela", "dentista urgencia"). Aquí
+                     está el tráfico que la competencia suele ignorar.
+      · CONFIANZA  — la búsqueda de quien ya está decidiendo ("mejor dentista
+                     de Madrid", "dentista sin dolor", "opiniones").
+
+    Devolver las keywords agrupadas por familia no es un adorno: permite que
+    el usuario elija con criterio en vez de aceptar un bloque a ciegas, y le
+    enseña de paso cómo se piensa el SEO local. Ese aprendizaje es parte del
+    valor que justifica el precio de la herramienta.
+
+    Devuelve una lista de diccionarios {termino, familia, motivo}. Ante
+    cualquier fallo devuelve lista vacía: la funcionalidad es un extra y no
+    debe impedir crear el local.
+    """
+    nicho = (nicho or "").strip()
+    if not nicho:
+        return []
+
+    zona = (ciudad or "").strip()
+
+    if zona:
+        contexto_zona = (
+            f"El negocio está en {zona}. Las keywords de la familia LOCAL deben usar "
+            f"esta zona de forma natural, tal y como la escribiría alguien de allí: si "
+            f"la zona es un barrio, mézclala también con la ciudad en algunas variantes."
+        )
+    else:
+        contexto_zona = (
+            "No se conoce la ciudad del negocio. NO inventes ninguna ubicación. "
+            "En la familia LOCAL usa marcadores del tipo 'cerca de mí' o deja el "
+            "hueco de la zona indicado con [ciudad] para que el usuario lo complete."
+        )
+
+    prompt = f"""Eres consultor de SEO local con quince años de experiencia posicionando negocios de barrio en Google. Trabajas para un negocio del sector: {nicho}.
+
+{contexto_zona}
+
+Propón 12 palabras clave repartidas entre estas cuatro familias (3 de cada una):
+
+LOCAL — El servicio más la ubicación. La base del SEO local: poco volumen, altísima conversión.
+SERVICIO — Lo que la persona quiere resolver, en sus palabras, no en la jerga del sector.
+PROBLEMA — Cómo lo busca alguien que no sabe cómo se llama lo que necesita. Aquí está el tráfico que casi nadie trabaja.
+CONFIANZA — Búsquedas de quien ya está comparando y a punto de decidir.
+
+CRITERIOS INNEGOCIABLES
+- Escribe las keywords tal y como las teclea una persona real en Google, en minúscula y sin signos de puntuación. La gente no escribe "Clínica Dental Premium en Madrid Centro", escribe "dentista madrid centro".
+- Nada de términos de una sola palabra ni genéricos de competencia nacional ("dentista", "abogado"): un negocio local no va a posicionar por ahí en la vida.
+- Entre dos y cinco palabras por keyword. Ese es el rango donde vive la intención real.
+- Prohibido inventar servicios que este tipo de negocio podría no ofrecer. Quédate en lo que hace con seguridad cualquier negocio de este sector.
+- El campo motivo explica en UNA frase corta por qué esa búsqueda merece la pena, dirigida al dueño del negocio, sin jerga de marketing.
+
+Devuelve EXCLUSIVAMENTE este JSON, sin texto alrededor ni bloques de código:
+
+{{"keywords": [{{"termino": "...", "familia": "LOCAL", "motivo": "..."}}]}}"""
+
+    try:
+        respuesta = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1500,
+            temperature=0.7,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        bruto = ""
+        for bloque in respuesta.content:
+            if getattr(bloque, "type", None) == "text":
+                bruto = bloque.text.strip()
+                break
+
+        if bruto.startswith("```"):
+            bruto = re.sub(r"^```(?:json)?|```$", "", bruto).strip()
+
+        datos = json.loads(bruto)
+
+        familias_validas = {"LOCAL", "SERVICIO", "PROBLEMA", "CONFIANZA"}
+        limpias = []
+        vistas = set()
+        for k in datos.get("keywords", []):
+            termino = (k.get("termino") or "").strip().lower()
+            familia = (k.get("familia") or "").strip().upper()
+            # Se descarta lo que no cumple: términos vacíos, de una sola palabra
+            # (genéricos inútiles para SEO local), duplicados o de familia
+            # desconocida. Vale más devolver ocho keywords buenas que doce con
+            # relleno que el usuario tendrá que filtrar a mano.
+            if not termino or len(termino.split()) < 2:
+                continue
+            if termino in vistas or familia not in familias_validas:
+                continue
+            vistas.add(termino)
+            limpias.append({
+                "termino": termino,
+                "familia": familia,
+                "motivo": (k.get("motivo") or "").strip(),
+            })
+        return limpias
+
+    except Exception:
+        return []
+
+
 def generar_contenido_seo_extra(client, nombre_local, nicho, seo_keywords, tipo_contenido, ciudad=None):
     """
     Genera contenido SEO de alto impacto (posts de Google Business, descripciones de
@@ -4587,6 +4706,72 @@ if vista_activa == "Responder reseña":
         ciudad_nuevo_local = st.text_input("Ciudad o zona (ej: Sevilla, o Triana, Sevilla)", key="nuevo_local_ciudad",
                                             help="Clave para el SEO local: permite generar contenido tipo 'mejor restaurante en Sevilla'.")
         keywords_nuevo_local = st.text_input("Palabras clave SEO, separadas por comas", key="nuevo_local_keywords")
+
+        # ---- Sugeridor de keywords -------------------------------------
+        # Se coloca aquí, y no en el panel de agencia, porque las keywords
+        # pertenecen a cada local: una agencia puede llevar una clínica en
+        # Madrid y un restaurante en Sevilla, y no comparten ni un término.
+        # Este formulario ya pide nicho y ciudad, que es justo el contexto
+        # que necesita el modelo para proponer algo útil.
+        _nicho_actual = (nicho_nuevo_local or "").strip()
+        if st.button("Sugerir palabras clave con IA",
+                     key="btn_sugerir_kw_nuevo",
+                     use_container_width=True,
+                     disabled=not _nicho_actual,
+                     help="Escribe primero el nicho del negocio." if not _nicho_actual else None):
+            with st.spinner("Analizando el sector…"):
+                st.session_state["_kw_sugeridas_nuevo"] = sugerir_keywords_seo(
+                    client, _nicho_actual, ciudad_nuevo_local, nombre_nuevo_local
+                )
+            # Al pedir sugerencias nuevas se limpian las marcas anteriores, o
+            # arrastraríamos selecciones de un nicho que ya no aplica.
+            for _k in [k for k in st.session_state if k.startswith("_kwsel_nuevo_")]:
+                del st.session_state[_k]
+
+        _sugeridas = st.session_state.get("_kw_sugeridas_nuevo") or []
+        if _sugeridas:
+            st.caption(
+                "Marca las que encajen con el negocio y pulsa «Añadir seleccionadas». "
+                "Están agrupadas por tipo de búsqueda."
+            )
+            _explicacion = {
+                "LOCAL":     "Servicio + zona. Poco volumen, pero es quien más reserva.",
+                "SERVICIO":  "Lo que la persona quiere resolver, en sus palabras.",
+                "PROBLEMA":  "Cómo lo busca quien no conoce la jerga del sector.",
+                "CONFIANZA": "Búsquedas de quien ya está comparando y a punto de decidir.",
+            }
+            for _fam in ("LOCAL", "SERVICIO", "PROBLEMA", "CONFIANZA"):
+                _grupo = [k for k in _sugeridas if k["familia"] == _fam]
+                if not _grupo:
+                    continue
+                st.markdown(f"**{_fam.capitalize()}** — {_explicacion[_fam]}")
+                for _i, _kw in enumerate(_grupo):
+                    st.checkbox(
+                        _kw["termino"],
+                        key=f"_kwsel_nuevo_{_fam}_{_i}",
+                        help=_kw["motivo"] or None,
+                    )
+
+            if st.button("Añadir seleccionadas", key="btn_aplicar_kw_nuevo", use_container_width=True):
+                _marcadas = []
+                for _fam in ("LOCAL", "SERVICIO", "PROBLEMA", "CONFIANZA"):
+                    _grupo = [k for k in _sugeridas if k["familia"] == _fam]
+                    for _i, _kw in enumerate(_grupo):
+                        if st.session_state.get(f"_kwsel_nuevo_{_fam}_{_i}"):
+                            _marcadas.append(_kw["termino"])
+
+                if not _marcadas:
+                    st.warning("No has marcado ninguna.")
+                else:
+                    # Se respeta lo que el usuario ya hubiera escrito a mano y
+                    # se evitan duplicados: el campo es la fuente de verdad, no
+                    # la lista de sugerencias.
+                    _ya = [k.strip() for k in (keywords_nuevo_local or "").split(",") if k.strip()]
+                    _final = _ya + [k for k in _marcadas if k not in _ya]
+                    st.session_state["nuevo_local_keywords"] = ", ".join(_final)
+                    del st.session_state["_kw_sugeridas_nuevo"]
+                    st.rerun()
+
         if st.button("Crear establecimiento", key="crear_establecimiento_btn"):
             puede, motivo = puede_agencia_anadir_local(agencia, locales_disponibles)
             if not puede:
@@ -4633,6 +4818,67 @@ if vista_activa == "Responder reseña":
         keywords_edit = st.text_input("Palabras clave SEO, separadas por comas",
                                       value=", ".join(local_activo.get("seo_keywords", [])),
                                       key=f"edit_keywords_{local_activo['id']}")
+
+        # ---- Sugeridor de keywords (local ya existente) -----------------
+        # Las claves de session_state llevan el id del local para que las
+        # sugerencias de un local no se mezclen con las de otro al cambiar de
+        # establecimiento en la barra lateral.
+        _lid = local_activo["id"]
+        _nicho_e = (nicho_edit or "").strip()
+        if st.button("Sugerir palabras clave con IA",
+                     key=f"btn_sugerir_kw_edit_{_lid}",
+                     use_container_width=True,
+                     disabled=not _nicho_e,
+                     help="Rellena primero el nicho." if not _nicho_e else None):
+            with st.spinner("Analizando el sector…"):
+                st.session_state[f"_kw_sug_edit_{_lid}"] = sugerir_keywords_seo(
+                    client, _nicho_e, ciudad_edit, local_activo.get("nombre")
+                )
+            for _k in [k for k in st.session_state if k.startswith(f"_kwsel_edit_{_lid}_")]:
+                del st.session_state[_k]
+
+        _sug_e = st.session_state.get(f"_kw_sug_edit_{_lid}") or []
+        if _sug_e:
+            _expl_e = {
+                "LOCAL":     "Servicio + zona. Poco volumen, pero es quien más reserva.",
+                "SERVICIO":  "Lo que la persona quiere resolver, en sus palabras.",
+                "PROBLEMA":  "Cómo lo busca quien no conoce la jerga del sector.",
+                "CONFIANZA": "Búsquedas de quien ya está comparando y a punto de decidir.",
+            }
+            _ya_e = [k.strip().lower() for k in (keywords_edit or "").split(",") if k.strip()]
+            st.caption("Marca las que quieras añadir a las que ya tiene el local.")
+
+            for _fam in ("LOCAL", "SERVICIO", "PROBLEMA", "CONFIANZA"):
+                _grupo_e = [k for k in _sug_e if k["familia"] == _fam]
+                if not _grupo_e:
+                    continue
+                st.markdown(f"**{_fam.capitalize()}** — {_expl_e[_fam]}")
+                for _i, _kw in enumerate(_grupo_e):
+                    _repetida = _kw["termino"] in _ya_e
+                    st.checkbox(
+                        _kw["termino"] + (" · ya la tienes" if _repetida else ""),
+                        key=f"_kwsel_edit_{_lid}_{_fam}_{_i}",
+                        disabled=_repetida,
+                        help=_kw["motivo"] or None,
+                    )
+
+            if st.button("Añadir seleccionadas", key=f"btn_aplicar_kw_edit_{_lid}", use_container_width=True):
+                _marcadas_e = []
+                for _fam in ("LOCAL", "SERVICIO", "PROBLEMA", "CONFIANZA"):
+                    _grupo_e = [k for k in _sug_e if k["familia"] == _fam]
+                    for _i, _kw in enumerate(_grupo_e):
+                        if st.session_state.get(f"_kwsel_edit_{_lid}_{_fam}_{_i}"):
+                            _marcadas_e.append(_kw["termino"])
+
+                if not _marcadas_e:
+                    st.warning("No has marcado ninguna.")
+                else:
+                    _orig = [k.strip() for k in (keywords_edit or "").split(",") if k.strip()]
+                    _final_e = _orig + [k for k in _marcadas_e if k.lower() not in _ya_e]
+                    st.session_state[f"edit_keywords_{_lid}"] = ", ".join(_final_e)
+                    del st.session_state[f"_kw_sug_edit_{_lid}"]
+                    st.rerun()
+
         if st.button("Guardar cambios", key=f"guardar_edit_local_{local_activo['id']}"):
             try:
                 keywords_lista_edit = [k.strip() for k in keywords_edit.split(",") if k.strip()]
