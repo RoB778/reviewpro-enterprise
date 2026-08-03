@@ -231,7 +231,7 @@ if not (APP_URL.startswith("http://") or APP_URL.startswith("https://")):
         f"empezar por \"https://\". Revisa en Render → Settings → Environment que la "
         f"variable APP_URL no tenga espacios ni caracteres invisibles al principio, y "
         f"que sea exactamente tu URL completa, por ejemplo: "
-        f"https://reviewpro-enterprise-1.onrender.com"
+        f"https://app.reselia.es"
     )
     st.stop()
 
@@ -1261,7 +1261,7 @@ def agencia_en_beta(agencia):
             fecha_alta = fecha_alta.replace(tzinfo=None)
     except (ValueError, AttributeError):
         return False
-    dias_beta = agencia.get("dias_beta", 15) or 15
+    dias_beta = agencia.get("dias_beta", 7) or 7
     return datetime.utcnow() < fecha_alta + timedelta(days=dias_beta)
 
 # --- Constantes de la calculadora de ROI ---
@@ -1750,7 +1750,7 @@ def registrar_agencia_gratuita(nombre_agencia, nombre_local, email, password_pla
     try:
         nueva_agencia = supabase.table("agencias").insert({
             "nombre_agencia": nombre_agencia.strip(),
-            "logo_url": "https://dummyimage.com/220x60/141416/F4F4F2&text=Enterprise+Review",
+            "logo_url": "https://dummyimage.com/220x60/1a2238/E9C46A&text=Reselia",
             "color_marca": "#2A2C31",
             "plan": "free"
         }).execute()
@@ -1850,7 +1850,7 @@ def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plan
     try:
         datos_agencia = {
             "nombre_agencia": nombre_agencia.strip(),
-            "logo_url": "https://dummyimage.com/220x60/141416/F4F4F2&text=Enterprise+Review",
+            "logo_url": "https://dummyimage.com/220x60/1a2238/E9C46A&text=Reselia",
             "color_marca": "#2A2C31",
             "plan": plan
         }
@@ -3672,7 +3672,7 @@ if not st.session_state.sesion_activa:
         # cuenta y no tiene forma de entrar. El mailto lleva asunto y cuerpo ya
         # rellenados (incluida la petición del email con el que pagó) para que
         # el cliente solo tenga que darle a enviar.
-        _email_soporte = "enterprise-review@gmail.com"
+        _email_soporte = "hola@reselia.es"
         _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
         _cuerpo = urllib.parse.quote(
             "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
@@ -4665,7 +4665,7 @@ if vista_activa == "Responder reseña":
 
     if agencia_en_beta(agencia):
         creado_en_dt = datetime.fromisoformat(agencia["creado_en"].replace("Z", "+00:00")).replace(tzinfo=None)
-        dias_restantes = (creado_en_dt + timedelta(days=agencia.get("dias_beta", 15) or 15) - datetime.utcnow()).days
+        dias_restantes = (creado_en_dt + timedelta(days=agencia.get("dias_beta", 7) or 7) - datetime.utcnow()).days
         dias_restantes = max(0, dias_restantes)
         st.info(f"🎁 Estás en el periodo de beta: respuestas ilimitadas durante **{dias_restantes} día(s) más**.")
     else:
