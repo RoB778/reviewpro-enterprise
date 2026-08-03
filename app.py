@@ -1237,7 +1237,7 @@ def agencia_en_beta(agencia):
 
     Cómo funciona la ventana: cada agencia tiene su propia fecha de alta
     (creado_en) y su propio nº de días de beta (dias_beta, columna en Supabase,
-    por defecto 15 — ver migracion_dias_beta.sql). Los primeros clientes de la
+    por defecto 7 — ver migracion_dias_beta.sql). Los primeros clientes de la
     semana de lanzamiento se suben a mano a 30 días desde el Table Editor de
     Supabase. Así cada agencia caduca en su propia fecha, sin tocar código ni
     reiniciar nada cuando se les acaba el plazo — simplemente, a partir de esa
