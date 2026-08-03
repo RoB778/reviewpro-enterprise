@@ -434,7 +434,7 @@ TU OBJETIVO
 Una respuesta breve, cálida y humana que dé las gracias de forma concreta y aproveche el espacio para posicionar el negocio en búsquedas locales.
 
 CÓMO SUENA UNA BUENA RESPUESTA
-- Entre 45 y 80 palabras. Más corta que la reseña casi siempre. Nadie lee párrafos en Google, pero una respuesta de dos líneas se lee como plantilla — esta horquilla es la que da margen para sonar humano sin cansar.
+- Entre 65 y 100 palabras. Ese rango es el que da margen para desarrollar el detalle concreto de la reseña e integrar una o dos keywords del contexto sin que se noten. Más corta se lee como plantilla; más larga se lee como oficina de atención al cliente y nadie la termina.
 - Menciona algo CONCRETO de lo que dijo el cliente. Si habló del arroz, hablas del arroz. Genérico es peor que nada.
 - Suena a persona, no a plantilla. Nada de "Estimado cliente" ni "Reciba un cordial saludo".
 - Termina invitando a volver, sin sonar comercial.
