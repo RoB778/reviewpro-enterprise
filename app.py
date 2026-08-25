@@ -26,6 +26,15 @@ from blindaje import (
     MODO_RAPIDO,
     MODO_BLINDADO,
 )
+import motor_seo
+from motor_seo import (
+    construir_cuestionario,
+    sugerir_preguntas_extra,
+    generar_contenido_seo,
+    proponer_hechos_desde_web,
+    leer_ficha,
+    SI, NO, NO_CONSTA,
+)
 from ui import (
     CSS_GLOBAL,
     ETAPAS_RAPIDA,
@@ -2506,6 +2515,56 @@ def generar_qr_png(url_destino):
     return buffer.getvalue()
 
 
+# =============================================================================
+# FICHA DE VERDAD — acceso a datos (motor SEO anclado a hechos)
+# =============================================================================
+
+def cargar_ficha_local(local_id):
+    """Trae todas las filas de hechos_local de un local. Lista vacía si no hay
+    ninguna o si la tabla aún no existe (se degrada sin romper la app)."""
+    try:
+        r = supabase.table("hechos_local").select("*").eq("local_id", local_id).execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+def guardar_hecho_local(local_id, agencia_id, clave, estado,
+                        valor=None, evidencia_anio=None, evidencia_entidad=None):
+    """Upsert de un hecho de la Ficha (por par local_id+clave)."""
+    try:
+        supabase.table("hechos_local").upsert({
+            "local_id": local_id,
+            "agencia_id": agencia_id,
+            "clave": clave,
+            "estado": estado,
+            "valor": (valor or None),
+            "evidencia_anio": (evidencia_anio or None),
+            "evidencia_entidad": (evidencia_entidad or None),
+        }, on_conflict="local_id,clave").execute()
+        return True
+    except Exception as e:
+        log_error_completo("guardar hecho de la Ficha", e)
+        return False
+
+
+def hechos_afirmables_texto(local_id, nicho):
+    """Devuelve los datos verificados de un local como texto plano, listo para
+    inyectar en blindaje.generar_respuesta. Cadena vacía si no hay ninguno:
+    así las respuestas a reseñas se apoyan en hechos reales sin inventar nada."""
+    try:
+        filas = cargar_ficha_local(local_id)
+        if not filas:
+            return ""
+        ficha = leer_ficha(filas)
+        lex = motor_seo.compilar_lexico(ficha, nicho or "general")
+        if not lex.afirmables:
+            return ""
+        return "\n".join(f"- {a}" for a in lex.afirmables)
+    except Exception:
+        return ""
+
+
 def generar_mensaje_whatsapp(nombre_local, enlace_resena):
     """Construye el enlace wa.me con un mensaje precargado para pedir una reseña."""
     mensaje = (
@@ -4899,6 +4958,157 @@ if vista_activa == "Responder reseña":
                     del st.session_state[f"_kw_sug_edit_{_lid}"]
                     st.rerun()
 
+        # =====================================================================
+        # FICHA DE DATOS VERIFICADOS (motor SEO anclado)
+        # =====================================================================
+        # Aquí el operador de la agencia confirma qué ofrece REALMENTE el negocio.
+        # Solo lo confirmado aquí puede afirmarse en el contenido generado. Es lo
+        # que impide que el motor invente parking, estrellas Michelin o servicios
+        # inexistentes. Pensado para el operador de la agencia (que entiende de
+        # SEO), no para el hostelero final.
+        st.divider()
+        st.markdown("### Ficha de datos verificados")
+        st.caption(
+            "Confirma qué ofrece el negocio. El motor SEO solo puede afirmar lo que marques aquí: "
+            "es lo que evita que invente servicios, premios o instalaciones que no existen."
+        )
+
+        _lid_f = local_activo["id"]
+        _nicho_f = (nicho_edit or local_activo.get("nicho") or "general").strip()
+        _ciudad_f = (ciudad_edit or local_activo.get("ciudad") or "").strip()
+
+        # Cargar estado actual de la ficha desde Supabase (una vez por render).
+        _ficha_actual = {f["clave"]: f for f in cargar_ficha_local(_lid_f)}
+
+        # Construir el cuestionario base del nicho (10-12 preguntas estables) +
+        # las preguntas extra por IA que el operador haya generado antes.
+        _cuestionario = construir_cuestionario(_nicho_f, tope=12)
+        _extra_key = f"_ficha_extra_{_lid_f}"
+        _preguntas_extra = st.session_state.get(_extra_key, [])
+
+        # Botón para pedir a la IA preguntas específicas del sector (solo pregunta).
+        col_extra1, col_extra2 = st.columns([3, 1])
+        with col_extra2:
+            if st.button("Sugerir + preguntas", key=f"btn_pre_extra_{_lid_f}",
+                         use_container_width=True,
+                         help="La IA propone preguntas específicas de tu sector. No inventa datos: solo pregunta."):
+                with st.spinner("Analizando el sector…"):
+                    _ya = [h.pregunta for h in _cuestionario]
+                    st.session_state[_extra_key] = sugerir_preguntas_extra(
+                        client, _nicho_f, _ciudad_f, _ya
+                    )
+                st.rerun()
+
+        # Enriquecimiento web (fase C, básico): leer la web del negocio y proponer.
+        with col_extra1:
+            _web_key = f"_ficha_web_url_{_lid_f}"
+            _web_url = st.text_input(
+                "¿Tiene web propia? Pégala y detectamos datos para que los confirmes (opcional)",
+                key=_web_key, placeholder="https://...",
+            )
+        if _web_url and st.button("Detectar datos desde la web", key=f"btn_web_{_lid_f}"):
+            with st.spinner("Leyendo la web del negocio…"):
+                _propuestas = proponer_hechos_desde_web(_web_url, _nicho_f)
+            if _propuestas:
+                st.session_state[f"_ficha_web_prop_{_lid_f}"] = _propuestas
+                st.success(f"Detectados {len(_propuestas)} datos. Revísalos y confírmalos abajo.")
+            else:
+                st.info("No se detectaron datos claros en la web (o no se pudo acceder). Rellena la ficha a mano.")
+
+        _propuestas_web = st.session_state.get(f"_ficha_web_prop_{_lid_f}", [])
+        if _propuestas_web:
+            st.markdown("**Detectado en la web** (confirma solo lo que sea cierto):")
+            for _p in _propuestas_web:
+                st.caption(f"· {_p['pregunta']}  \n  _evidencia:_ {_p['evidencia_texto'][:120]}")
+
+        # --- Render del formulario: un control por hecho ---------------------
+        todas_las_preguntas = list(_cuestionario) + [
+            motor_seo.DefHecho(clave=e["clave"], pregunta=e["pregunta"],
+                               familia=e.get("familia", "Específico del sector"), tipo="si_no")
+            for e in _preguntas_extra
+        ]
+
+        # Agrupar por familia para que el formulario sea legible.
+        _por_familia = {}
+        for _h in todas_las_preguntas:
+            _por_familia.setdefault(_h.familia, []).append(_h)
+
+        _valores_ficha = {}  # clave -> dict con lo que hay que guardar
+        _opciones_estado = ["Sin verificar", "Sí", "No"]
+        _mapa_estado_a_val = {"Sin verificar": NO_CONSTA, "Sí": SI, "No": NO}
+        _mapa_val_a_estado = {NO_CONSTA: "Sin verificar", SI: "Sí", NO: "No", "": "Sin verificar"}
+
+        for _fam, _hechos in _por_familia.items():
+            st.markdown(f"**{_fam}**")
+            for _h in _hechos:
+                _fila = _ficha_actual.get(_h.clave, {})
+                _estado_actual = _mapa_val_a_estado.get(_fila.get("estado", NO_CONSTA), "Sin verificar")
+
+                if _h.tipo == "texto":
+                    # Hecho de texto: un input. Vacío = NO_CONSTA; con texto = SI.
+                    _val_txt = st.text_input(
+                        _h.pregunta,
+                        value=_fila.get("valor") or "",
+                        key=f"ficha_{_lid_f}_{_h.clave}",
+                    )
+                    _valores_ficha[_h.clave] = {
+                        "estado": SI if _val_txt.strip() else NO_CONSTA,
+                        "valor": _val_txt.strip(),
+                    }
+                else:
+                    _sel = st.radio(
+                        _h.pregunta,
+                        _opciones_estado,
+                        index=_opciones_estado.index(_estado_actual),
+                        key=f"ficha_{_lid_f}_{_h.clave}",
+                        horizontal=True,
+                    )
+                    _reg = {"estado": _mapa_estado_a_val[_sel]}
+
+                    # Distintivo: si es SÍ, exigir evidencia (año + entidad).
+                    if _h.tipo == "si_no_evidencia" and _sel == "Sí":
+                        cev1, cev2 = st.columns(2)
+                        with cev1:
+                            _ev_ent = st.text_input(
+                                "¿Qué distintivo y quién lo otorga? (obligatorio)",
+                                value=_fila.get("evidencia_entidad") or "",
+                                key=f"ficha_ev_ent_{_lid_f}_{_h.clave}",
+                                placeholder="ej: Sol Repsol, Guía Michelin…",
+                            )
+                        with cev2:
+                            _ev_anio = st.text_input(
+                                "Año", value=_fila.get("evidencia_anio") or "",
+                                key=f"ficha_ev_anio_{_lid_f}_{_h.clave}",
+                                placeholder="ej: 2025",
+                            )
+                        _reg["evidencia_entidad"] = _ev_ent.strip()
+                        _reg["evidencia_anio"] = _ev_anio.strip()
+                        _reg["valor"] = _ev_ent.strip()
+                        if not _ev_ent.strip():
+                            st.caption("⚠️ Sin la evidencia, el motor no podrá afirmar el distintivo (para protegerte de publicidad engañosa).")
+                    _valores_ficha[_h.clave] = _reg
+
+        if st.button("Guardar Ficha de datos verificados", key=f"guardar_ficha_{_lid_f}"):
+            _guardados = 0
+            for _clave, _reg in _valores_ficha.items():
+                # Solo persistimos lo que no es NO_CONSTA sin valor, para no llenar
+                # la BD de filas vacías. NO_CONSTA = ausencia de fila afirmable.
+                _ok = guardar_hecho_local(
+                    local_id=_lid_f,
+                    agencia_id=local_activo["agencia_id"],
+                    clave=_clave,
+                    estado=_reg.get("estado", NO_CONSTA),
+                    valor=_reg.get("valor"),
+                    evidencia_anio=_reg.get("evidencia_anio"),
+                    evidencia_entidad=_reg.get("evidencia_entidad"),
+                )
+                if _ok:
+                    _guardados += 1
+            st.success(f"Ficha guardada ({_guardados} datos). El contenido SEO ya se ancla a estos hechos.")
+            st.rerun()
+
+        st.divider()
+
         if st.button("Guardar cambios", key=f"guardar_edit_local_{local_activo['id']}"):
             try:
                 keywords_lista_edit = [k.strip() for k in keywords_edit.split(",") if k.strip()]
@@ -5068,6 +5278,10 @@ if vista_activa == "Responder reseña":
                         html_etapas(etapas, etapa), unsafe_allow_html=True
                     )
 
+                # Datos verificados de la Ficha: permiten que la respuesta se apoye
+                # en hechos reales del negocio (ancla SEO honesta) en vez de rellenar.
+                _hechos_afirm = hechos_afirmables_texto(local_activo["id"], nicho_local)
+
                 resultado_blindaje = generar_respuesta(
                     client=client,
                     resena=resena_cliente,
@@ -5079,6 +5293,7 @@ if vista_activa == "Responder reseña":
                     bloque_estatico=bloque_estatico,
                     modo=modo_elegido,
                     on_progress=_progreso,
+                    hechos_afirmables=_hechos_afirm,
                 )
 
                 caja_etapas.empty()
@@ -5260,28 +5475,68 @@ if vista_activa == "Contenido SEO":
         if tipo_contenido in ayudas_tipo:
             st.caption(ayudas_tipo[tipo_contenido])
 
-        if st.button("Generar 3 variantes", key="generar_seo_extra"):
-            with st.spinner("Redactando contenido optimizado para SEO local..."):
-                try:
-                    variantes = generar_contenido_seo_extra(
-                        client, local_seo["nombre"], local_seo["nicho"],
-                        local_seo["seo_keywords"], tipo_contenido, ciudad=ciudad_local or None
-                    )
-                    st.markdown("**Elige la variante que más te guste** (o genera de nuevo para más opciones):")
-                    for i, variante in enumerate(variantes, start=1):
-                        st.markdown(f"**Variante {i}**")
-                        st.code(variante, language=None, wrap_lines=True)
-                        if tipo_contenido == "Meta descripción SEO":
-                            n_car = len(variante)
-                            estado = "correcto" if n_car <= 155 else "excede el límite"
-                            st.caption(f"{n_car} caracteres · {estado} (recomendado: máx. 155).")
+        # Contamos cuántos hechos hay verificados para avisar si la Ficha está vacía:
+        # sin datos verificados el contenido sale honesto pero pobre, y conviene
+        # empujar al operador a rellenar la Ficha (que vive en "Editar info del local").
+        _ficha_filas_seo = cargar_ficha_local(local_seo["id"])
+        _n_verificados = sum(1 for f in _ficha_filas_seo if (f.get("estado") == "SI"))
+        if _n_verificados == 0:
+            st.info(
+                "Este local todavía no tiene **datos verificados** en su Ficha. El contenido "
+                "saldrá honesto pero genérico. Para que sea potente y específico, ve a "
+                "**Editar info del local → Ficha de datos verificados** y confirma qué ofrece el negocio."
+            )
 
-                    registrar_contenido_seo_generado(
-                        agencia_id=agencia["id"],
-                        local_id=local_seo["id"],
-                        usuario_id=usuario["id"],
-                        tipo_contenido=tipo_contenido
+        if st.button("Generar variantes", key="generar_seo_extra"):
+            with st.spinner("Redactando contenido SEO anclado a datos verificados..."):
+                try:
+                    resultado_seo = generar_contenido_seo(
+                        client,
+                        nombre_local=local_seo["nombre"],
+                        nicho=local_seo["nicho"],
+                        ciudad=ciudad_local or "",
+                        ficha_filas=_ficha_filas_seo,
+                        tipo_contenido=tipo_contenido,
+                        keywords=local_seo.get("seo_keywords") or [],
+                        modo_asistido=True,
                     )
+
+                    if resultado_seo.bloqueado or not resultado_seo.variantes:
+                        st.warning(
+                            "No se pudo generar contenido veraz con los datos disponibles. "
+                            + (resultado_seo.motivo or "")
+                            + " Prueba a verificar más datos del negocio en su Ficha."
+                        )
+                    else:
+                        st.markdown("**Elige la variante que más te guste** (o genera de nuevo para más opciones):")
+                        for i, variante in enumerate(resultado_seo.variantes, start=1):
+                            st.markdown(f"**Variante {i}**")
+                            st.code(variante, language=None, wrap_lines=True)
+                            if tipo_contenido == "Meta descripción SEO":
+                                n_car = len(variante)
+                                estado = "correcto" if n_car <= 155 else "excede el límite"
+                                st.caption(f"{n_car} caracteres · {estado} (recomendado: máx. 155).")
+
+                        # --- MODO ASISTIDO: nudges para enriquecer la Ficha -----
+                        # No afirmamos lo no verificado, pero SÍ le decimos al dueño
+                        # qué podría desbloquear si lo verifica. Convierte la
+                        # restricción en un bucle de mejora del contenido.
+                        if resultado_seo.sugerencias:
+                            st.divider()
+                            st.markdown("**Para enriquecer el contenido**, verifica estos datos en la Ficha del local:")
+                            for sug in resultado_seo.sugerencias[:6]:
+                                st.markdown(f"- Podrías {sug}")
+                            st.caption(
+                                "El motor no menciona nada de esto hasta que lo confirmas, "
+                                "para no afirmar cosas sin verificar."
+                            )
+
+                        registrar_contenido_seo_generado(
+                            agencia_id=agencia["id"],
+                            local_id=local_seo["id"],
+                            usuario_id=usuario["id"],
+                            tipo_contenido=tipo_contenido
+                        )
                 except Exception as e:
                     causa_raiz = log_error_completo("generar contenido SEO extra", e)
                     st.error(redactar_secretos(f"Error al generar el contenido: {e}"))
