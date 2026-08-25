@@ -434,7 +434,7 @@ TU OBJETIVO
 Una respuesta breve, cálida y humana que dé las gracias de forma concreta y aproveche el espacio para posicionar el negocio en búsquedas locales.
 
 CÓMO SUENA UNA BUENA RESPUESTA
-- Entre 65 y 100 palabras. Ese rango es el que da margen para desarrollar el detalle concreto de la reseña e integrar una o dos keywords del contexto sin que se noten. Más corta se lee como plantilla; más larga se lee como oficina de atención al cliente y nadie la termina.
+- Entre 110 y 150 palabras. Ese rango da margen para agradecer de forma concreta, desarrollar el detalle que mencionó el cliente y, si encaja con naturalidad, apoyar la respuesta en un dato verificado del negocio (de la lista de datos verificados, si la hay). No lo estires: por encima de 150 palabras una respuesta a cinco estrellas empieza a leerse como folleto, y quien la lee —el próximo cliente potencial— desconecta. La longitud no es el valor; el valor es que suene a persona real que se ha leído la reseña.
 - Menciona algo CONCRETO de lo que dijo el cliente. Si habló del arroz, hablas del arroz. Genérico es peor que nada.
 - Suena a persona, no a plantilla. Nada de "Estimado cliente" ni "Reciba un cordial saludo".
 - Termina invitando a volver, sin sonar comercial.
@@ -448,6 +448,9 @@ PROHIBIDO (delata que lo ha escrito una IA)
 
 SEO (invisible para el cliente)
 Las keywords del contexto son un inventario de posibilidades, NO una cuota. Cero es una cifra correcta si ninguna encaja. Lo que más aporta es nombrar el establecimiento con normalidad y, si la reseña lo trae de forma orgánica, el tipo de negocio o la zona. Nunca inventes un dato para que una keyword encaje: si el cliente no dijo qué comió, no lo supongas para poder colocar el plato. Nunca metas dos keywords en la misma frase ni frases autopromocionales ("la mejor X de Y"). Regla: si el dueño no lo escribiría sin haber oído hablar nunca de SEO, no lo escribas.
+
+DATOS VERIFICADOS (si se te han dado)
+Si el contexto incluye datos verificados del negocio, puedes apoyarte en UNO de ellos cuando conecte de forma natural con lo que dice la reseña (p. ej. si el cliente elogia la comida y está verificado que hay opciones sin gluten, cabe mencionarlo). Es material excelente para alargar con sustancia real en vez de relleno. Pero solo los datos de esa lista: jamás afirmes una característica que no esté verificada, ni siquiera una que "seguramente" tenga un negocio así. Un dato verificado que encaja vale por diez frases genéricas.
 
 IDIOMA
 Detecta el idioma de la reseña y responde SIEMPRE en ese idioma. Si no es español, añade además una traducción al español para el propietario.
@@ -858,6 +861,7 @@ def generar_respuesta(
     bloque_estatico: str,
     modo: str = MODO_BLINDADO,
     on_progress=None,
+    hechos_afirmables: str = "",
 ) -> ResultadoBlindaje:
     """
     Punto de entrada único.
@@ -899,13 +903,31 @@ def generar_respuesta(
         return resultado
 
     # ---- Prompt y número de vueltas según la vía ----------------------------
+    # Bloque de datos verificados: solo se afirma lo que el dueño ha confirmado en
+    # la Ficha de Verdad. Vacío por defecto (retrocompatible). Cuando llega, es la
+    # ÚNICA fuente de hechos concretos que la respuesta puede mencionar: nunca se
+    # inventa un dato para colocar una keyword.
+    if hechos_afirmables and hechos_afirmables.strip():
+        bloque_hechos = (
+            f"DATOS VERIFICADOS DEL NEGOCIO (puedes mencionarlos con naturalidad SOLO si "
+            f"encajan con lo que dice la reseña; nunca inventes otros ni fuerces su aparición):\n"
+            f"{hechos_afirmables.strip()}\n\n"
+        )
+    else:
+        bloque_hechos = ""
+
     if modo == MODO_RAPIDO:
         estatico = BLOQUE_RAPIDO
+        # OJO: aquí vivía el bug de cuota. Decía "Keywords SEO a integrar (2-3)",
+        # que es la misma instrucción imposible que provocaba alucinaciones en la
+        # vía blindada antes de reescribirla. Las keywords son un inventario
+        # opcional, nunca una cuota. Cero es una cifra correcta.
         dinamico = (
             f"CONTEXTO DEL NEGOCIO:\n"
             f"- Nombre: {nombre_local}\n"
             f"- Nicho: {nicho}\n"
-            f"- Keywords SEO a integrar (2-3): {keywords}\n\n"
+            f"- Keywords disponibles (inventario OPCIONAL, NO una cuota; cero es correcto): {keywords}\n\n"
+            f"{bloque_hechos}"
             f"GUÍA DE TONO — {tono}:\n{guia_tono}"
         )
         max_vueltas = 1
@@ -916,6 +938,7 @@ def generar_respuesta(
             f"- Nombre del establecimiento: {nombre_local}\n"
             f"- Nicho: {nicho}\n"
             f"- Keywords disponibles (NO son una cuota, ver reglas abajo): {keywords}\n\n"
+            f"{bloque_hechos}"
             f"GUÍA DE TONO — {tono}:\n{guia_tono}\n\n"
             f"{REGLAS_SEO_PROFESIONAL}"
         )
