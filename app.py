@@ -279,24 +279,54 @@ st.markdown("""
        Misma familia visual que la landing: al pasar de la web
        a la herramienta no debe haber salto estético.
        ========================================================= */
+    /* =========================================================
+       RESELIA — SISTEMA DE DISEÑO "AURORA & CRISTAL" (v3)
+       Evolución de "Tinta & Papel": mismo ADN de marca (tinta
+       navy + ámbar) pero sobre un lienzo de aurora suave y con
+       superficies de cristal esmerilado (glassmorphism).
+
+       PRINCIPIO INNEGOCIABLE — legibilidad primero:
+       El color y el blur viven en el FONDO y en los BORDES. El
+       texto siempre se apoya en cristal casi opaco (alpha alto),
+       nunca directamente sobre el degradado. Así el fondo aporta
+       vida y profundidad sin castigar el contraste de lectura.
+       ========================================================= */
     :root {
-        --er-canvas:     #F7F4EE;   /* papel hueso */
-        --er-surface:    #FDFBF7;   /* tarjetas, papel puro */
-        --er-sunken:     #F1EDE4;   /* superficies hundidas / inputs */
-        --er-line:       rgba(26,34,56,.12);  /* hairline por defecto */
-        --er-line-2:     rgba(26,34,56,.20);  /* hairline con énfasis */
+        /* Superficies de cristal: blancas translúcidas, alpha ALTO para que
+           el texto encima mantenga contraste AA. El blur las convierte en
+           vidrio esmerilado; el fondo aurora se filtra apenas teñido. */
+        --er-canvas:     #eef1f8;   /* base fría bajo la aurora (fallback) */
+        --er-surface:    rgba(255,255,255,.72);   /* tarjetas de cristal */
+        --er-surface-2:  rgba(255,255,255,.55);   /* cristal más ligero */
+        --er-sunken:     rgba(255,255,255,.45);   /* inputs / hundidos */
+        --er-line:       rgba(26,34,56,.10);       /* hairline por defecto */
+        --er-line-2:     rgba(26,34,56,.18);       /* hairline con énfasis */
+        --er-glass-edge: rgba(255,255,255,.65);    /* brillo de borde superior */
+        --er-shadow:     0 8px 30px rgba(26,34,56,.10), 0 1px 2px rgba(26,34,56,.05);
+        --er-shadow-lg:  0 16px 50px rgba(26,34,56,.14);
+
+        /* Tinta y textos: SIN cambios. La legibilidad se conserva íntegra;
+           el navy sobre cristal blanco es contraste de sobra. */
         --er-ink:        #1a2238;   /* azul tinta profundo, texto primario */
         --er-body:       #232c47;   /* texto de cuerpo */
-        --er-muted:      #6b7280;   /* texto secundario / captions */
-        --er-faint:      #9aa0ac;   /* placeholders / metadatos */
-        --er-accent:     #1a2238;   /* tinta — estructura y botones */
-        --er-accent-2:   #232c47;   /* tinta hover */
-        --er-accent-bg:  #ECEAF1;   /* fondo tinta muy pálido */
-        --er-amber:      #c8892a;   /* ámbar de sello — acento cálido */
-        --er-amber-2:    #e0a742;   /* ámbar claro */
-        --er-danger:     #a8321f;   /* rojo tachado / errores */
-        --er-danger-bg:  #F7EDEB;
-        --er-ok:         #2f6b4f;   /* verde aprobado */
+        --er-muted:      #5a6474;   /* texto secundario / captions */
+        --er-faint:      #8b93a3;   /* placeholders / metadatos */
+
+        /* Acentos: más vivos que en v2. El acento principal pasa de tinta
+           plana a un índigo-violeta vibrante (para botones y estado activo),
+           que sobre el lienzo frío invita más a trabajar. La tinta navy
+           sigue disponible para estructura. */
+        --er-accent:     #4f46e5;   /* índigo vibrante — acción principal */
+        --er-accent-2:   #4338ca;   /* índigo hover, más profundo */
+        --er-accent-bg:  rgba(79,70,229,.10);      /* halo índigo pálido */
+        --er-accent-ink: #1a2238;   /* tinta navy para estructura/títulos */
+
+        --er-amber:      #d98a1f;   /* ámbar de sello — acento cálido */
+        --er-amber-2:    #f0a942;   /* ámbar claro */
+        --er-danger:     #d64534;   /* rojo tachado / errores */
+        --er-danger-bg:  rgba(214,69,52,.09);
+        --er-ok:         #2f9e6f;   /* verde aprobado, algo más vivo */
+        --er-ok-bg:      rgba(47,158,111,.10);
     }
 
     /* Ocultar cromo de Streamlit
@@ -372,9 +402,20 @@ st.markdown("""
     }
     iframe { display: block; }
 
-    /* Lienzo global */
+    /* Lienzo global — AURORA
+       Varios degradados radiales muy suaves y desaturados (peach, lila,
+       menta, azul) sobre una base fría. Fijo (background-attachment implícito
+       por el fixed del pseudo-fondo). El texto NUNCA se apoya aquí: siempre
+       sobre cristal. Por eso podemos permitirnos color en el fondo sin dañar
+       la lectura. Fallback: si no hay soporte, queda --er-canvas plano. */
     .stApp {
-        background: var(--er-canvas) !important;
+        background-color: var(--er-canvas) !important;
+        background-image:
+            radial-gradient(60% 55% at 12% 8%,  rgba(255,193,143,.42) 0%, rgba(255,193,143,0) 60%),
+            radial-gradient(55% 50% at 88% 12%, rgba(160,150,245,.38) 0%, rgba(160,150,245,0) 62%),
+            radial-gradient(60% 60% at 80% 88%, rgba(120,214,196,.34) 0%, rgba(120,214,196,0) 60%),
+            radial-gradient(55% 55% at 18% 92%, rgba(140,175,255,.34) 0%, rgba(140,175,255,0) 60%) !important;
+        background-attachment: fixed !important;
         color: var(--er-body);
     }
     html, body, [class*="css"], .stApp, [data-testid="stMarkdownContainer"] {
