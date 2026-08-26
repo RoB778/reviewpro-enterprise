@@ -35,6 +35,7 @@ from motor_seo import (
     leer_ficha,
     SI, NO, NO_CONSTA,
 )
+import motor_agente
 from ui import (
     CSS_GLOBAL,
     ETAPAS_RAPIDA,
@@ -1336,8 +1337,8 @@ STRIPE_PRICES = {
         "anual":   "price_TODO_STARTER_850EUR_ANO",       # ⚠️ crear en Stripe (850€/año = 89×12×0,8)
     },
     "growth": {
-        "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 179€ en Stripe)
-        "anual":   "price_TODO_GROWTH_1720EUR_ANO",       # ⚠️ crear en Stripe (1.720€/año = 179×12×0,8)
+        "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 299€ en Stripe)
+        "anual":   "price_TODO_GROWTH_2870EUR_ANO",       # ⚠️ crear en Stripe (2.870€/año = 299×12×0,8)
     },
     "enterprise": {
         "mensual": "price_1Tr1RoKwc34DG74M8L4sjSVL",     # existente (ajusta el importe a 349€ en Stripe)
@@ -1375,8 +1376,7 @@ def _precio_anual_total(precio_mensual):
     precios_anuales = {
         39:  370,   # Individual  (39×12×0,8 = 374 → 370)
         89:  850,   # Starter     (89×12×0,8 = 854 → 850)
-        179: 1720,  # Growth      (179×12×0,8 = 1.718 → 1.720)
-        349: 3350,  # Enterprise  (349×12×0,8 = 3.350)
+        299: 2870,  # Growth      (299×12×0,8 = 2.870,4 → 2.870)
     }
     if precio_mensual in precios_anuales:
         return precios_anuales[precio_mensual]
@@ -1399,12 +1399,18 @@ PLANES_AUTOSERVICIO = {
     },
     "growth": {
         "nombre": "Growth", "target": "Agencias medianas · hasta 30 locales",
-        "precio_mensual": 179, "price_ids": STRIPE_PRICES["growth"],
+        "precio_mensual": 299, "price_ids": STRIPE_PRICES["growth"],
         "features": ["Hasta 30 locales", "Respuestas ilimitadas", "Marca blanca completa",
                      "Multi-usuario + analítica + ROI"],
-        "gancho": "Menos de 6€ por local — el favorito de las agencias.",
+        "gancho": "Menos de 10€ por local — el favorito de las agencias.",
         "destacado": True,
     },
+    # RETIRADO DE LA VENTA. Ya no aparece en la landing ni en el selector de
+    # planes: no se ofrece a ningún cliente nuevo. La definición se conserva a
+    # propósito porque los límites por plan se consultan por clave, y si alguna
+    # cuenta de Supabase tuviera plan="enterprise", borrar esto la dejaría sin
+    # límites resueltos y rompería su sesión. No borrar sin migrar antes esas
+    # filas a "growth".
     "enterprise": {
         "nombre": "Enterprise", "target": "Agencias grandes · locales ilimitados",
         "precio_mensual": 349, "price_ids": STRIPE_PRICES["enterprise"],
@@ -1877,7 +1883,7 @@ def _detectar_posible_multicuenta_individual(huella_tarjeta):
 def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plano, nombre_usuario, plan, stripe_customer_id=None):
     """
     Igual que registrar_agencia_gratuita, pero para agencias que ya han pagado un plan
-    de pago (Starter/Growth/Enterprise) desde la landing. Se llama justo después de que
+    de pago (Starter/Growth) desde la landing. Se llama justo después de que
     el pago se ha verificado en Stripe y el usuario rellena email + contraseña en la
     pantalla intermedia. Devuelve (True, {"agencia":..., "usuario":..., "locales":...})
     o (False, "motivo").
@@ -1997,7 +2003,7 @@ def puede_agencia_anadir_usuario(agencia):
     if actuales >= limite:
         if plan in ("free", "individual"):
             return False, ("Tu plan actual es de un solo usuario. Cambia a un plan de agencia "
-                           "(Starter, Growth o Enterprise) para dar acceso a tu equipo.")
+                           "(Starter o Growth) para dar acceso a tu equipo.")
         return False, (f"Has alcanzado el máximo de {limite} usuarios de tu plan {plan.capitalize()}. "
                        "Sube de plan para añadir más miembros.")
     return True, None
@@ -2600,6 +2606,87 @@ def hechos_afirmables_texto(local_id, nicho):
         return "\n".join(f"- {a}" for a in lex.afirmables)
     except Exception:
         return ""
+
+
+# =============================================================================
+# ASISTENTE DE CRECIMIENTO — soporte de datos
+# =============================================================================
+
+def cargar_historico_periodo(local_id, dias):
+    """Devuelve (historico_actual, historico_anterior) para un local y ventana de
+    días, en el formato que espera calcular_reputation_score. El 'anterior' es la
+    ventana inmediatamente previa del mismo tamaño, para poder medir tendencia."""
+    ahora = datetime.utcnow()
+    ini_actual = (ahora - timedelta(days=dias)).isoformat()
+    ini_anterior = (ahora - timedelta(days=dias * 2)).isoformat()
+    try:
+        actual = supabase.table("historico_respuestas") \
+            .select("sentimiento, creado_en") \
+            .eq("local_id", local_id) \
+            .gte("creado_en", ini_actual) \
+            .execute().data or []
+        anterior = supabase.table("historico_respuestas") \
+            .select("sentimiento, creado_en") \
+            .eq("local_id", local_id) \
+            .gte("creado_en", ini_anterior) \
+            .lt("creado_en", ini_actual) \
+            .execute().data or []
+        return actual, anterior
+    except Exception:
+        return [], []
+
+
+# Tope mensual de mensajes al asistente por local. El plan Individual es de pago,
+# pero el asistente encadena varias llamadas al modelo por turno, así que ponemos
+# un techo generoso que un autónomo real nunca rozará y que frena que alguien lo
+# use como ChatGPT ilimitado. Se cuenta en Supabase (mensajes_asistente), no en
+# el navegador, para que no se pueda burlar.
+LIMITE_MENSAJES_ASISTENTE_MES = 200
+
+
+def contar_mensajes_asistente_mes(local_id):
+    """Cuántos mensajes ha enviado este local al asistente en el mes en curso."""
+    inicio_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    try:
+        r = supabase.table("mensajes_asistente") \
+            .select("id", count="exact") \
+            .eq("local_id", local_id) \
+            .gte("creado_en", inicio_mes) \
+            .execute()
+        return r.count or 0
+    except Exception:
+        # Si la tabla aún no existe o falla, no bloqueamos el uso.
+        return 0
+
+
+def registrar_mensaje_asistente(agencia_id, local_id, usuario_id):
+    """Registra un turno de conversación con el asistente (para el tope mensual)."""
+    try:
+        supabase.table("mensajes_asistente").insert({
+            "agencia_id": agencia_id,
+            "local_id": local_id,
+            "usuario_id": usuario_id,
+        }).execute()
+    except Exception:
+        pass
+
+
+def construir_ctx_agente(local):
+    """Arma el contexto de ejecución que necesitan las herramientas del agente,
+    inyectando las funciones y objetos que ya viven en app.py. Así motor_agente
+    no depende directamente de la app: solo recibe lo que necesita."""
+    return {
+        "supabase": supabase,
+        "client": client,
+        "local": local,
+        "calcular_score": calcular_reputation_score,
+        "cargar_historico_periodo": cargar_historico_periodo,
+        "cargar_ficha_local": cargar_ficha_local,
+        "leer_ficha": leer_ficha,
+        "compilar_lexico": motor_seo.compilar_lexico,
+        "generar_contenido_seo": generar_contenido_seo,
+        "SI": SI, "NO": NO, "NO_CONSTA": NO_CONSTA,
+    }
 
 
 def generar_mensaje_whatsapp(nombre_local, enlace_resena):
@@ -4116,12 +4203,14 @@ if not st.session_state.sesion_activa:
         # --- Fila 2: planes de agencia ---
         st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
         st.markdown('<div class="rp-plan-target" style="font-size:0.95rem; margin-bottom:8px;">¿Gestionas varios locales? Planes para agencias:</div>', unsafe_allow_html=True)
-        col_starter, col_growth, col_ent = st.columns(3)
+        col_starter, col_growth = st.columns(2)
 
+        # Enterprise se retiró de la venta. Su definición sigue existiendo más
+        # abajo (PLANES_AUTOSERVICIO) para no romper cuentas que ya lo tuvieran
+        # asignado en la base de datos, pero ya no se ofrece a nadie nuevo.
         planes_agencia = [
             ("starter", col_starter, "landing_elegir_starter"),
             ("growth", col_growth, "landing_elegir_growth"),
-            ("enterprise", col_ent, "landing_elegir_enterprise"),
         ]
         for clave_plan, columna, boton_key in planes_agencia:
             datos = PLANES_AUTOSERVICIO[clave_plan]
@@ -4626,6 +4715,7 @@ with st.sidebar:
     # ---- Navegación ----
     st.markdown("<div class='rs-lbl'>Secciones</div>", unsafe_allow_html=True)
     SECCIONES = [
+        "Mi asistente",
         "Responder reseña",
         "Pedir reseñas",
         "Contenido SEO",
@@ -4710,7 +4800,7 @@ if usuario.get("rol") == "admin":
     with st.expander(etiqueta_equipo, expanded=False):
         if plan_actual_equipo in ("free", "individual"):
             st.info("Tu plan actual es de un solo usuario. Los planes de agencia (Starter, "
-                    "Growth y Enterprise) permiten dar acceso a varias personas del equipo bajo "
+                    "y Growth) permiten dar acceso a varias personas del equipo bajo "
                     "la misma cuenta, cada una con su propio email y contraseña.")
             if st.button("Ver planes de agencia", key="equipo_ver_planes"):
                 st.session_state.mostrar_pagina_planes = True
@@ -4790,6 +4880,119 @@ if vista_activa == "Guía de uso":
 # ---------------------------------------------------------
 # PESTAÑA 1: GENERACIÓN DE RESPUESTAS
 # ---------------------------------------------------------
+if vista_activa == "Mi asistente":
+    st.subheader("Tu asistente de crecimiento")
+
+    _locales_asist = st.session_state.locales_agencia
+    if not _locales_asist:
+        st.info(
+            "Primero añade tu negocio en **Responder reseña → Añadir establecimiento**. "
+            "En cuanto lo tengas, tu asistente podrá leer tus reseñas y ayudarte a crecer."
+        )
+    else:
+        local_asist = st.session_state.local_activo or _locales_asist[0]
+
+        st.caption(
+            f"Analizo los datos reales de **{local_asist['nombre']}**: tus reseñas, tu Ficha "
+            "verificada y tu reputación. Pregúntame cómo mejorar, qué publicar o cómo atraer "
+            "más clientes. Nadie más conoce tu negocio como yo."
+        )
+
+        # Estado de la conversación, aislado por local (cambiar de local = hilo nuevo).
+        _clave_hist = f"_chat_asist_{local_asist['id']}"
+        _clave_brief = f"_brief_asist_{local_asist['id']}"
+        if _clave_hist not in st.session_state:
+            st.session_state[_clave_hist] = []   # [(rol, texto)] para pintar
+        if f"{_clave_hist}_api" not in st.session_state:
+            st.session_state[f"{_clave_hist}_api"] = []  # historial en formato API
+
+        _ctx_agente = construir_ctx_agente(local_asist)
+
+        # --- Briefing proactivo: el gancho de "esta semana ha pasado esto" ---
+        # Se genera una vez por sesión y local, al abrir. Es lo que hace que el
+        # usuario entre cada día aunque no venga con una pregunta concreta.
+        if _clave_brief not in st.session_state:
+            with st.spinner("Revisando tu negocio..."):
+                st.session_state[_clave_brief] = motor_agente.generar_briefing(client, _ctx_agente)
+
+        st.markdown(
+            f"<div class='rs-riesgo' style='border-left-color:var(--er-accent);"
+            f"background:var(--er-accent-bg);border-color:var(--er-accent)'>"
+            f"<b>Esto es lo que veo esta semana:</b><br>{st.session_state[_clave_brief]}</div>",
+            unsafe_allow_html=True,
+        )
+
+        # --- Sugerencias de arranque (para que no se enfrente a un chat vacío) ---
+        if not st.session_state[_clave_hist]:
+            st.markdown("**Prueba a preguntarme:**")
+            _sugerencias = [
+                "¿Cómo va mi reputación este mes?",
+                "¿De qué se queja más la gente?",
+                "¿Qué debería publicar esta semana?",
+                "Créame un post para Google con lo mejor de mi negocio",
+            ]
+            _cols_sug = st.columns(2)
+            for _i, _sug in enumerate(_sugerencias):
+                if _cols_sug[_i % 2].button(_sug, key=f"sug_asist_{_i}", use_container_width=True):
+                    st.session_state[f"_pregunta_pendiente_{local_asist['id']}"] = _sug
+                    st.rerun()
+
+        # --- Pintar el historial de la conversación ---
+        for _rol, _txt in st.session_state[_clave_hist]:
+            with st.chat_message("user" if _rol == "user" else "assistant"):
+                st.markdown(_txt)
+
+        # --- Entrada del usuario (chat_input o botón de sugerencia) ---
+        _pregunta = st.chat_input("Escribe tu pregunta...")
+        _pendiente_key = f"_pregunta_pendiente_{local_asist['id']}"
+        if not _pregunta and _pendiente_key in st.session_state:
+            _pregunta = st.session_state.pop(_pendiente_key)
+
+        if _pregunta:
+            # Comprobar el tope mensual de mensajes (anti-abuso).
+            _usados = contar_mensajes_asistente_mes(local_asist["id"])
+            if _usados >= LIMITE_MENSAJES_ASISTENTE_MES:
+                st.warning(
+                    f"Has alcanzado el límite de {LIMITE_MENSAJES_ASISTENTE_MES} consultas al "
+                    "asistente este mes. Se renueva el día 1. Si te quedas corto de forma "
+                    "recurrente, escríbenos y lo vemos."
+                )
+            else:
+                # Pintar la pregunta del usuario.
+                with st.chat_message("user"):
+                    st.markdown(_pregunta)
+                st.session_state[_clave_hist].append(("user", _pregunta))
+
+                # Añadir al historial de API y llamar al agente.
+                _hist_api = st.session_state[f"{_clave_hist}_api"]
+                _hist_api.append({"role": "user", "content": _pregunta})
+
+                with st.chat_message("assistant"):
+                    _hueco = st.empty()
+                    _hueco.markdown("_Consultando tus datos..._")
+
+                    def _feedback(nombre_tool):
+                        _textos = {
+                            "ver_resumen_reputacion": "Mirando tu Reputation Score...",
+                            "leer_resenas_recientes": "Leyendo tus reseñas...",
+                            "detectar_temas": "Buscando patrones en lo que dicen tus clientes...",
+                            "ver_ficha_verificada": "Revisando tu Ficha verificada...",
+                            "ver_keywords": "Consultando tus palabras clave...",
+                            "generar_contenido": "Redactando tu contenido...",
+                        }
+                        _hueco.markdown(f"_{_textos.get(nombre_tool, 'Trabajando...')}_")
+
+                    _respuesta, _hist_api = motor_agente.responder_agente(
+                        client, _hist_api, _ctx_agente, on_tool=_feedback
+                    )
+                    _hueco.markdown(_respuesta)
+
+                st.session_state[f"{_clave_hist}_api"] = _hist_api
+                st.session_state[_clave_hist].append(("assistant", _respuesta))
+                registrar_mensaje_asistente(agencia["id"], local_asist["id"], usuario["id"])
+                st.rerun()
+
+
 if vista_activa == "Responder reseña":
     locales_disponibles = st.session_state.locales_agencia
 
@@ -4921,7 +5124,15 @@ if vista_activa == "Responder reseña":
         st.session_state[f"edit_keywords_{local_activo['id']}"] = st.session_state.pop(_kw_pendiente_key)
 
     # --- Editar info del local (ciudad, nicho, keywords) ---
-    with st.expander("Editar info del local", expanded=False):
+    # Streamlit conserva en el cliente si un expander está abierto, así que
+    # pasarle expanded=False tras guardar NO lo cierra. El truco fiable es
+    # cambiar la identidad del widget: al alternar un carácter invisible en la
+    # etiqueta, Streamlit lo trata como un expander nuevo y lo monta cerrado.
+    # Así, al guardar, el panel se cierra solo y el operador no tiene que
+    # plegarlo a mano.
+    _ver_ficha = st.session_state.get("_ficha_ver", 0)
+    _etiqueta_editar = "Editar info del local" + ("\u200b" * _ver_ficha)
+    with st.expander(_etiqueta_editar, expanded=False):
         st.caption("Actualiza la ciudad, nicho y palabras clave del local para mejorar la potencia SEO del contenido generado.")
         col_edit1, col_edit2 = st.columns(2)
         with col_edit1:
@@ -5142,6 +5353,8 @@ if vista_activa == "Responder reseña":
                 if _ok:
                     _guardados += 1
             st.success(f"Ficha guardada ({_guardados} datos). El contenido SEO ya se ancla a estos hechos.")
+            # Alterna la identidad del expander para que se cierre solo al volver.
+            st.session_state["_ficha_ver"] = 1 - st.session_state.get("_ficha_ver", 0)
             st.rerun()
 
         st.divider()
@@ -5162,6 +5375,7 @@ if vista_activa == "Responder reseña":
                         l["seo_keywords"] = keywords_lista_edit
                         break
                 st.success("Cambios guardados.")
+                st.session_state["_ficha_ver"] = 1 - st.session_state.get("_ficha_ver", 0)
                 st.rerun()
             except Exception as e:
                 st.error(redactar_secretos(f"Error al guardar: {e}"))
