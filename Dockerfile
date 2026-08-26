@@ -17,6 +17,7 @@ COPY blindaje.py .
 COPY ui.py .
 COPY motor_seo.py .
 COPY motor_agente.py
+
 ENV STREAMLIT_SERVER_HEADLESS=true
 ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 ENV STREAMLIT_LOGGER_LEVEL=info
