@@ -409,13 +409,9 @@ st.markdown("""
        sobre cristal. Por eso podemos permitirnos color en el fondo sin dañar
        la lectura. Fallback: si no hay soporte, queda --er-canvas plano. */
     .stApp {
-        background-color: var(--er-canvas) !important;
-        background-image:
-            radial-gradient(60% 55% at 12% 8%,  rgba(255,193,143,.42) 0%, rgba(255,193,143,0) 60%),
-            radial-gradient(55% 50% at 88% 12%, rgba(160,150,245,.38) 0%, rgba(160,150,245,0) 62%),
-            radial-gradient(60% 60% at 80% 88%, rgba(120,214,196,.34) 0%, rgba(120,214,196,0) 60%),
-            radial-gradient(55% 55% at 18% 92%, rgba(140,175,255,.34) 0%, rgba(140,175,255,0) 60%) !important;
-        background-attachment: fixed !important;
+        background-color: #f0f2f7 !important;
+        background-image: none !important;
+        background-attachment: unset !important;
         color: var(--er-body);
     }
     html, body, [class*="css"], .stApp, [data-testid="stMarkdownContainer"] {
