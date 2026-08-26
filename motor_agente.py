@@ -12,7 +12,7 @@ ChatGPT gratis.
 
 El foso no es lo que el agente SABE (SEO genérico, imitable). El foso es lo que
 el agente VE: las reseñas reales de ESE negocio, su Ficha de Verdad verificada,
-su Reputation Score, sus keywords, su histórico. ChatGPT no tiene acceso a nada
+su Reputation Score, sus keywords, su histórico. ChatGPT no tiene acceso a nada 
 de eso. Este agente sí.
 
 El pitch: "El único asistente que se ha leído todas tus reseñas."
