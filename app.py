@@ -6,7 +6,7 @@ import re
 import sys
 import time
 import traceback
-import urllib.parse 
+import urllib.parse
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -360,47 +360,52 @@ st.markdown("""
         min-height: 0px !important;
         box-shadow: none !important;
         border: none !important;
+        overflow: visible !important;
     }
 
-    /* --- Control de la barra lateral: siempre accesible --- */
-    /* Streamlit ha usado varios nombres para este control según la versión,
-       así que se cubren todos los que han estado en uso. */
+    /* --- Control de la barra lateral: siempre accesible ---
+       Streamlit ha cambiado el data-testid de este botón varias veces.
+       Se cubren TODAS las variantes conocidas + el selector genérico de
+       posición para que ninguna versión lo pierda. */
     div[data-testid="stSidebarCollapsedControl"],
     div[data-testid="collapsedControl"],
+    div[data-testid="stSidebarToggle"],
+    section[data-testid="stSidebar"] + div button,
     button[kind="header"],
+    button[data-testid="stBaseButton-header"],
     button[data-testid="stBaseButton-headerNoPadding"] {
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
         z-index: 999999 !important;
+        position: fixed !important;
+        top: 10px !important;
+        left: 10px !important;
+        background: var(--er-surface) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        backdrop-filter: blur(12px) !important;
+        border: 1px solid var(--er-line-2) !important;
+        border-radius: 8px !important;
+        padding: 5px !important;
+        box-shadow: 0 2px 10px rgba(26,34,56,.14) !important;
+    }
+    div[data-testid="stSidebarCollapsedControl"] svg,
+    div[data-testid="collapsedControl"] svg,
+    div[data-testid="stSidebarToggle"] svg,
+    button[kind="header"] svg,
+    button[data-testid="stBaseButton-header"] svg,
+    button[data-testid="stBaseButton-headerNoPadding"] svg {
+        fill: var(--er-ink) !important;
+        color: var(--er-ink) !important;
+        width: 20px !important;
+        height: 20px !important;
     }
 
-    /* En pantallas estrechas se convierte en un botón flotante fijo, con
-       fondo propio para que se vea sobre cualquier contenido. */
-    @media (max-width: 900px) {
-        div[data-testid="stSidebarCollapsedControl"],
-        div[data-testid="collapsedControl"] {
-            position: fixed !important;
-            top: 10px !important;
-            left: 10px !important;
-            background: var(--er-surface) !important;
-            border: 1px solid var(--er-line-2) !important;
-            border-radius: 8px !important;
-            padding: 5px !important;
-            box-shadow: 0 2px 10px rgba(26,34,56,.14) !important;
-        }
-        div[data-testid="stSidebarCollapsedControl"] svg,
-        div[data-testid="collapsedControl"] svg {
-            fill: var(--er-ink) !important;
-            color: var(--er-ink) !important;
-            width: 22px !important;
-            height: 22px !important;
-        }
-        /* Hueco para que el botón flotante no tape el primer título. */
-        section[data-testid="stMain"] .block-container {
-            padding-top: 56px !important;
-        }
+    /* Hueco superior para que el botón flotante no tape el primer título. */
+    section[data-testid="stMain"] .block-container {
+        padding-top: 56px !important;
     }
+
     iframe { display: block; }
 
     /* Lienzo global — AURORA
@@ -4714,14 +4719,27 @@ with st.sidebar:
 
     # ---- Navegación ----
     st.markdown("<div class='rs-lbl'>Secciones</div>", unsafe_allow_html=True)
-    SECCIONES = [
-        "Mi asistente",
-        "Responder reseña",
-        "Pedir reseñas",
-        "Contenido SEO",
-        "Analítica",
-        "Guía de uso",
-    ]
+    _plan_menu = agencia.get("plan", "free")
+    if _plan_menu in ("individual", "free"):
+        SECCIONES = [
+            "Mi asistente",
+            "Responder reseña",
+            "Pedir reseñas",
+            "Contenido SEO",
+            "Analítica",
+            "Guía de uso",
+        ]
+    else:
+        # Starter, Growth: el flujo diario es responder reseñas.
+        # El asistente está disponible pero no ocupa el primer lugar.
+        SECCIONES = [
+            "Responder reseña",
+            "Mi asistente",
+            "Pedir reseñas",
+            "Contenido SEO",
+            "Analítica",
+            "Guía de uso",
+        ]
     vista_activa = st.radio(
         "Navegación",
         options=SECCIONES,
