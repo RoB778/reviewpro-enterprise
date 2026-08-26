@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 #   app.py       · la aplicación
 #   blindaje.py  · motor de respuestas (dos vías)
 #   ui.py        · tema visual y componentes
+
 COPY app.py .
 COPY blindaje.py .
 COPY ui.py .
