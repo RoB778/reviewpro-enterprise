@@ -18,6 +18,7 @@ COPY blindaje.py .
 COPY ui.py .
 COPY motor_seo.py .
 COPY motor_agente.py .
+COPY confing.toml .
 
 ENV STREAMLIT_SERVER_HEADLESS=true
 ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
