@@ -352,60 +352,33 @@ st.markdown("""
         display: none !important;
         height: 0px !important;
     }
-    /* El header se neutraliza visualmente pero NO se elimina, para que su
-       contenido (el control de la barra lateral) siga existiendo. */
+    /* El header se hace transparente pero mantiene su altura natural para que
+       el botón de la sidebar (que en versiones recientes de Streamlit vive
+       DENTRO del header) siga siendo accesible. Con height:0px el botón
+       desaparece del DOM aunque exista — era la causa de que no hubiera forma
+       de abrir la barra lateral. */
     header, div[data-testid="stHeader"] {
         background: transparent !important;
-        height: 0px !important;
-        min-height: 0px !important;
         box-shadow: none !important;
         border: none !important;
-        overflow: visible !important;
     }
 
-    /* --- Control de la barra lateral ---
-       Este bloque SOLO afecta a los data-testid EXACTOS del control de la
-       sidebar. Se evitan selectores por posición (como "section + div button")
-       porque cazan elementos vecinos que no tienen nada que ver y descolocan
-       el resto del layout. Cada selector aquí es un data-testid literal. */
-    div[data-testid="stSidebarCollapsedControl"],
-    div[data-testid="collapsedControl"],
-    div[data-testid="stSidebarToggle"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        z-index: 999999 !important;
+    /* Ocultar solo los elementos de cromo que no queremos ver, sin tocar
+       el header completo ni su altura. */
+    div[data-testid="stDecoration"],
+    div[data-testid="stToolbar"],
+    div[data-testid="stMainMenu"],
+    #MainMenu,
+    footer,
+    .stAppDeployButton {
+        display: none !important;
+        visibility: hidden !important;
     }
 
-    /* Botón flotante SOLO en móvil, para no descolocar el layout de escritorio. */
-    @media (max-width: 900px) {
-        div[data-testid="stSidebarCollapsedControl"],
-        div[data-testid="collapsedControl"],
-        div[data-testid="stSidebarToggle"] {
-            position: fixed !important;
-            top: 10px !important;
-            left: 10px !important;
-            background: var(--er-surface) !important;
-            border: 1px solid var(--er-line-2) !important;
-            border-radius: 8px !important;
-            padding: 5px !important;
-            box-shadow: 0 2px 10px rgba(26,34,56,.14) !important;
-        }
-        div[data-testid="stSidebarCollapsedControl"] svg,
-        div[data-testid="collapsedControl"] svg,
-        div[data-testid="stSidebarToggle"] svg {
-            fill: var(--er-ink) !important;
-            color: var(--er-ink) !important;
-            width: 22px !important;
-            height: 22px !important;
-        }
-        /* Hueco superior para que el botón flotante no tape el primer título. */
-        section[data-testid="stMain"] .block-container {
-            padding-top: 56px !important;
-        }
+    /* Compensar el espacio que ocupa el header ahora que tiene altura. */
+    section[data-testid="stMain"] .block-container {
+        padding-top: 1rem !important;
     }
-
-    iframe { display: block; }
 
     /* Lienzo global — AURORA
        Varios degradados radiales muy suaves y desaturados (peach, lila,
@@ -4404,25 +4377,17 @@ if st.session_state.mostrar_pagina_planes:
 # =========================================================
 st.markdown(f"""
     <style>
-    /* Mismo criterio que el bloque de estilos principal: el header NO se
-       elimina, porque en móvil contiene el control que despliega la barra
-       lateral. Si aquí se pusiera display:none, este bloque —que se inyecta
-       después— revertiría el arreglo y el menú volvería a ser inalcanzable
-       desde el teléfono. */
-    #MainMenu, footer, .stAppDeployButton, .viewerBadge_container__1QS1h {{
-        display: none !important;
-        visibility: hidden !important;
+    /* Mismo criterio: header transparente con altura natural para que el
+       botón de la sidebar sea accesible. Ver comentario en el bloque principal. */
+    header, div[data-testid="stHeader"] {{
+        background: transparent !important;
+        box-shadow: none !important;
+        border: none !important;
     }}
     div[data-testid="stDecoration"], div[data-testid="stToolbar"],
     div[data-testid="stMainMenu"] {{
         display: none !important;
         height: 0px !important;
-    }}
-    header, div[data-testid="stHeader"] {{
-        background: transparent !important;
-        height: 0px !important;
-        min-height: 0px !important;
-        box-shadow: none !important;
     }}
     /* Duplicado intencional del bloque de arriba: este <style> se inyecta más
        tarde (es el de marca blanca por agencia) y Streamlit no garantiza el
