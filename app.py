@@ -346,8 +346,13 @@ st.markdown("""
         display: none !important;
         visibility: hidden !important;
     }
+    /* stToolbar NUNCA se oculta: es el contenedor del botón que reabre la
+       sidebar (stExpandSidebarButton vive dentro de él). Ocultarlo entero
+       se lleva por delante ese botón aunque su propio CSS diga visible —
+       un display:none en el padre gana siempre sobre el hijo. Esto es lo
+       que causaba que la barra lateral no se pudiera reabrir. Se ocultan
+       solo sus dos hijos concretos que no queremos ver. */
     div[data-testid="stDecoration"],
-    div[data-testid="stToolbar"],
     div[data-testid="stMainMenu"] {
         display: none !important;
         height: 0px !important;
@@ -364,9 +369,9 @@ st.markdown("""
     }
 
     /* Ocultar solo los elementos de cromo que no queremos ver, sin tocar
-       el header completo ni su altura. */
+       el header completo ni stToolbar (contiene el botón de reabrir la
+       sidebar — ver comentario detallado más arriba). */
     div[data-testid="stDecoration"],
-    div[data-testid="stToolbar"],
     div[data-testid="stMainMenu"],
     #MainMenu,
     footer,
@@ -4377,14 +4382,16 @@ if st.session_state.mostrar_pagina_planes:
 # =========================================================
 st.markdown(f"""
     <style>
-    /* Mismo criterio: header transparente con altura natural para que el
-       botón de la sidebar sea accesible. Ver comentario en el bloque principal. */
+    /* Mismo criterio: header transparente con altura natural, y stToolbar
+       NUNCA se oculta porque contiene el botón que reabre la sidebar
+       (stExpandSidebarButton). Ver comentario detallado en el bloque
+       principal — ocultar el padre se llevaba por delante el botón. */
     header, div[data-testid="stHeader"] {{
         background: transparent !important;
         box-shadow: none !important;
         border: none !important;
     }}
-    div[data-testid="stDecoration"], div[data-testid="stToolbar"],
+    div[data-testid="stDecoration"],
     div[data-testid="stMainMenu"] {{
         display: none !important;
         height: 0px !important;
@@ -4395,6 +4402,20 @@ st.markdown(f"""
        seguridad. IMPORTANTE — nunca añadir position:fixed a este selector sin
        envolverlo en @media (max-width:900px): un descuido aquí ya rompió una
        vez el layout de TODOS los botones de la página (ver historial). */
+    /* Duplicado intencional del bloque de arriba: este <style> se inyecta más
+       tarde (es el de marca blanca por agencia) y Streamlit no garantiza el
+       orden entre bloques en reruns parciales, así que se repite aquí por
+       seguridad. IMPORTANTE — nunca añadir position:fixed a este selector sin
+       envolverlo en @media (max-width:900px): un descuido aquí ya rompió una
+       vez el layout de TODOS los botones de la página (ver historial).
+
+       El testid real (verificado ejecutando Streamlit 1.62 e inspeccionando
+       el DOM, no adivinado) es "stExpandSidebarButton" — los nombres
+       "stSidebarCollapsedControl" y "collapsedControl" que se usaban antes
+       no existen en esta versión y por eso el botón nunca se veía. Se
+       mantienen como fallback por si el hosting corre otra versión de
+       Streamlit con un nombre distinto, pero el bueno es el primero. */
+    button[data-testid="stExpandSidebarButton"],
     div[data-testid="stSidebarCollapsedControl"],
     div[data-testid="collapsedControl"] {{
         display: flex !important;
