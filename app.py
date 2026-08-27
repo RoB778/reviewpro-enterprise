@@ -707,9 +707,16 @@ st.markdown("""
         background-color: var(--er-accent) !important;
         border-color: var(--er-accent) !important;
     }
-    .stSlider [data-baseweb="slider"] div[role="slider"] {
-        background-color: var(--er-accent) !important;
-    }
+    /* El color del slider (y demás widgets nativos: radios, checkboxes,
+       barras de progreso) ya NO se fija aquí. Streamlit reescribió el slider
+       con React Aria y genera sus clases internas dinámicamente vía Emotion
+       (nombres como "st-emotion-cache-1ju38gd" que cambian entre versiones),
+       así que perseguirlas con CSS es una guerra que se pierde en cada
+       actualización de Streamlit — es lo que pasaba aquí: esta regla apuntaba
+       a data-baseweb="slider", un atributo que ya no existe en el DOM real.
+       El acento índigo de estos widgets ahora se fija de forma robusta en
+       .streamlit/config.toml (theme.primaryColor), que es la vía oficial de
+       Streamlit y no depende de ningún nombre de clase interno. */
 
     /* Divisores */
     hr { border-color: var(--er-line) !important; }
