@@ -363,47 +363,46 @@ st.markdown("""
         overflow: visible !important;
     }
 
-    /* --- Control de la barra lateral: siempre accesible ---
-       Streamlit ha cambiado el data-testid de este botón varias veces.
-       Se cubren TODAS las variantes conocidas + el selector genérico de
-       posición para que ninguna versión lo pierda. */
+    /* --- Control de la barra lateral ---
+       Este bloque SOLO afecta a los data-testid EXACTOS del control de la
+       sidebar. Se evitan selectores por posición (como "section + div button")
+       porque cazan elementos vecinos que no tienen nada que ver y descolocan
+       el resto del layout. Cada selector aquí es un data-testid literal. */
     div[data-testid="stSidebarCollapsedControl"],
     div[data-testid="collapsedControl"],
-    div[data-testid="stSidebarToggle"],
-    section[data-testid="stSidebar"] + div button,
-    button[kind="header"],
-    button[data-testid="stBaseButton-header"],
-    button[data-testid="stBaseButton-headerNoPadding"] {
+    div[data-testid="stSidebarToggle"] {
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
         z-index: 999999 !important;
-        position: fixed !important;
-        top: 10px !important;
-        left: 10px !important;
-        background: var(--er-surface) !important;
-        -webkit-backdrop-filter: blur(12px) !important;
-        backdrop-filter: blur(12px) !important;
-        border: 1px solid var(--er-line-2) !important;
-        border-radius: 8px !important;
-        padding: 5px !important;
-        box-shadow: 0 2px 10px rgba(26,34,56,.14) !important;
-    }
-    div[data-testid="stSidebarCollapsedControl"] svg,
-    div[data-testid="collapsedControl"] svg,
-    div[data-testid="stSidebarToggle"] svg,
-    button[kind="header"] svg,
-    button[data-testid="stBaseButton-header"] svg,
-    button[data-testid="stBaseButton-headerNoPadding"] svg {
-        fill: var(--er-ink) !important;
-        color: var(--er-ink) !important;
-        width: 20px !important;
-        height: 20px !important;
     }
 
-    /* Hueco superior para que el botón flotante no tape el primer título. */
-    section[data-testid="stMain"] .block-container {
-        padding-top: 56px !important;
+    /* Botón flotante SOLO en móvil, para no descolocar el layout de escritorio. */
+    @media (max-width: 900px) {
+        div[data-testid="stSidebarCollapsedControl"],
+        div[data-testid="collapsedControl"],
+        div[data-testid="stSidebarToggle"] {
+            position: fixed !important;
+            top: 10px !important;
+            left: 10px !important;
+            background: var(--er-surface) !important;
+            border: 1px solid var(--er-line-2) !important;
+            border-radius: 8px !important;
+            padding: 5px !important;
+            box-shadow: 0 2px 10px rgba(26,34,56,.14) !important;
+        }
+        div[data-testid="stSidebarCollapsedControl"] svg,
+        div[data-testid="collapsedControl"] svg,
+        div[data-testid="stSidebarToggle"] svg {
+            fill: var(--er-ink) !important;
+            color: var(--er-ink) !important;
+            width: 22px !important;
+            height: 22px !important;
+        }
+        /* Hueco superior para que el botón flotante no tape el primer título. */
+        section[data-testid="stMain"] .block-container {
+            padding-top: 56px !important;
+        }
     }
 
     iframe { display: block; }
@@ -4418,6 +4417,12 @@ st.markdown(f"""
         min-height: 0px !important;
         box-shadow: none !important;
     }}
+    /* Duplicado intencional del bloque de arriba: este <style> se inyecta más
+       tarde (es el de marca blanca por agencia) y Streamlit no garantiza el
+       orden entre bloques en reruns parciales, así que se repite aquí por
+       seguridad. IMPORTANTE — nunca añadir position:fixed a este selector sin
+       envolverlo en @media (max-width:900px): un descuido aquí ya rompió una
+       vez el layout de TODOS los botones de la página (ver historial). */
     div[data-testid="stSidebarCollapsedControl"],
     div[data-testid="collapsedControl"] {{
         display: flex !important;
