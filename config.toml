@@ -1,0 +1,39 @@
+# =============================================================================
+# TEMA NATIVO DE STREAMLIT
+# =============================================================================
+# POR QUÉ EXISTE ESTE ARCHIVO
+# ----------------------------
+# El slider (y otros widgets nativos) se coloreaban intentando enganchar CSS
+# a clases internas de Streamlit (data-baseweb="slider", etc.). Streamlit
+# reescribió el slider con React Aria y ahora genera esas clases dinámicamente
+# vía Emotion (ej. "st-emotion-cache-1ju38gd") — nombres que CAMBIAN entre
+# builds y versiones, así que cualquier CSS que las persiga se rompe en la
+# siguiente actualización de Streamlit sin que hayamos tocado nada.
+#
+# La vía correcta y estable es esta: Streamlit expone theme.primaryColor como
+# funcionalidad de primera clase. Colorea automáticamente TODOS los widgets
+# nativos (sliders, radios, checkboxes, barras de progreso, spinners) sin
+# depender de ningún nombre de clase interno. Es a prueba de futuras
+# actualizaciones de Streamlit.
+#
+# Los colores de FONDO y de las TARJETAS de cristal los sigue gobernando nuestro
+# CSS custom en app.py/ui.py (ese sí es estable, porque usa selectores propios
+# de layout como section[data-testid="stSidebar"], no clases internas de
+# widgets). Este archivo solo fija el acento de los widgets NATIVOS.
+# =============================================================================
+
+[theme]
+# Acento índigo — el mismo --er-accent (#4f46e5) que gobierna botones, nav
+# activa y bordes de foco en el CSS custom. Así el slider, los radios y los
+# checkboxes quedan coherentes con el resto de la app sin CSS frágil.
+primaryColor = "#4f46e5"
+
+# Fondo base y de "superficie secundaria" (inputs, sidebar) en línea con la
+# paleta neutra fría de la app (opción B: sin aurora, para trabajar cómodo).
+backgroundColor = "#f0f2f7"
+secondaryBackgroundColor = "#ffffff"
+
+# Texto: tinta navy de marca.
+textColor = "#1a2238"
+
+font = "sans serif"
