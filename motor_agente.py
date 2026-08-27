@@ -12,7 +12,7 @@ ChatGPT gratis.
 
 El foso no es lo que el agente SABE (SEO genérico, imitable). El foso es lo que
 el agente VE: las reseñas reales de ESE negocio, su Ficha de Verdad verificada,
-su Reputation Score, sus keywords, su histórico. ChatGPT no tiene acceso a nada 
+su Reputation Score, sus keywords, su histórico. ChatGPT no tiene acceso a nada
 de eso. Este agente sí.
 
 El pitch: "El único asistente que se ha leído todas tus reseñas."
@@ -49,8 +49,16 @@ import json
 import re
 from datetime import datetime, timedelta
 
-# Coherencia con el resto del código: mismo modelo.
-MODELO_AGENTE = "claude-sonnet-4-6"
+# COSTE: el agente encadena varias llamadas por turno (herramientas + reenvío
+# del historial completo en cada vuelta, así funciona tool use en la API), así
+# que el volumen de tokens por conversación es alto. Con Sonnet en las
+# primeras pruebas salía a ~10 céntimos por consulta — insostenible con 200
+# mensajes/mes por local. Haiku 4.5 cuesta aprox 1/3 de Sonnet en input y
+# output, y aquí es suficiente: las tareas son leer datos, detectar patrones
+# simples y redactar en tono cercano — no exige el razonamiento fino que sí
+# necesitan blindaje.py y motor_seo.py (esos SIGUEN en Sonnet a propósito:
+# ahí un error cuesta caro de verdad, blindaje legal y anti-alucinación).
+MODELO_AGENTE = "claude-haiku-4-5-20251001"
 
 # Presupuesto de la conversación: el agente puede encadenar varias llamadas a
 # herramientas por turno (leer reseñas -> analizar temas -> generar). Acotamos
@@ -77,7 +85,7 @@ Tienes acceso a los datos reales de este negocio mediante herramientas: sus rese
 CÓMO TRABAJAS
 1. Cuando el usuario pregunte algo sobre su negocio, su reputación, qué mejorar, qué publicar o cómo captar más clientes, usa las herramientas para VER sus datos antes de responder. No respondas de memoria genérica lo que puedes fundamentar con sus datos reales.
 2. Sé concreto y accionable. Nada de "deberías mejorar tu presencia online". Sí: "esta semana responde estas 3 reseñas y publica un post sobre tu terraza, que aparece en 8 opiniones positivas".
-3. Ancla SIEMPRE a hechos verificados. Si vas a proponer que promocione algo (terraza, parking, sin gluten...), comprueba antes con la herramienta de la Ficha que ESE hecho está verificado. Si no lo está, dilo: "para poder anunciar el parking, verifícalo antes en tu Ficha". NUNCA afirmes que el negocio tiene algo sin comprobarlo. Esto es sagrado: es la misma filosofía anti-mentira de todo Reselia.
+3. ANTES de escribir cualquier frase que mencione una característica concreta del negocio (parking, terraza, sin gluten, wifi, premios, equipamiento, cualquier servicio), sigue este paso mecánico: (a) ¿he llamado a ver_ficha_verificada en este turno? Si no, llámala ahora. (b) ¿esa característica aparece en la lista de "VERIFICADO"? Si no aparece ahí, NO la afirmes bajo ninguna circunstancia — di en vez de eso "eso aún no está verificado, coméntaselo al dueño para poder anunciarlo". Esta regla es más importante que sonar completo o útil: una respuesta incompleta no hace daño; una característica inventada sí. Es la misma filosofía anti-mentira de todo Reselia y no tiene excepciones.
 4. Habla claro y corto. El usuario es un autónomo ocupado (un hostelero, un dentista, un peluquero), no un experto en marketing. Cero jerga vacía. Explica el "por qué" en una frase, no en un párrafo.
 
 TU DOMINIO — en qué ayudas
