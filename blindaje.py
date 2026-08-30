@@ -232,35 +232,54 @@ def _normalizar(texto: str) -> str:
 # =============================================================================
 
 # Señales de que alguien intenta hablarle al modelo en vez de dejar una reseña.
-_PATRONES_INYECCION = [
+#
+# ⚠️ ESTOS PATRONES SE COMPARAN CONTRA EL TEXTO YA NORMALIZADO.
+# _normalizar() pasa a minúsculas y QUITA LAS TILDES. Escribir aquí un patrón
+# con mayúsculas o con tildes lo deja muerto: nunca podrá coincidir con nada.
+# Ese era exactamente el fallo anterior — cuatro de estos patrones (entre ellos
+# "NUEVA INSTRUCCIÓN:", el del ejemplo de la cabecera de este archivo) no
+# dispararon jamás. Para que no vuelva a pasar, la lista se escribe en claro y
+# la normalización se aplica AUTOMÁTICAMENTE al compilarla, unas líneas más
+# abajo. Escribe los patrones como te resulte natural; el código se encarga.
+_PATRONES_INYECCION_CRUDOS = [
     # Órdenes explícitas tras cierre de comilla (intento de escapar del bloque de datos)
-    (r'["""\'`]\s*(ignore?|olvida?|nuevas? instrucciones?|nuevo sistema|como si|actua)', "cierre de comilla + orden"),
-    
-    # Órdenes imperativas de descartar instrucciones previas (con "ignora" o "olvida" + objetivo claro)
-    (r'\b(ignora?|olvida?)\s+(el prompt|el sistema|lo anterior|estas reglas)\b', 
+    (r'["\'`]\s*(ignore?|olvida?|nuevas? instruccion(es)?|nuevo sistema|como si|actua)', "cierre de comilla + orden"),
+
+    # Órdenes imperativas de descartar instrucciones previas
+    (r'\b(ignora?|olvida?|descarta|obvia)\s+(el prompt|el sistema|las? reglas?|lo anterior|estas reglas|las instrucciones|el blindaje)\b',
      "orden de descartar instrucciones previas"),
-    
-    # "NUEVA INSTRUCCIÓN:" con dos puntos (contexto de orden, no descripción)
-    (r'\bNUEVA\s+INSTRUCCIÓN\s*:', "nueva instrucción explícita con dos puntos"),
-    (r'\b(instrucción nueva|nuevo sistema|nuevo rol)\s*:', "definición de instrucción/sistema/rol"),
-    
+
+    # "NUEVA INSTRUCCIÓN:" y variantes con dos puntos (contexto de orden)
+    (r'\bnuevas?\s+instruccion(es)?\b', "nueva instrucción explícita"),
+    (r'\b(instruccion(es)? nuevas?|nuevo sistema|nuevo rol|nueva tarea)\s*:', "definición de instrucción/sistema/rol"),
+
     # Marcadores de cambio de rol/contexto
-    (r'\b(system|assistant|user)\s*[:>\|]', "marcador de rol de conversación"),
+    (r'\b(system|assistant|user|humano|asistente)\s*[:>|]', "marcador de rol de conversación"),
     (r'\b(prompt)\s*[:=]', "definición explícita de prompt"),
-    
+
     # Órdenes de control
-    (r'\b(actúa?|comportate?|hazte?)\s+como\b', "reasignación de rol"),
-    (r'\bresponde?\s+(solo|sólo|únicamente|exclusivamente)\s+', "forzar formato de salida"),
-    
+    (r'\b(actua|comportate|hazte|haz de|finge que eres)\s+como\b', "reasignación de rol"),
+    (r'\bactua\s+como\b', "reasignación de rol"),
+    (r'\bresponde?\s+(solo|unicamente|exclusivamente)\s+', "forzar formato de salida"),
+
     # Inyecciones en inglés
     (r'\b(disregard|forget|ignore).{0,25}(previous|instructions|prompt)\b', "inyección en inglés"),
     (r'\b(override|jailbreak|bypass)\b', "terminología de ataque"),
-    
+    (r'\byou are now\b', "reasignación de rol en inglés"),
+
     # Etiquetas XML/HTML falsificadas (solo si cierran sin abrir)
-    (r'</(system|instruction|prompt|usuario)>', "etiqueta de cierre sin apertura"),
-    
+    (r'</(system|instruction|prompt|usuario|resena)>', "etiqueta de cierre sin apertura"),
+
     # JSON falsificado (cierre de llave con key que no pertenece a datos)
-    (r'\}\s*{\s*["\']?(sistema|instrucciones|prompt)', "intento de inyectar JSON de control"),
+    (r'\}\s*\{\s*["\']?(sistema|instrucciones|prompt)', "intento de inyectar JSON de control"),
+]
+
+# Compilación defensiva: cada patrón se normaliza con la MISMA función que se
+# aplica a la reseña, y además se compila con IGNORECASE. Así es imposible que
+# una tilde o una mayúscula despistada vuelva a dejar un patrón muerto.
+_PATRONES_INYECCION = [
+    (re.compile(_normalizar(patron), re.IGNORECASE), descripcion)
+    for patron, descripcion in _PATRONES_INYECCION_CRUDOS
 ]
 
 
@@ -307,7 +326,7 @@ def sanear_resena(resena: str) -> tuple[str, List[str], bool]:
     normalizado = _normalizar(texto)
     detectados = [
         descripcion for patron, descripcion in _PATRONES_INYECCION
-        if re.search(patron, normalizado)
+        if patron.search(normalizado)
     ]
 
     if detectados:
