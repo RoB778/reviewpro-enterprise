@@ -1,4 +1,5 @@
 import base64
+import html as _html
 import json
 import secrets as _secrets_modulo
 import os
@@ -11,7 +12,6 @@ from datetime import datetime, timedelta
 from io import BytesIO
 
 import bcrypt
-import httpx
 import requests
 import stripe
 import streamlit as st
@@ -1229,6 +1229,8 @@ LIMITE_USOS_POR_PLAN = {
     "individual": None,        # 1 local, respuestas ilimitadas
     "starter": None,
     "growth": None,
+    # Legado: el plan Enterprise ya no se vende (ver PLANES_AUTOSERVICIO). La
+    # clave se mantiene sólo por si quedara alguna fila antigua en Supabase.
     "enterprise": None,
 }
 
@@ -1248,12 +1250,12 @@ LIMITE_USOS_POR_PLAN = {
 # servicio de golpe sino que ofrece hablar para ampliarlo (igual que ya se
 # hace con el límite de velocidad). Así protege margen sin penalizar a nadie
 # que esté usando el plan como se espera.
-# None = sin techo (Enterprise ya se negocia caso a caso).
+# None = sin techo.
 LIMITE_MENSUAL_BLANDO_PLANES_ILIMITADOS = {
     "individual": 400,   # ~13/día de media — de sobra para cualquier local normal
     "starter":    1500,  # varios locales
     "growth":     4000,
-    "enterprise": None,
+    "enterprise": None,   # legado, ver nota en PLANES_AUTOSERVICIO
 }
 LIMITE_LOCALES_POR_PLAN = {"free": 1, "individual": 1,
                             "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
@@ -1262,7 +1264,10 @@ LIMITE_LOCALES_POR_PLAN = {"free": 1, "individual": 1,
 LIMITE_USUARIOS_POR_PLAN = {"free": 1, "individual": 1,
                             "starter": 5, "growth": 15, "enterprise": None}
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
-EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Antes era r"^[^@\s]+@[^@\s]+\.[^@\s]+$", que solo prohibía espacios y
+# arrobas: aceptaba <, > y comillas, así que "<img/src=x/onerror=1>@a.bc" se
+# daba por válido y acababa interpolado en el HTML de la barra lateral.
+EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
 
 def agencia_en_beta(agencia):
@@ -1329,10 +1334,10 @@ STRIPE_PRICES = {
         "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 299€ en Stripe)
         "anual":   "price_TODO_GROWTH_2870EUR_ANO",       # ⚠️ crear en Stripe (2.870€/año = 299×12×0,8)
     },
-    "enterprise": {
-        "mensual": "price_1Tr1RoKwc34DG74M8L4sjSVL",     # existente (ajusta el importe a 349€ en Stripe)
-        "anual":   "price_TODO_ENTERPRISE_3350EUR_ANO",   # ⚠️ crear en Stripe (3.350€/año = 349×12×0,8)
-    },
+    # Enterprise eliminado: el plan ya no existe, así que no hay precio que cobrar.
+    # Si algún día vuelve, se recrea aquí con sus price_ids nuevos de Stripe.
+    # IMPORTANTE: archiva también los precios antiguos en el Dashboard de Stripe
+    # (Producto → Pricing → Archive) para que nadie pueda reutilizar un enlace viejo.
 }
 
 DESCUENTO_ANUAL = 0.20  # -20% al pagar por año
@@ -1394,19 +1399,20 @@ PLANES_AUTOSERVICIO = {
         "gancho": "Menos de 10€ por local — el favorito de las agencias.",
         "destacado": True,
     },
-    # RETIRADO DE LA VENTA. Ya no aparece en la landing ni en el selector de
-    # planes: no se ofrece a ningún cliente nuevo. La definición se conserva a
-    # propósito porque los límites por plan se consultan por clave, y si alguna
-    # cuenta de Supabase tuviera plan="enterprise", borrar esto la dejaría sin
-    # límites resueltos y rompería su sesión. No borrar sin migrar antes esas
-    # filas a "growth".
-    "enterprise": {
-        "nombre": "Enterprise", "target": "Agencias grandes · locales ilimitados",
-        "precio_mensual": 349, "price_ids": STRIPE_PRICES["enterprise"],
-        "features": ["Locales ilimitados", "Soporte prioritario", "Marca blanca completa",
-                     "Multi-usuario + analítica + ROI"],
-        "gancho": "Sin techo de crecimiento. Cuantos más locales, más barato sale cada uno.",
-    },
+    # Enterprise ELIMINADO definitivamente del catálogo (agosto 2026).
+    #
+    # Al quitarlo de aquí desaparece de los DOS sitios donde se pintaba: la
+    # landing (que ya lo excluía a mano) y el selector de planes de dentro de
+    # la app, render_pagina_planes_upgrade(), que recorre este diccionario
+    # entero y por tanto SÍ lo seguía enseñando hasta ahora.
+    #
+    # Las tablas de límites de más arriba (LIMITE_LOCALES_POR_PLAN,
+    # LIMITE_USUARIOS_POR_PLAN, LIMITES_VELOCIDAD_POR_PLAN...) conservan a
+    # propósito su clave "enterprise" como red de seguridad: se consultan con
+    # .get(plan) y, si quedara alguna fila en Supabase con plan='enterprise',
+    # seguiría resolviendo sus límites en vez de romper la sesión.
+    # Cuando confirmes con un SELECT que no queda ninguna fila así, puedes
+    # borrar también esas claves sin ningún riesgo.
 }
 
 # =========================================================
@@ -1436,7 +1442,8 @@ BETA_MENSAJE_PLANES = (
 STRIPE_PRICE_ID_INDIVIDUAL = STRIPE_PRICES["individual"]["mensual"]
 STRIPE_PRICE_ID_STARTER = STRIPE_PRICES["starter"]["mensual"]
 STRIPE_PRICE_ID_GROWTH = STRIPE_PRICES["growth"]["mensual"]
-STRIPE_PRICE_ID_ENTERPRISE = STRIPE_PRICES["enterprise"]["mensual"]
+# STRIPE_PRICE_ID_ENTERPRISE se elimina con el plan. Nadie lo referenciaba
+# fuera de esta línea, así que quitarlo no rompe ninguna ruta de pago.
 
 
 def crear_sesion_pago_stripe(agencia_id, plan_nombre, price_id):
@@ -1654,7 +1661,15 @@ def _obtener_ip_cliente():
         cabeceras = st.context.headers
         reenviada = cabeceras.get("X-Forwarded-For") or cabeceras.get("x-forwarded-for")
         if reenviada:
-            return reenviada.split(",")[0].strip()
+            # ÚLTIMO elemento, no el primero. X-Forwarded-For se construye
+            # por acumulación: el primer valor es el que MANDA EL CLIENTE, así
+            # que un atacante solo tiene que enviar la cabecera con una IP
+            # inventada y tu proxy le añade la real detrás. Cogiendo [0] nos
+            # quedábamos con la falsa, distinta en cada petición, y los límites
+            # de altas por IP se saltaban con una línea de curl.
+            # El último valor lo escribe nuestro propio proxy (Render), que es
+            # el único eslabón de la cadena en el que podemos confiar.
+            return reenviada.split(",")[-1].strip()
     except Exception:
         pass
     return None
@@ -2186,7 +2201,6 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
 
     buffer = BytesIO()
     color_hex = agencia.get("color_marca", "#2A2C31").lstrip("#")
-    color_rl = colors.HexColor(f"#{color_hex}")
 
     # Color para las CABECERAS DE TABLA. El color de marca de la agencia se
     # respeta SIEMPRE que sea suficientemente oscuro como para que el texto
@@ -3476,6 +3490,289 @@ def _cerrar_sesion_local():
         st.session_state.pop(clave, None)
 
 
+# =========================================================
+# 🔑 RECUPERACIÓN DE CONTRASEÑA
+# =========================================================
+#
+# POR QUÉ HACE FALTA
+# ------------------
+# Hasta ahora la única salida para alguien que olvidaba su contraseña era
+# escribir a soporte y que alguien entrase a mano en Supabase a reescribir un
+# password_hash. Con altas de autoservicio, esa incidencia llega el primer día.
+#
+# CÓMO FUNCIONA
+# -------------
+# Mismo mecanismo que el token de sesión, con tres diferencias que importan:
+#   · caduca en 30 minutos, no en 8 horas;
+#   · es de UN SOLO USO (se marca 'usado' en cuanto se consume);
+#   · en la base de datos se guarda el SHA-256 del token, nunca el token.
+#
+# Esa última es la que evita que la tabla se convierta en un llavero: si
+# alguien consigue leerla, tiene hashes, no credenciales.
+#
+# QUÉ NECESITA EN SUPABASE (ejecutar una vez)
+# -------------------------------------------
+#   create table resets_password (
+#     id          uuid primary key default gen_random_uuid(),
+#     token_hash  text not null unique,
+#     usuario_id  uuid not null references usuarios(id) on delete cascade,
+#     expira_en   timestamptz not null,
+#     usado       boolean not null default false,
+#     creado_en   timestamptz not null default now()
+#   );
+#   create index on resets_password (token_hash);
+#
+# SOBRE EL ENVÍO DEL EMAIL
+# ------------------------
+# La app no tenía ningún proveedor de correo configurado, así que el envío es
+# OPCIONAL y por SMTP estándar (secrets SMTP_HOST, SMTP_USER, SMTP_PASSWORD,
+# SMTP_REMITENTE). Si no están configurados, el enlace se escribe en los logs
+# del servidor: la recuperación sigue funcionando, pero pasando por ti. Es
+# deliberado — es mejor un flujo completo con el último tramo manual que
+# seguir sin flujo, y el día que añadas Resend/SendGrid solo cambia
+# _enviar_email_reset().
+# =========================================================
+
+TABLA_RESETS_PASSWORD = "resets_password"
+CADUCIDAD_RESET_SEGUNDOS = 30 * 60
+
+
+def _hash_token(token):
+    """SHA-256 del token. Lo que se guarda en la base de datos.
+
+    No lleva bcrypt a propósito: un token de 32 bytes aleatorios no es
+    adivinable por fuerza bruta, así que no necesita un hash lento, y aquí
+    la latencia sí importa (se consulta en cada carga de la pantalla).
+    """
+    import hashlib
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _enviar_email_reset(destinatario, enlace):
+    """Envía el enlace de recuperación. Devuelve True si salió de verdad.
+
+    Si no hay SMTP configurado, deja el enlace en stderr (visible en los logs
+    de Render) y devuelve False, para que la interfaz pueda decir la verdad al
+    usuario en vez de prometer un correo que nunca va a llegar.
+    """
+    host = st.secrets.get("SMTP_HOST")
+    usuario_smtp = st.secrets.get("SMTP_USER")
+    clave_smtp = st.secrets.get("SMTP_PASSWORD")
+    remitente = st.secrets.get("SMTP_REMITENTE") or usuario_smtp
+
+    if not (host and usuario_smtp and clave_smtp and remitente):
+        print(
+            f"[RESET SIN SMTP] Enlace de recuperación para {destinatario}: {enlace}",
+            file=sys.stderr,
+        )
+        return False
+
+    try:
+        import smtplib
+        from email.message import EmailMessage
+
+        mensaje = EmailMessage()
+        mensaje["Subject"] = "Restablecer tu contraseña de Reselia"
+        mensaje["From"] = remitente
+        mensaje["To"] = destinatario
+        mensaje.set_content(
+            "Has pedido restablecer tu contraseña de Reselia.\n\n"
+            f"Abre este enlace para elegir una nueva:\n{enlace}\n\n"
+            "El enlace caduca en 30 minutos y solo se puede usar una vez.\n"
+            "Si no has sido tú, puedes ignorar este mensaje: tu contraseña "
+            "actual sigue siendo válida.\n"
+        )
+
+        puerto = int(st.secrets.get("SMTP_PUERTO") or 587)
+        with smtplib.SMTP(host, puerto, timeout=15) as servidor:
+            servidor.starttls()
+            servidor.login(usuario_smtp, clave_smtp)
+            servidor.send_message(mensaje)
+        return True
+    except Exception as e:
+        log_error_completo("envío de email de recuperación", e)
+        return False
+
+
+def solicitar_reset_password(email):
+    """
+    Crea un token de recuperación para ese email y lo envía.
+
+    Devuelve (enviado_por_email, None) o (False, motivo_tecnico).
+
+    IMPORTANTE: quien llama a esto NUNCA debe cambiar el mensaje que enseña en
+    función de si el email existía o no. Si dijéramos "ese correo no está
+    registrado", habríamos construido un enumerador de cuentas gratuito. Se
+    responde siempre lo mismo, exista o no.
+    """
+    email_normalizado = (email or "").lower().strip()
+    if not EMAIL_REGEX.match(email_normalizado):
+        return False, "formato"
+
+    try:
+        candidatos = (
+            supabase.table("usuarios")
+            .select("id, email")
+            .eq("email", email_normalizado)
+            .eq("activo", True)
+            .execute()
+        )
+    except Exception as e:
+        return False, log_error_completo("búsqueda de usuario para reset", e)
+
+    if not candidatos.data:
+        # No existe: no se crea nada, pero se devuelve como si todo hubiera ido
+        # bien para que la pantalla no delate la diferencia.
+        return False, None
+
+    token = _secrets_modulo.token_urlsafe(32)
+    expira_en = (datetime.utcnow() + timedelta(seconds=CADUCIDAD_RESET_SEGUNDOS)).isoformat()
+
+    try:
+        # Un solo enlace activo por persona: se invalidan los anteriores para
+        # que pedir el correo dos veces no deje dos llaves circulando.
+        for fila_usuario in candidatos.data:
+            supabase.table(TABLA_RESETS_PASSWORD) \
+                .update({"usado": True}) \
+                .eq("usuario_id", fila_usuario["id"]) \
+                .eq("usado", False) \
+                .execute()
+
+        supabase.table(TABLA_RESETS_PASSWORD).insert({
+            "token_hash": _hash_token(token),
+            "usuario_id": candidatos.data[0]["id"],
+            "expira_en": expira_en,
+        }).execute()
+    except Exception as e:
+        return False, log_error_completo("creación de token de reset", e)
+
+    enlace = f"{APP_URL}/?r={token}"
+    return _enviar_email_reset(email_normalizado, enlace), None
+
+
+def validar_token_reset(token):
+    """Devuelve (usuario_id, None) si el token sirve, o (None, motivo)."""
+    if not token:
+        return None, "Enlace incompleto."
+
+    try:
+        fila = (
+            supabase.table(TABLA_RESETS_PASSWORD)
+            .select("id, usuario_id, expira_en, usado")
+            .eq("token_hash", _hash_token(token))
+            .execute()
+        )
+    except Exception:
+        return None, "No se ha podido comprobar el enlace. Inténtalo de nuevo en un momento."
+
+    if not fila.data:
+        return None, "Este enlace no es válido. Pide uno nuevo desde la pantalla de acceso."
+
+    registro = fila.data[0]
+
+    if registro.get("usado"):
+        return None, "Este enlace ya se usó. Pide uno nuevo desde la pantalla de acceso."
+
+    expira = registro.get("expira_en")
+    if expira:
+        try:
+            caducado = datetime.fromisoformat(
+                expira.replace("Z", "+00:00")
+            ).replace(tzinfo=None) < datetime.utcnow()
+        except (ValueError, AttributeError):
+            caducado = True
+        if caducado:
+            return None, "Este enlace ha caducado (duran 30 minutos). Pide uno nuevo."
+
+    return registro["usuario_id"], None
+
+
+def consumar_reset_password(token, password_nueva):
+    """
+    Cambia la contraseña y quema el token. Devuelve (True, None) o (False, motivo).
+
+    El token se revalida aquí aunque ya se validara al pintar el formulario:
+    entre una cosa y otra pueden pasar minutos, y la comprobación que cuenta es
+    la del momento de escribir en la base de datos.
+    """
+    if len(password_nueva or "") < 8:
+        return False, "La contraseña debe tener al menos 8 caracteres."
+
+    usuario_id, motivo = validar_token_reset(token)
+    if not usuario_id:
+        return False, motivo
+
+    try:
+        nuevo_hash = bcrypt.hashpw(
+            password_nueva.encode("utf-8"), bcrypt.gensalt()
+        ).decode("utf-8")
+
+        supabase.table("usuarios") \
+            .update({"password_hash": nuevo_hash}) \
+            .eq("id", usuario_id) \
+            .execute()
+
+        supabase.table(TABLA_RESETS_PASSWORD) \
+            .update({"usado": True}) \
+            .eq("token_hash", _hash_token(token)) \
+            .execute()
+
+        # Cambiar la contraseña tiene que echar de todas partes: si alguien
+        # entró con la contraseña vieja, su sesión persistente moriría aquí.
+        # Es justo el motivo por el que la gente resetea.
+        supabase.table(TABLA_SESIONES_PERSISTENTES) \
+            .delete().eq("usuario_id", usuario_id).execute()
+    except Exception as e:
+        return False, log_error_completo("cambio de contraseña por reset", e)
+
+    return True, None
+
+
+def render_pantalla_reset(token):
+    """Pantalla de 'elige una contraseña nueva', a la que se llega por ?r=token."""
+    _izq_r, _centro_r, _der_r = st.columns([1, 1.15, 1])
+
+    with _centro_r:
+        st.markdown(
+            """
+            <div class="rs-login-cab">
+              <div class="rs-login-marca">RESELIA</div>
+              <h1 class="rs-login-titulo">Elige una contraseña nueva</h1>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        usuario_id, motivo = validar_token_reset(token)
+        if not usuario_id:
+            st.error(motivo)
+            if st.button("Volver al acceso", use_container_width=True):
+                st.query_params.pop("r", None)
+                st.session_state.vista_landing = "login"
+                st.rerun()
+            return
+
+        with st.form("form_reset_password", border=False):
+            nueva = st.text_input("Contraseña nueva", type="password")
+            repetida = st.text_input("Repítela", type="password")
+            enviado = st.form_submit_button(
+                "Guardar contraseña", use_container_width=True, type="primary"
+            )
+
+        if enviado:
+            if nueva != repetida:
+                st.error("Las dos contraseñas no coinciden.")
+            else:
+                ok, motivo_error = consumar_reset_password(token, nueva)
+                if ok:
+                    st.query_params.pop("r", None)
+                    st.session_state.vista_landing = "login"
+                    st.session_state["_reset_completado"] = True
+                    st.rerun()
+                else:
+                    st.error(motivo_error)
+
+
 def sesion_valida():
     """False si la sesión caducó por inactividad. Si caduca, la cierra."""
     ultima = st.session_state.get("_ultima_actividad")
@@ -3628,6 +3925,20 @@ if "alta_pendiente" not in st.session_state:
 # ramas). Si esto fuera después, una vuelta desde Stripe podría borrar el
 # token de la URL antes de que diera tiempo a leerlo.
 _restaurar_sesion_desde_token()
+
+# =========================================================
+# 🔑 VUELTA DESDE UN ENLACE DE RECUPERACIÓN (?r=token)
+# =========================================================
+# Va justo aquí, antes del bloque de Stripe, por el mismo motivo que la
+# restauración de sesión: más abajo hay varias ramas que hacen
+# st.query_params.clear() y se llevarían el token por delante.
+#
+# Se atiende ANTES de comprobar la sesión a propósito. Alguien puede estar
+# logueado en otra pestaña y aun así querer cambiar su contraseña desde el
+# enlace del correo; y el token, no la sesión, es lo que autoriza aquí.
+if st.query_params.get("r"):
+    render_pantalla_reset(st.query_params.get("r"))
+    st.stop()
 
 # =========================================================
 # 💳 VUELTA DESDE STRIPE: activación automática del plan
@@ -4194,9 +4505,9 @@ if not st.session_state.sesion_activa:
         st.markdown('<div class="rp-plan-target" style="font-size:0.95rem; margin-bottom:8px;">¿Gestionas varios locales? Planes para agencias:</div>', unsafe_allow_html=True)
         col_starter, col_growth = st.columns(2)
 
-        # Enterprise se retiró de la venta. Su definición sigue existiendo más
-        # abajo (PLANES_AUTOSERVICIO) para no romper cuentas que ya lo tuvieran
-        # asignado en la base de datos, pero ya no se ofrece a nadie nuevo.
+        # Solo hay dos planes de agencia. Enterprise ya no existe: se eliminó
+        # del catálogo (ver PLANES_AUTOSERVICIO), así que esta lista y el
+        # selector de dentro de la app enseñan exactamente lo mismo.
         planes_agencia = [
             ("starter", col_starter, "landing_elegir_starter"),
             ("growth", col_growth, "landing_elegir_growth"),
@@ -4332,6 +4643,45 @@ if not st.session_state.sesion_activa:
                                 st.rerun()
                         except Exception as e:
                             st.error(redactar_secretos(f"Error de conexión con la base de datos: {e}"))
+
+            # ---- Recuperación de contraseña ----
+            # Fuera del st.form de arriba: un formulario dentro de otro no es
+            # válido, y además así el expander se puede abrir sin disparar el
+            # envío del login.
+            if st.session_state.pop("_reset_completado", False):
+                st.success(
+                    "Contraseña actualizada. Ya puedes entrar con la nueva."
+                )
+
+            with st.expander("He olvidado mi contraseña"):
+                email_reset = st.text_input(
+                    "Tu email",
+                    key="_email_reset",
+                    placeholder="tu@agencia.com",
+                )
+                if st.button("Enviarme un enlace", key="_btn_reset", use_container_width=True):
+                    if not email_reset.strip():
+                        st.warning("Escribe tu email.")
+                    else:
+                        enviado, motivo_tecnico = solicitar_reset_password(email_reset)
+                        if motivo_tecnico == "formato":
+                            st.warning("Ese email no tiene un formato válido.")
+                        elif enviado:
+                            # Mensaje deliberadamente idéntico exista o no la
+                            # cuenta: ver la nota en solicitar_reset_password().
+                            st.success(
+                                "Si ese email tiene una cuenta, te hemos enviado "
+                                "un enlace para elegir una contraseña nueva. "
+                                "Caduca en 30 minutos."
+                            )
+                        else:
+                            # Sin SMTP configurado (o fallo de envío). No se
+                            # promete un correo que no va a llegar.
+                            st.info(
+                                "Hemos registrado tu solicitud. Escríbenos a "
+                                "hola@reselia.es y te mandamos el enlace de "
+                                "recuperación hoy mismo."
+                            )
 
             st.markdown(
                 '<div class="rs-login-pie">'
@@ -4649,8 +4999,12 @@ with st.sidebar:
     # ---- Identidad de la agencia ----
     st.image(agencia["logo_url"], use_container_width=True)
 
+    # _html.escape() en todo dato que venga de la base de datos. nombre_agencia
+    # lo escribe el propio usuario en el alta y no se valida: sin escapar, un
+    # admin de agencia puede inyectar <script> y ejecutarlo en el navegador de
+    # todos los gestores de su equipo.
     st.markdown(
-        f"<div class='rs-marca'>{agencia['nombre_agencia']}</div>",
+        f"<div class='rs-marca'>{_html.escape(agencia['nombre_agencia'])}</div>",
         unsafe_allow_html=True,
     )
 
@@ -4754,21 +5108,24 @@ with st.sidebar:
     )
     _limite_barra = LIMITE_USOS_POR_PLAN.get(_plan_barra)
 
-    if agencia_en_beta(agencia):
+    # Una sola consulta, reutilizada por el texto y por la barra de progreso.
+    # Antes se llamaba a contar_usos_del_mes() dos veces por rerun.
+    _usos_barra = None if agencia_en_beta(agencia) else contar_usos_del_mes(agencia["id"])
+
+    if _usos_barra is None:
         _uso_txt = "Beta · sin límite"
     elif _limite_barra is None:
-        _uso_txt = f"{contar_usos_del_mes(agencia['id'])} respuestas este mes"
+        _uso_txt = f"{_usos_barra} respuestas este mes"
     else:
-        _hechos = contar_usos_del_mes(agencia["id"])
-        _uso_txt = f"{_hechos} de {_limite_barra} este mes"
+        _uso_txt = f"{_usos_barra} de {_limite_barra} este mes"
 
     st.markdown(
         f"<div class='rs-plan'><b>{_nombre_plan_barra}</b><span>{_uso_txt}</span></div>",
         unsafe_allow_html=True,
     )
 
-    if _limite_barra is not None:
-        st.progress(min(1.0, contar_usos_del_mes(agencia["id"]) / max(1, _limite_barra)))
+    if _limite_barra is not None and _usos_barra is not None:
+        st.progress(min(1.0, _usos_barra / max(1, _limite_barra)))
 
     if st.button("Ver planes", use_container_width=True, key="barra_ver_planes"):
         st.session_state.mostrar_pagina_planes = True
@@ -4778,8 +5135,9 @@ with st.sidebar:
 
     # ---- Cuenta ----
     st.markdown(
-        f"<div class='rs-cuenta'>{usuario['nombre_usuario']}"
-        f"<span>{usuario['email']} · {usuario['rol']}</span></div>",
+        f"<div class='rs-cuenta'>{_html.escape(usuario['nombre_usuario'])}"
+        f"<span>{_html.escape(usuario['email'])} · "
+        f"{_html.escape(usuario['rol'])}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -4830,7 +5188,12 @@ if usuario.get("rol") == "admin":
             for m in activos:
                 col_m1, col_m2, col_m3 = st.columns([3, 1.4, 1.2])
                 with col_m1:
-                    st.markdown(f"{m['nombre_usuario']}  \n<span style='color:#6b7280; font-size:0.82rem;'>{m['email']}</span>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"{_html.escape(m['nombre_usuario'])}  \n"
+                        f"<span style='color:#6b7280; font-size:0.82rem;'>"
+                        f"{_html.escape(m['email'])}</span>",
+                        unsafe_allow_html=True,
+                    )
                 with col_m2:
                     es_tu = m["id"] == usuario["id"]
                     etiqueta_rol = "Administrador" if m.get("rol") == "admin" else "Gestor"
@@ -5499,6 +5862,11 @@ if vista_activa == "Responder reseña":
         submit = st.form_submit_button(etiqueta_boton, use_container_width=True)
 
     if submit:
+        # Se calcula UNA vez, y solo al enviar el formulario: las comprobaciones
+        # de velocidad cuestan consultas a la base de datos y no tienen sentido
+        # en los reruns en los que el usuario solo está escribiendo.
+        _velocidad = verificar_velocidad(agencia)
+
         if not resena_cliente.strip():
             st.warning("Pega primero la reseña del cliente.")
         elif not acepta_terminos:
@@ -5508,10 +5876,14 @@ if vista_activa == "Responder reseña":
             if st.button("Ver planes de pago", key="ver_planes_limite_usos"):
                 st.session_state.mostrar_pagina_planes = True
                 st.rerun()
-        elif not verificar_velocidad(agencia)["permitido"]:
-            st.error(redactar_secretos(verificar_velocidad(agencia)["razon"]))
+        elif not _velocidad["permitido"]:
+            st.error(redactar_secretos(_velocidad["razon"]))
         else:
-            _adv_velocidad = verificar_velocidad(agencia).get("advertencia")
+            # Se reutiliza el mismo dict calculado arriba. Antes esto llamaba
+            # tres veces a verificar_velocidad(), y cada llamada lanza hasta
+            # dos COUNT contra historico_respuestas: seis consultas por rerun,
+            # y Streamlit re-ejecuta el script en cada pulsación.
+            _adv_velocidad = _velocidad.get("advertencia")
             if _adv_velocidad:
                 st.info(_adv_velocidad)
 
@@ -5686,7 +6058,7 @@ if vista_activa == "Pedir reseñas":
                 b64_qr = base64.b64encode(png_qr).decode("utf-8")
                 st.markdown(
                     f"""
-                    <a href="data:image/png;base64,{b64_qr}" download="qr_resenas_{nombre_local_pr}.png" style="
+                    <a href="data:image/png;base64,{b64_qr}" download="qr_resenas_{_html.escape(nombre_local_pr, quote=True)}.png" style="
                         display:inline-block;
                         padding:0.5rem 1.2rem;
                         background:{ACCENT_INDIGO};
@@ -6094,9 +6466,9 @@ if usuario.get("rol") == "admin":
 st.divider()
 st.markdown(f"""
 <div style="font-size: 10px; color: #6c757d; text-align: justify; line-height: 1.4;">
-    <strong>Aviso Legal y Condiciones de Uso Enterprise (Marca Blanca):</strong> Esta plataforma es una
+    <strong>Aviso Legal y Condiciones de Uso (Marca Blanca):</strong> Esta plataforma es una
     herramienta tecnológica de asistencia basada en modelos de Inteligencia Artificial generativa, licenciada
-    bajo un contrato B2B a <strong>{agencia['nombre_agencia']}</strong>. El software no presta asesoramiento
+    bajo un contrato B2B a <strong>{_html.escape(agencia['nombre_agencia'])}</strong>. El software no presta asesoramiento
     legal, jurídico, ni de relaciones públicas vinculante. La agencia operadora es la única responsable de
     revisar, verificar y autorizar cualquier contenido generado antes de su publicación. Queda expresamente
     prohibida la ingeniería inversa, descompilación o extracción de la lógica de negocio de esta plataforma.
