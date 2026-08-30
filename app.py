@@ -5650,68 +5650,246 @@ if vista_activa == "Responder reseña":
                 st.caption(f"Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
 # ---------------------------------------------------------
-# PESTAÑA: PEDIR RESEÑAS (WhatsApp + QR)
+# PESTAÑA: KIT DE CAPTACIÓN (WhatsApp + QRs múltiples + hoja imprimible)
 # ---------------------------------------------------------
+# El nombre "Pedir reseñas" que llevaba esta sección se ha quedado corto: ahora
+# también se generan QRs para la carta y las reservas, y una hoja A4 con todos
+# los QRs del local maquetados para plastificar y dejar en la mesa. Todo
+# apoyado en kit_captacion.py, para no ensuchar app.py con el motor de PDF.
+#
+# Nota práctica: la etiqueta del menú lateral sigue diciendo "Pedir reseñas"
+# (más abajo, en SECCIONES). Cambiarla implicaría migrar la clave del radio
+# en session_state, y no compensa hacerlo la víspera del lanzamiento.
 if vista_activa == "Pedir reseñas":
-    st.subheader("Consigue más reseñas de las que ya tienes")
-    st.caption("Genera un mensaje de WhatsApp y un código QR para que el propio negocio pida reseñas a sus clientes satisfechos.")
+    import kit_captacion
+
+    st.subheader("Kit de captación del local")
+    st.caption(
+        "Genera QRs para reseñas, carta y reservas, y una hoja imprimible "
+        "para dejar en la mesa. Todo con la marca del negocio."
+    )
 
     locales_disponibles_pr = st.session_state.locales_agencia
     if not locales_disponibles_pr:
         st.info("Esta agencia todavía no tiene locales.")
     else:
         nombre_local_pr = st.selectbox(
-            "Local:", options=[l["nombre"] for l in locales_disponibles_pr], key="selector_local_pedir_resenas"
+            "Local:",
+            options=[l["nombre"] for l in locales_disponibles_pr],
+            key="selector_local_pedir_resenas"
         )
-        local_pr = next(l for l in locales_disponibles_pr if l["nombre"] == nombre_local_pr)
+        local_pr = next(l for l in locales_disponibles_pr
+                        if l["nombre"] == nombre_local_pr)
 
-        enlace_actual = local_pr.get("enlace_resena_google") or ""
-        nuevo_enlace = st.text_input(
-            "Enlace directo de Google para dejar una reseña:",
-            value=enlace_actual,
-            placeholder="https://g.page/r/xxxxxxxxxx/review",
-            help="Lo encuentras en Google Business Profile → Solicitar reseñas → Copiar enlace."
+        # ------------------------------------------------------------------
+        # ENLACES DEL LOCAL — todos en un solo formulario y un solo guardado
+        # ------------------------------------------------------------------
+        # Antes había un input para reseñas con su propio botón "Guardar". Con
+        # cuatro enlaces distintos, cuatro botones de guardado sería un ruido
+        # innecesario: se usa un st.form con un único botón, que además evita
+        # que Streamlit re-ejecute todo el script cada vez que el usuario
+        # teclea un carácter en cualquiera de los cuatro campos.
+        st.markdown("#### Enlaces del negocio")
+        st.caption(
+            "Solo hace falta uno para empezar. Los que dejes vacíos no "
+            "aparecerán en la hoja imprimible."
         )
 
-        if st.button("Guardar enlace"):
+        with st.form("form_enlaces_kit", border=False):
+            enlace_resenas_input = st.text_input(
+                "Enlace de Google para dejar una reseña",
+                value=local_pr.get("enlace_resena_google") or "",
+                placeholder="https://g.page/r/xxxxxxxxxx/review",
+                help=(
+                    "En Google Maps: busca el negocio → pulsa 'Compartir' → "
+                    "pestaña 'Enlace corto'. Si el negocio gestiona su ficha, "
+                    "también sale en Google Business Profile → 'Solicitar reseñas'."
+                ),
+            )
+            enlace_carta_input = st.text_input(
+                "Enlace de la carta digital (opcional)",
+                value=local_pr.get("enlace_carta") or "",
+                placeholder="https://mibar.com/carta",
+                help="La URL a la que va el cliente cuando escanea el QR de la mesa.",
+            )
+            enlace_reservas_input = st.text_input(
+                "Enlace de reservas (opcional)",
+                value=local_pr.get("enlace_reservas") or "",
+                placeholder="https://thefork.es/... o el sistema que ya use el local",
+                help=(
+                    "Si el negocio ya usa TheFork, Cover Manager o similares, "
+                    "pega aquí ese enlace: no hace falta que tengan un sistema "
+                    "propio."
+                ),
+            )
+
+            col_et, col_url = st.columns([1, 2])
+            with col_et:
+                extra_etiqueta_input = st.text_input(
+                    "Etiqueta del QR extra (opcional)",
+                    value=(local_pr.get("enlace_extra_etiqueta") or ""),
+                    placeholder="p. ej. 'Menú del día'",
+                )
+            with col_url:
+                extra_url_input = st.text_input(
+                    "URL del QR extra",
+                    value=(local_pr.get("enlace_extra_url") or ""),
+                    placeholder="https://...",
+                    help=(
+                        "Para lo que no encaje en los anteriores: menú del día, "
+                        "ofertas, redes sociales, formulario de eventos..."
+                    ),
+                )
+
+            guardar = st.form_submit_button(
+                "Guardar enlaces", type="primary", use_container_width=True
+            )
+
+        if guardar:
+            # Normalización antes de guardar: si el usuario escribió
+            # "www.mibar.com/carta" sin http, kit_captacion.normalizar_url()
+            # lo rescata añadiendo https. Si no se puede rescatar, se guarda
+            # vacío (mejor que un enlace roto latente en la base de datos).
+            actualizacion = {
+                "enlace_resena_google": kit_captacion.normalizar_url(
+                    enlace_resenas_input),
+                "enlace_carta": kit_captacion.normalizar_url(
+                    enlace_carta_input),
+                "enlace_reservas": kit_captacion.normalizar_url(
+                    enlace_reservas_input),
+                "enlace_extra_etiqueta": (extra_etiqueta_input or "").strip(),
+                "enlace_extra_url": kit_captacion.normalizar_url(
+                    extra_url_input),
+            }
             try:
-                supabase.table("locales").update({"enlace_resena_google": nuevo_enlace.strip()}).eq("id", local_pr["id"]).execute()
-                local_pr["enlace_resena_google"] = nuevo_enlace.strip()
-                st.success("Enlace guardado.")
+                supabase.table("locales").update(actualizacion)                     .eq("id", local_pr["id"]).execute()
+                # Se actualiza el dict en memoria para que el resto del render
+                # de esta misma pasada ya use los valores nuevos, sin esperar
+                # a un rerun completo.
+                local_pr.update(actualizacion)
+                st.success("Enlaces guardados.")
             except Exception as e:
                 st.error(redactar_secretos(f"No se pudo guardar: {e}"))
 
-        if not nuevo_enlace.strip():
-            st.warning("Guarda primero el enlace de reseña de Google para generar el mensaje y el QR.")
+        # ------------------------------------------------------------------
+        # RESULTADOS — WhatsApp + hoja imprimible + QRs sueltos
+        # ------------------------------------------------------------------
+        enlace_resenas = (local_pr.get("enlace_resena_google") or "").strip()
+        enlaces_kit = {
+            "resenas": enlace_resenas,
+            "carta": (local_pr.get("enlace_carta") or "").strip(),
+            "reservas": (local_pr.get("enlace_reservas") or "").strip(),
+            "extra": {
+                "etiqueta": (local_pr.get("enlace_extra_etiqueta") or "").strip(),
+                "url": (local_pr.get("enlace_extra_url") or "").strip(),
+            },
+        }
+        # Se cuenta cuántos son válidos antes de decidir qué enseñar. Si no hay
+        # ninguno, tampoco tiene sentido ofrecer el kit ni WhatsApp.
+        enlaces_validos = sum(
+            1 for k in ("resenas", "carta", "reservas") if enlaces_kit[k]
+        ) + (1 if enlaces_kit["extra"]["url"] and enlaces_kit["extra"]["etiqueta"] else 0)
+
+        if enlaces_validos == 0:
+            st.info(
+                "Guarda al menos un enlace arriba para poder generar el QR y "
+                "la hoja imprimible."
+            )
         else:
-            col_wa, col_qr = st.columns(2)
-            with col_wa:
-                st.markdown("**Mensaje listo para WhatsApp:**")
-                enlace_wa = generar_mensaje_whatsapp(nombre_local_pr, nuevo_enlace.strip())
-                st.markdown(f'<a href="{enlace_wa}" target="_blank" style="text-decoration:none;"><div style="background:#FFFFFF;color:#1a2238;padding:11px 20px;border:1px solid #D6D3CA;border-radius:6px;font-weight:500;cursor:pointer;width:100%;text-align:center;box-shadow:0 1px 1px rgba(22,21,26,0.03);">Abrir en WhatsApp &rarr;</div></a>', unsafe_allow_html=True)
-                st.caption("Se abre con el mensaje ya escrito; solo hay que elegir el contacto.")
-            with col_qr:
-                st.markdown("**Código QR para imprimir en el local:**")
-                png_qr = generar_qr_png(nuevo_enlace.strip())
-                st.image(png_qr, width=180)
-                # Mismo motivo que el PDF: enlace con data URI para que el proxy
-                # de Render no sirva el PNG como .txt con nombre de hash.
-                b64_qr = base64.b64encode(png_qr).decode("utf-8")
-                st.markdown(
-                    f"""
-                    <a href="data:image/png;base64,{b64_qr}" download="qr_resenas_{_html.escape(nombre_local_pr, quote=True)}.png" style="
-                        display:inline-block;
-                        padding:0.5rem 1.2rem;
-                        background:{ACCENT_INDIGO};
-                        color:#ffffff;
-                        text-decoration:none;
-                        border-radius:8px;
-                        font-weight:600;
-                        font-size:0.85rem;
-                    ">⬇ Descargar QR (PNG)</a>
-                    """,
-                    unsafe_allow_html=True,
+            st.markdown("#### Descargables")
+
+            # --- Hoja imprimible del kit (siempre disponible si hay ≥1 enlace) ---
+            with st.expander("📄 Hoja imprimible con todos los QRs (A4)", expanded=True):
+                st.caption(
+                    "Un PDF listo para imprimir, plastificar y colocar en la "
+                    "mesa o en la barra. Se adapta a los enlaces que tengas "
+                    "guardados."
                 )
+                try:
+                    pdf_kit = kit_captacion.generar_hoja_imprimible(
+                        nombre_local=nombre_local_pr,
+                        enlaces=enlaces_kit,
+                        color_marca=agencia.get("color_marca", ACCENT_INDIGO),
+                        # Mismo criterio que el informe PDF: solo se firma con
+                        # la agencia cuando el plan la contempla como marca
+                        # blanca (Individual en adelante). En Free no aparece.
+                        nombre_agencia=(
+                            agencia.get("nombre_agencia")
+                            if agencia.get("plan", "free") != "free" else None
+                        ),
+                    )
+                    st.download_button(
+                        label="⬇ Descargar hoja imprimible",
+                        data=pdf_kit,
+                        file_name=f"kit_{nombre_local_pr}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+                except ValueError as e:
+                    # Puede pasar si TODOS los enlaces se filtran por normalización
+                    # a pesar de tener texto. Se avisa con el mensaje real.
+                    st.warning(str(e))
+
+            # --- WhatsApp: solo tiene sentido si hay enlace de reseñas ---
+            if enlace_resenas:
+                with st.expander("💬 Mensaje de WhatsApp para pedir reseñas"):
+                    st.caption(
+                        "Se abre en WhatsApp con el mensaje ya escrito; solo "
+                        "hay que elegir el contacto."
+                    )
+                    enlace_wa = generar_mensaje_whatsapp(
+                        nombre_local_pr, enlace_resenas)
+                    st.markdown(
+                        f'<a href="{enlace_wa}" target="_blank" '
+                        f'style="text-decoration:none;">'
+                        f'<div style="background:{ACCENT_INDIGO};color:#ffffff;'
+                        f'padding:11px 20px;border-radius:6px;font-weight:600;'
+                        f'text-align:center;">Abrir en WhatsApp →</div></a>',
+                        unsafe_allow_html=True,
+                    )
+
+            # --- QRs sueltos (PNG) por si quieren imprimir uno grande solo ---
+            # Se dejan en un expander cerrado por defecto: el usuario típico va
+            # a querer la hoja imprimible, no cuatro PNGs por separado. Pero
+            # están ahí para el que prefiera pegar un QR grande en la puerta.
+            with st.expander("🖼️ QRs sueltos (PNG)"):
+                st.caption(
+                    "Un PNG por cada enlace, por si prefieres imprimir uno "
+                    "muy grande (puerta, escaparate, ticket)."
+                )
+                # Se enumeran solo los que tienen enlace válido, en el mismo
+                # orden que la hoja imprimible.
+                candidatos_png = [
+                    ("Reseñas de Google", enlaces_kit["resenas"], "resenas"),
+                    ("Carta digital", enlaces_kit["carta"], "carta"),
+                    ("Reservas", enlaces_kit["reservas"], "reservas"),
+                ]
+                if enlaces_kit["extra"]["url"] and enlaces_kit["extra"]["etiqueta"]:
+                    candidatos_png.append((
+                        enlaces_kit["extra"]["etiqueta"],
+                        enlaces_kit["extra"]["url"],
+                        "extra",
+                    ))
+                candidatos_png = [c for c in candidatos_png if c[1]]
+
+                # Rejilla de hasta 3 columnas: legible en desktop y aceptable
+                # en móvil (Streamlit las apila cuando se estrecha).
+                for fila in range(0, len(candidatos_png), 3):
+                    trio = candidatos_png[fila:fila + 3]
+                    cols = st.columns(len(trio))
+                    for col, (etiqueta, url, sufijo) in zip(cols, trio):
+                        with col:
+                            st.markdown(f"**{_html.escape(etiqueta)}**")
+                            png_qr = kit_captacion.generar_qr_png(url)
+                            st.image(png_qr, width=170)
+                            st.download_button(
+                                label="⬇ Descargar",
+                                data=png_qr,
+                                file_name=f"qr_{sufijo}_{nombre_local_pr}.png",
+                                mime="image/png",
+                                key=f"dl_qr_{sufijo}_{local_pr['id']}",
+                                use_container_width=True,
+                            )
 
 # ---------------------------------------------------------
 # PESTAÑA: CONTENIDO SEO EXTRA
