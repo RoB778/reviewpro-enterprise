@@ -5695,6 +5695,17 @@ if vista_activa == "Pedir reseñas":
             "aparecerán en la hoja imprimible."
         )
 
+        # Diagnóstico de calidad del QR ANTES del form: se evalúa sobre el
+        # valor guardado, para avisar al usuario nada más entrar si su enlace
+        # actual va a generar un QR problemático.
+        _url_actual_resenas = (local_pr.get("enlace_resena_google") or "").strip()
+        if _url_actual_resenas:
+            _nivel_qr, _msg_qr = kit_captacion.diagnostico_qr(_url_actual_resenas)
+            if _nivel_qr == "error":
+                st.error(f"⚠️ QR demasiado complejo — {_msg_qr}")
+            elif _nivel_qr == "warning":
+                st.warning(f"💡 {_msg_qr}")
+
         with st.form("form_enlaces_kit", border=False):
             enlace_resenas_input = st.text_input(
                 "Enlace de Google para dejar una reseña",
