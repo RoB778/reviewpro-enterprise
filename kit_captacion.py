@@ -125,6 +125,41 @@ def normalizar_url(url):
     return url if es_url_valida(url) else ""
 
 
+def diagnostico_qr(url):
+    """
+    Devuelve (nivel, mensaje) indicando si la URL dará un QR legible.
+
+    Niveles:
+      "ok"      — QR limpio, escaneable sin problema.
+      "warning" — QR denso pero probable que funcione en buenas condiciones.
+      "error"   — QR casi imposible de leer; hay que acortar la URL.
+
+    Los umbrales están calibrados con los datos reales:
+      ≤ 40 chars  → 29x29 módulos  (perfecto)
+      ≤ 80 chars  → 37x37 módulos  (bien)
+      ≤ 120 chars → 45x45 módulos  (aceptable en buenas condiciones)
+      > 120 chars → 49x49 o más    (problemático)
+    """
+    n = len(url or "")
+    if n <= 80:
+        return "ok", None
+    if n <= 120:
+        return "warning", (
+            "Este enlace es largo y generará un QR algo denso. Funcionará, "
+            "pero si puedes conseguir la versión corta del enlace (pulsando "
+            "'Compartir' en Google Maps y copiando el enlace corto), el QR "
+            "quedará mucho más limpio."
+        )
+    return "error", (
+        f"Este enlace tiene {n} caracteres y generará un QR muy complejo que "
+        "muchos móviles no podrán leer. Para obtener un enlace corto: en "
+        "Google Maps busca el local → pulsa 'Compartir' → copia el enlace "
+        "corto (empieza por maps.app.goo.gl). Alternativamente, en Google "
+        "Business Profile → 'Solicitar reseñas' → 'Copiar enlace' da una "
+        "URL del tipo g.page/r/... que también es corta."
+    )
+
+
 # =============================================================================
 # QR INDIVIDUAL
 # =============================================================================
