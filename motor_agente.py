@@ -45,9 +45,7 @@ Aislado como blindaje.py y motor_seo.py para no inflar app.py.
 
 from __future__ import annotations
 
-import json
 import re
-from datetime import datetime, timedelta
 
 # COSTE: el agente encadena varias llamadas por turno (herramientas + reenvío
 # del historial completo en cada vuelta, así funciona tool use en la API), así
@@ -416,8 +414,7 @@ def ejecutar_herramienta(nombre, entrada, ctx):
                         "todavía qué ofrece. Recomienda al usuario rellenarla en 'Editar info del "
                         "local' para poder crear contenido específico y anclado. Sin datos "
                         "verificados, solo se puede hablar de la identidad (nombre, tipo, zona).")
-            SI = ctx["SI"]; NO = ctx["NO"]; NC = ctx["NO_CONSTA"]
-            verificados = [k for k, v in ficha.items() if v.estado == SI]
+            NO = ctx["NO"]; NC = ctx["NO_CONSTA"]
             negados = [k for k, v in ficha.items() if v.estado == NO]
             sin_verificar = [k for k, v in ficha.items() if v.estado == NC]
             # Traducción de claves a algo legible usando el léxico afirmable.
