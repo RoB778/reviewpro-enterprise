@@ -12,7 +12,6 @@ from datetime import datetime, timedelta
 from io import BytesIO
 
 import bcrypt
-import requests
 import stripe
 import streamlit as st
 from anthropic import Anthropic
@@ -101,16 +100,15 @@ if not hasattr(st, "_secrets_originales"):
 # como VALOR POR DEFECTO en las firmas de grafico_barras_pos_neg más abajo,
 # y los valores por defecto se calculan al cargar el módulo, no al llamar a
 # la función — así que estos dos sí tienen que estar disponibles desde ya.
-# Son módulos de solo constantes, sin motor gráfico detrás: coste casi nulo.
+# reportlab y qrcode se cargan DIFERIDOS, dentro de las funciones que los usan
+# (informe_pdf.py para el informe, generar_qr_png para los códigos). Antes se
+# cargaban al arrancar el proceso aunque nadie hubiera pedido nunca un informe
+# ni un QR. En un servicio con 512 MB de límite eso es peso muerto pagado por
+# adelantado.
 #
-# Todo lo demás de reportlab (el motor de maquetación PDF y el de gráficos
-# de barras) y qrcode se cargan ahora DIFERIDOS, dentro de las funciones que
-# los usan (generar_informe_pdf_mensual, grafico_barras_pos_neg y
-# generar_qr_png). Antes se cargaban al arrancar el proceso, en cada
-# instancia, aunque nadie hubiera pedido nunca un informe ni un QR. En un
-# servicio con 512 MB de límite eso es peso muerto pagado por adelantado.
-from reportlab.lib import colors
-from reportlab.lib.units import cm
+# Desde que la maquetación del PDF vive en informe_pdf.py, app.py ya no
+# necesita importar NADA de reportlab a nivel de módulo: ni siquiera 'colors'
+# ni 'cm', que eran los dos únicos que quedaban arriba.
 from supabase import create_client
 
 # Configuración de las claves secretas de los servidores
@@ -2102,48 +2100,6 @@ def render_formulario_alta_pendiente():
                 st.error(resultado)
 
 
-def grafico_barras_pos_neg(categorias, valores_positivas, valores_negativas,
-                            color_positivas=colors.HexColor("#1a2238"),
-                            color_negativas=colors.HexColor("#B8B7C9"),
-                            ancho=16 * cm, alto=6 * cm):
-    """Gráfico de barras agrupadas (positivas vs. negativas) hecho con
-    reportlab.graphics puro — sin pandas ni numpy, para no repetir el
-    segfault que ya tuvimos con pyarrow en Streamlit Cloud."""
-    # Import diferido: el motor de gráficos de reportlab solo se carga
-    # cuando de verdad se genera un informe, no en cada arranque del proceso.
-    from reportlab.graphics.shapes import Drawing
-    from reportlab.graphics.charts.barcharts import VerticalBarChart
-    from reportlab.graphics.charts.legends import Legend
-
-    dibujo = Drawing(ancho, alto)
-    grafico = VerticalBarChart()
-    grafico.x = 40
-    grafico.y = 25
-    grafico.width = ancho - 90
-    grafico.height = alto - 55
-    grafico.data = [valores_positivas, valores_negativas]
-    grafico.categoryAxis.categoryNames = categorias
-    grafico.categoryAxis.labels.fontSize = 7.5
-    grafico.categoryAxis.labels.boxAnchor = "n"
-    grafico.valueAxis.valueMin = 0
-    grafico.bars[0].fillColor = color_positivas
-    grafico.bars[1].fillColor = color_negativas
-    grafico.groupSpacing = 12
-    grafico.barSpacing = 2
-    dibujo.add(grafico)
-
-    leyenda = Legend()
-    leyenda.x = ancho - 55
-    leyenda.y = alto - 8
-    leyenda.dx = 7
-    leyenda.dy = 7
-    leyenda.fontSize = 7.5
-    leyenda.colorNamePairs = [(color_positivas, "Positivas"), (color_negativas, "Negativas")]
-    dibujo.add(leyenda)
-
-    return dibujo
-
-
 def generar_resumen_ejecutivo_ia(cliente_ia, total, positivas, negativas, pct_positivas, local_principal, num_locales):
     """Genera la frase-titular del informe con IA. Si la llamada falla por
     cualquier motivo (red, límite, lo que sea), cae a una plantilla fija —
@@ -2187,363 +2143,48 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
                                  cliente_ia=None, resultado_score=None, dias_periodo=30,
                                  roi=None, roi_estrellas_actuales=None, roi_estrellas_objetivo=None):
     """
-    Genera el informe PDF de marca blanca (v2): Reputation Score, resumen
-    ejecutivo, comparación con el periodo anterior, actividad por local con
-    gráfico, reparto por usuario del equipo, un caso destacado real y la
-    actividad de contenido SEO generado. Devuelve los bytes del PDF.
+    Genera el informe PDF de marca blanca. Devuelve los bytes del PDF.
+
+    La maquetación vive en informe_pdf.py; aquí solo se decide QUÉ se le pasa.
+    Esta función es la frontera entre lógica de negocio (planes, score, IA) y
+    presentación, y se mantiene con la firma de siempre para que el punto de
+    llamada no cambie.
+
+    El import es diferido a propósito: informe_pdf arrastra reportlab, que solo
+    debe cargarse cuando alguien pulsa de verdad "generar informe". Es la misma
+    arquitectura de antes y el motivo de que la app arranque ligera.
     """
-    # Import diferido: el motor de maquetación de PDF de reportlab (y sus
-    # tablas de fuentes) solo se carga cuando alguien pide de verdad un
-    # informe, no en cada arranque del proceso.
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+    import informe_pdf
 
-    buffer = BytesIO()
-    color_hex = agencia.get("color_marca", "#2A2C31").lstrip("#")
+    # Marca blanca: en el plan gratuito el informe menciona a Reselia; a partir
+    # de Individual el documento lleva únicamente la marca del cliente, que es
+    # justo lo que se vende en la landing ("Marca blanca (no incluida)" en el
+    # plan Free frente a "Marca blanca completa" en Starter y Growth).
+    es_marca_blanca = agencia.get("plan", "free") != "free"
 
-    # Color para las CABECERAS DE TABLA. El color de marca de la agencia se
-    # respeta SIEMPRE que sea suficientemente oscuro como para que el texto
-    # blanco encima se lea bien y no resulte chillón. Colores muy brillantes
-    # o saturados (el caso típico: el morado fosforito #635BFF que venía por
-    # defecto en el esquema antiguo) se sustituyen por el índigo corporativo
-    # sobrio, que combina con la paleta neutra del resto del informe.
-    def _color_tabla_seguro(hex_str):
-        indigo_corporativo = colors.HexColor("#1a2238")
-        try:
-            h = hex_str.lstrip("#")
-            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        except (ValueError, IndexError):
-            return indigo_corporativo
-        # Dos motivos para rechazar un color de marca como fondo de cabecera:
-        #  1) Demasiado CLARO: el texto blanco encima no se leería.
-        #  2) Demasiado SATURADO/brillante: queda "fosforito" y choca con la
-        #     paleta sobria del resto del informe (caso típico: #635BFF).
-        # En ambos casos usamos el índigo corporativo, que siempre queda bien.
-        luminancia = 0.299 * r + 0.587 * g + 0.114 * b
-        maximo, minimo = max(r, g, b), min(r, g, b)
-        saturacion = (maximo - minimo) / maximo if maximo > 0 else 0
-        if luminancia > 130:
-            return indigo_corporativo
-        if saturacion > 0.45 and maximo > 150:
-            # muy saturado y con un canal brillante → fosforito
-            return indigo_corporativo
-        return colors.HexColor(f"#{h}")
-
-    color_tabla = _color_tabla_seguro(color_hex)
-
-    # -----------------------------------------------------------------
-    # PALETA PREMIUM DEL INFORME — "Editorial Light", la misma línea visual
-    # que el resto de la app: negro casi puro, índigo de marca y grises
-    # cálidos. Sin verde/rojo tipo semáforo ni azul navy genérico: todo el
-    # informe se mueve dentro de la identidad corporativa (tinta + índigo).
-    # PDF_INK se usa para el bloque "hero" (la tarjeta del Reputation Score),
-    # independiente del color que elija cada agencia, para que quede premium
-    # pase lo que pase. Las cabeceras de tabla usan color_rl (el color propio
-    # de cada agencia) para que el informe se sienta realmente "suyo".
-    # -----------------------------------------------------------------
-    PDF_INK = colors.HexColor("#1a2238")     # negro casi puro, igual que --er-ink
-    PDF_BODY = colors.HexColor("#232c47")    # gris de cuerpo, igual que --er-body
-    PDF_MUTED = colors.HexColor("#6b7280")   # gris cálido para notas/pies
-    PDF_ACENTO = colors.HexColor("#1a2238")  # índigo de marca — el único color de acento
-    # Bloque de ROI en tonos índigo/tinta (antes era verde): sobrio y corporativo,
-    # coherente con el resto de la identidad. Nada de verde/rojo tipo semáforo.
-    PDF_ROI_BG = colors.HexColor("#F1F1F5")       # lavanda muy tenue, casi gris
-    PDF_ROI_BORDE = colors.HexColor("#1a2238")    # índigo
-    PDF_ROI_BORDE_SUAVE = colors.HexColor("#D6D5E0")
-
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
-    estilos = getSampleStyleSheet()
-    estilo_titulo = ParagraphStyle("TituloInforme", parent=estilos["Title"], textColor=color_tabla, fontSize=20)
-    estilo_subtitulo = ParagraphStyle("Subtitulo", parent=estilos["Normal"], textColor=PDF_MUTED, fontSize=11)
-    estilo_seccion = ParagraphStyle("Seccion", parent=estilos["Heading2"], textColor=color_tabla, spaceBefore=14)
-    estilo_resumen_ejecutivo = ParagraphStyle(
-        "ResumenEjecutivo", parent=estilos["Normal"], fontSize=11.5, leading=16,
-        textColor=PDF_INK, spaceBefore=2, spaceAfter=2
+    return informe_pdf.generar_informe_pdf_mensual(
+        agencia=agencia,
+        historico=historico,
+        historico_anterior=historico_anterior,
+        locales_agencia=locales_agencia,
+        id_a_nombre_usuario=id_a_nombre_usuario,
+        contenido_seo_periodo=contenido_seo_periodo,
+        periodo_texto=periodo_texto,
+        cliente_ia=cliente_ia,
+        resultado_score=resultado_score,
+        dias_periodo=dias_periodo,
+        roi=roi,
+        roi_estrellas_actuales=roi_estrellas_actuales,
+        roi_estrellas_objetivo=roi_estrellas_objetivo,
+        # Se inyectan las funciones de negocio en vez de que informe_pdf
+        # importe app.py, lo que crearía una dependencia circular.
+        calcular_reputation_score=calcular_reputation_score,
+        etiqueta_reputation_score=etiqueta_reputation_score,
+        generar_resumen_ejecutivo_ia=generar_resumen_ejecutivo_ia,
+        fmt_eur=_fmt_eur,
+        pesos_score=PESOS_REPUTATION_SCORE,
+        es_marca_blanca=es_marca_blanca,
     )
-    estilo_caso = ParagraphStyle(
-        "Caso", parent=estilos["Normal"], fontSize=9.5, leading=13.5,
-        textColor=PDF_BODY, leftIndent=8, spaceAfter=4
-    )
-    estilo_nota = ParagraphStyle("Nota", parent=estilos["Normal"], fontSize=8, textColor=PDF_MUTED, spaceBefore=4)
-
-    story = []
-
-    # Logo (si se puede descargar; si falla, se omite sin romper el informe).
-    # Se escala preservando la proporción original dentro de una caja más amplia,
-    # en vez de forzar unas medidas fijas que aplastaban logos no apaisados.
-    # IMPORTANTE: convertimos el logo a RGB con fondo blanco antes de meterlo.
-    # Un PNG con transparencia (canal alfa) puede hacer que reportlab reviente
-    # más tarde, en doc.build() — fuera de este try — y entonces NO se genera
-    # el PDF (el navegador acaba descargando un archivo corrupto). Aplanando
-    # el alfa aquí, el logo siempre entra en un formato que reportlab maneja bien.
-    imagen_logo = None
-    try:
-        from PIL import Image as PILImage
-        resp_logo = requests.get(agencia["logo_url"], timeout=5)
-        logo_pil = PILImage.open(BytesIO(resp_logo.content))
-        if logo_pil.mode in ("RGBA", "LA", "P"):
-            fondo = PILImage.new("RGB", logo_pil.size, (255, 255, 255))
-            logo_conv = logo_pil.convert("RGBA")
-            fondo.paste(logo_conv, mask=logo_conv.split()[-1])
-            logo_pil = fondo
-        else:
-            logo_pil = logo_pil.convert("RGB")
-        ancho_px, alto_px = logo_pil.size
-        proporcion = alto_px / ancho_px if ancho_px else 0.4
-        ancho_logo = 5.5 * cm                       # más ancho que antes (era 4 cm)
-        alto_logo = ancho_logo * proporcion
-        alto_maximo = 3.0 * cm                      # techo por si el logo es muy vertical
-        if alto_logo > alto_maximo:
-            alto_logo = alto_maximo
-            ancho_logo = alto_logo / proporcion if proporcion else 5.5 * cm
-        logo_buffer = BytesIO()
-        logo_pil.save(logo_buffer, format="PNG")
-        logo_buffer.seek(0)
-        imagen_logo = RLImage(logo_buffer, width=ancho_logo, height=alto_logo)
-        imagen_logo.hAlign = "CENTER"
-        story.append(imagen_logo)
-        story.append(Spacer(1, 14))
-    except Exception:
-        imagen_logo = None
-
-    story.append(Paragraph("Informe de reputación online", estilo_titulo))
-    story.append(Paragraph(f"{agencia['nombre_agencia']} · {periodo_texto}", estilo_subtitulo))
-    story.append(Spacer(1, 14))
-
-    # --- Métricas del periodo actual y del anterior (para la comparación) ---
-    total = len(historico)
-    positivas = sum(1 for r in historico if r["sentimiento"] == "positivo")
-    negativas = total - positivas
-    pct_positivas = round(positivas / total * 100) if total else 0
-
-    total_ant = len(historico_anterior)
-    pct_positivas_ant = round(sum(1 for r in historico_anterior if r["sentimiento"] == "positivo") / total_ant * 100) if total_ant else None
-
-    def texto_delta(actual, anterior, sufijo=""):
-        if anterior is None:
-            return ""
-        delta = actual - anterior
-        if delta > 0:
-            return f" (▲ +{delta}{sufijo})"
-        elif delta < 0:
-            return f" (▼ {delta}{sufijo})"
-        return " (=)"
-
-    delta_total = texto_delta(total, total_ant if historico_anterior else None)
-    delta_pct = texto_delta(pct_positivas, pct_positivas_ant, sufijo=" pts")
-
-    # --- Desglose por local (para la tabla, el gráfico y el resumen ejecutivo) ---
-    id_a_nombre_local = {l["id"]: l["nombre"] for l in locales_agencia}
-    conteo_local_pos, conteo_local_neg = {}, {}
-    for fila in historico:
-        nombre = id_a_nombre_local.get(fila["local_id"], "Local desconocido")
-        if fila["sentimiento"] == "positivo":
-            conteo_local_pos[nombre] = conteo_local_pos.get(nombre, 0) + 1
-        else:
-            conteo_local_neg[nombre] = conteo_local_neg.get(nombre, 0) + 1
-    nombres_locales_activos = sorted(set(conteo_local_pos) | set(conteo_local_neg),
-                                      key=lambda n: conteo_local_pos.get(n, 0) + conteo_local_neg.get(n, 0),
-                                      reverse=True)
-    local_principal = nombres_locales_activos[0] if nombres_locales_activos else None
-
-    # --- Reputation Score (titular del informe, si se ha calculado) ---
-    if resultado_score is None:
-        resultado_score = calcular_reputation_score(historico, historico_anterior, dias_periodo)
-    score_valor = resultado_score.get("score")
-    if score_valor is not None:
-        banda_score, color_banda_hex = etiqueta_reputation_score(score_valor)
-        color_banda = colors.HexColor(color_banda_hex)
-        estilo_score_num = ParagraphStyle(
-            "ScoreNum", parent=estilos["Normal"], fontSize=30, leading=32,
-            textColor=color_banda, alignment=1
-        )
-        estilo_score_label = ParagraphStyle(
-            "ScoreLabel", parent=estilos["Normal"], fontSize=9, textColor=colors.white, alignment=1
-        )
-        celda_score = [
-            [Paragraph(f"<b>{score_valor}</b> <font size=12>/ 100</font>", estilo_score_num)],
-            [Paragraph(f"REPUTATION SCORE · {banda_score.upper()}", estilo_score_label)],
-        ]
-        tabla_score = Table(celda_score, colWidths=[16 * cm])
-        tabla_score.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), PDF_INK),
-            ("TOPPADDING", (0, 0), (-1, 0), 12),
-            ("BOTTOMPADDING", (0, 1), (-1, 1), 10),
-            ("TOPPADDING", (0, 1), (-1, 1), 0),
-            ("LINEBELOW", (0, 0), (-1, 0), 0, PDF_INK),
-            ("BOX", (0, 0), (-1, -1), 1, color_banda),
-        ]))
-        story.append(tabla_score)
-        story.append(Spacer(1, 12))
-
-    # --- Resumen ejecutivo (IA con fallback en plantilla) ---
-    resumen_texto = generar_resumen_ejecutivo_ia(
-        cliente_ia, total, positivas, negativas, pct_positivas, local_principal, len(locales_agencia)
-    )
-    story.append(Paragraph(resumen_texto, estilo_resumen_ejecutivo))
-    story.append(Spacer(1, 12))
-
-    # --- Calculadora de ROI (si se han pasado datos de facturación/estrellas) ---
-    if roi and roi.get("delta_estrellas", 0) > 0:
-        estilo_roi_titulo = ParagraphStyle(
-            "RoiTitulo", parent=estilos["Normal"], fontSize=10, textColor=PDF_ACENTO,
-            spaceBefore=2, spaceAfter=4
-        )
-        estilo_roi_cifra = ParagraphStyle(
-            "RoiCifra", parent=estilos["Normal"], fontSize=13, leading=16,
-            textColor=PDF_ACENTO, alignment=1
-        )
-        estilo_roi_label = ParagraphStyle(
-            "RoiLabel", parent=estilos["Normal"], fontSize=8, textColor=PDF_BODY, alignment=1
-        )
-        story.append(Paragraph(
-            f"Potencial de ingresos: subir de {roi_estrellas_actuales}★ a {roi_estrellas_objetivo}★",
-            estilo_roi_titulo
-        ))
-        tabla_roi = Table([
-            [Paragraph("INGRESOS EXTRA / MES", estilo_roi_label), Paragraph("INGRESOS EXTRA / AÑO", estilo_roi_label)],
-            [Paragraph(f"<b>{_fmt_eur(roi['mensual_min'])} – {_fmt_eur(roi['mensual_max'])}</b>", estilo_roi_cifra),
-             Paragraph(f"<b>{_fmt_eur(roi['anual_min'])} – {_fmt_eur(roi['anual_max'])}</b>", estilo_roi_cifra)],
-        ], colWidths=[8 * cm, 8 * cm])
-        tabla_roi.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), PDF_ROI_BG),
-            ("BOX", (0, 0), (-1, -1), 1, PDF_ROI_BORDE),
-            ("INNERGRID", (0, 0), (-1, -1), 0.5, PDF_ROI_BORDE_SUAVE),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ]))
-        story.append(tabla_roi)
-        story.append(Paragraph(
-            "Estimación según el estudio de Harvard Business School (Michael Luca): cada estrella de más "
-            "supone entre un 5% y un 9% más de ingresos en negocios independientes.",
-            estilo_nota
-        ))
-        story.append(Spacer(1, 14))
-
-    # --- Resumen del periodo, con comparación al periodo anterior ---
-    story.append(Paragraph("Resumen del periodo", estilo_seccion))
-    tabla_resumen = Table([
-        ["Respuestas generadas", "Reseñas positivas", "Reseñas negativas", "% positivas"],
-        [f"{total}{delta_total}", str(positivas), str(negativas), f"{pct_positivas}%{delta_pct}"]
-    ], colWidths=[4 * cm, 4 * cm, 4 * cm, 5 * cm])
-    tabla_resumen.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    story.append(tabla_resumen)
-    if not historico_anterior:
-        story.append(Paragraph("Sin datos del periodo anterior todavía para comparar.", estilo_nota))
-    story.append(Spacer(1, 16))
-
-    # --- Actividad por local: tabla + gráfico ---
-    story.append(Paragraph("Actividad por local", estilo_seccion))
-    filas_tabla_local = [["Local", "Positivas", "Negativas", "Total"]]
-    categorias, serie_pos, serie_neg = [], [], []
-    for nombre in nombres_locales_activos:
-        p, n = conteo_local_pos.get(nombre, 0), conteo_local_neg.get(nombre, 0)
-        filas_tabla_local.append([nombre, str(p), str(n), str(p + n)])
-        categorias.append(nombre)
-        serie_pos.append(p)
-        serie_neg.append(n)
-    tabla_locales = Table(filas_tabla_local, colWidths=[7 * cm, 3 * cm, 3 * cm, 3 * cm])
-    tabla_locales.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    story.append(tabla_locales)
-    story.append(Spacer(1, 10))
-    if categorias:
-        story.append(grafico_barras_pos_neg(categorias, serie_pos, serie_neg))
-    story.append(Spacer(1, 16))
-
-    # --- Reparto de trabajo por usuario del equipo (antes se calculaba y no se usaba) ---
-    story.append(Paragraph("Reparto de trabajo por usuario del equipo", estilo_seccion))
-    conteo_usuario = {}
-    for fila in historico:
-        nombre_u = id_a_nombre_usuario.get(fila.get("usuario_id"), "Usuario eliminado")
-        conteo_usuario[nombre_u] = conteo_usuario.get(nombre_u, 0) + 1
-    if conteo_usuario:
-        filas_usuario = [["Usuario", "Respuestas generadas"]] + \
-                         [[u, str(n)] for u, n in sorted(conteo_usuario.items(), key=lambda x: -x[1])]
-        tabla_usuarios = Table(filas_usuario, colWidths=[10 * cm, 5 * cm])
-        tabla_usuarios.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        story.append(tabla_usuarios)
-    else:
-        story.append(Paragraph("Sin datos de usuario para este periodo.", estilo_nota))
-    story.append(Spacer(1, 16))
-
-    # --- Caso destacado del periodo (requiere la migración de extracto_resena/extracto_respuesta) ---
-    casos_con_extracto = [r for r in historico if r["sentimiento"] == "negativo" and r.get("extracto_resena")]
-    if casos_con_extracto:
-        caso = max(casos_con_extracto, key=lambda r: r.get("longitud_palabras", 0))
-        story.append(Paragraph("Caso destacado del periodo", estilo_seccion))
-        story.append(Paragraph(f"<b>Lo que dijo el cliente:</b> «{caso['extracto_resena']}»", estilo_caso))
-        if caso.get("extracto_respuesta"):
-            story.append(Paragraph(f"<b>Cómo se respondió:</b> «{caso['extracto_respuesta']}»", estilo_caso))
-        story.append(Spacer(1, 16))
-
-    # --- Contenido SEO y redes generado en el periodo ---
-    story.append(Paragraph("Contenido SEO y redes generado", estilo_seccion))
-    if contenido_seo_periodo:
-        conteo_tipo = {}
-        for fila in contenido_seo_periodo:
-            tipo = fila.get("tipo_contenido", "Otro")
-            conteo_tipo[tipo] = conteo_tipo.get(tipo, 0) + 1
-        filas_seo = [["Tipo de contenido", "Piezas generadas"]] + \
-                    [[t, str(n)] for t, n in sorted(conteo_tipo.items(), key=lambda x: -x[1])]
-        tabla_seo = Table(filas_seo, colWidths=[10 * cm, 5 * cm])
-        tabla_seo.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        story.append(tabla_seo)
-    else:
-        story.append(Paragraph("No se generó contenido SEO adicional en este periodo.", estilo_nota))
-    story.append(Spacer(1, 20))
-
-    story.append(Paragraph(
-        f"Informe generado automáticamente por Reselia en nombre de {agencia['nombre_agencia']}. "
-        "Documento de uso interno/comercial para justificar la gestión de reputación online frente a sus clientes.",
-        ParagraphStyle("Pie", parent=estilos["Normal"], fontSize=7, textColor=PDF_MUTED)
-    ))
-
-    # Red de seguridad: si la construcción falla (típicamente por el logo, que
-    # es el único elemento externo e impredecible), reintentamos generando el
-    # informe SIN logo. Mejor un PDF perfecto sin logo que un archivo corrupto.
-    try:
-        doc.build(story)
-    except Exception:
-        if imagen_logo is not None and imagen_logo in story:
-            idx = story.index(imagen_logo)
-            # Quitamos el logo y el Spacer que va justo detrás de él.
-            del story[idx:idx + 2]
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
-        doc.build(story)
-    buffer.seek(0)
-    return buffer.getvalue()
 
 
 def generar_qr_png(url_destino):
