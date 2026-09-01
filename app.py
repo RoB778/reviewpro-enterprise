@@ -3806,157 +3806,63 @@ if not st.session_state.sesion_activa:
     # encontraba el mismo discurso repetido antes de poder escribir su email.
     # Con login pensado como destino directo desde fuera, tiene que ser una
     # pantalla de acceso limpia, no una tercera vuelta a la misma venta.
-    if st.session_state.vista_landing == "info":
-        st.markdown('<div class="rp-eyebrow">Reselia</div>', unsafe_allow_html=True)
-        st.markdown('<div class="rp-hero-title">Reputación bajo control.<br>Respuestas con precisión.</div>', unsafe_allow_html=True)
-        st.markdown('<div class="rp-hero-sub">Plataforma de inteligencia de reputación para agencias. Respuestas redactadas con IA, con tu marca y SEO local integrado, para toda tu cartera de clientes.</div>', unsafe_allow_html=True)
 
     # -----------------------------------------------------
-    # VISTA 1: INFO — presentación del producto antes de pedir nada
+    # VISTA 1: INFO — ya no vende nada, solo bifurca
     # -----------------------------------------------------
+    # Antes esto repetía entera la landing externa: la tesis ("disculpa o
+    # confesión"), la demo de contraste, las tres tarjetas de "cómo funciona"
+    # y el banner de ROI. Todo eso ya vive en Landing-main/index.html, que es
+    # lo primero que ve cualquiera antes de llegar aquí — quien pulsa
+    # "Entrar" o "Abrir la herramienta" ya ha leído ese argumentario una vez.
+    # Repetirlo dentro de la app no vende más, solo retrasa el único gesto
+    # que de verdad hace falta en este punto: elegir entre iniciar sesión o
+    # ver los planes. Se reduce a eso.
     if st.session_state.vista_landing == "info":
+        _izq_info, _centro_info, _der_info = st.columns([1, 1.15, 1])
 
-        # --- El argumento central, antes que cualquier característica ---
-        # Esto iba enterrado en la vista de planes o directamente no estaba.
-        # Es lo único que explica por qué esto no es "ChatGPT con otro nombre",
-        # y por tanto lo primero que tiene que leer una agencia.
-        st.markdown("""
-            <div class="rp-tesis">
-              <div class="rp-tesis-frase">
-                Una respuesta a una reseña puede ser una disculpa
-                <span class="rp-tesis-o">o</span> una confesión.
-              </div>
-              <div class="rp-tesis-sub">
-                Un modelo genérico escribe la segunda sin saberlo. Reselia solo puede escribir la primera.
-              </div>
-            </div>
-        """, unsafe_allow_html=True)
+        with _centro_info:
+            st.markdown(
+                '<div class="rs-login-cab" style="margin-bottom:8px;">'
+                '<div class="rs-login-marca">RESELIA</div>'
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
-        # --- Demostración por contraste ---
-        # Una agencia no compra una lista de características: compra la
-        # diferencia entre estas dos respuestas. Enseñarla es más persuasivo
-        # que cualquier adjetivo, y se entiende en cinco segundos.
-        st.markdown("""
-            <div class="rp-demo">
-              <div class="rp-demo-resena">
-                <span class="rp-demo-lbl">Reseña recibida</span>
-                «Pedí el plato sin gluten porque soy celíaca y acabé en urgencias.
-                Nadie me avisó de nada.»
-              </div>
-              <div class="rp-demo-grid">
-                <div class="rp-demo-col rp-demo-mal">
-                  <span class="rp-demo-tag rp-demo-tag-mal">IA genérica</span>
-                  <p>«Lamentamos <u>el error en la preparación de su plato</u>.
-                  Revisaremos nuestros <u>protocolos de alérgenos</u> para que
-                  <u>no vuelva a ocurrir</u>.»</p>
-                  <span class="rp-demo-nota">
-                    Tres admisiones por escrito, públicas y permanentes: un fallo,
-                    su causa y que el problema es conocido.
-                  </span>
-                </div>
-                <div class="rp-demo-col rp-demo-bien">
-                  <span class="rp-demo-tag rp-demo-tag-bien">Reselia</span>
-                  <p>«Que alguien lo pase mal después de venir a comer aquí es lo
-                  último que queremos, y siento de veras el mal rato que describe.
-                  Lo he trasladado internamente para revisarlo con calma.»</p>
-                  <span class="rp-demo-nota">
-                    Valida la experiencia por completo. No confirma ni un solo hecho.
-                  </span>
-                </div>
-              </div>
-            </div>
-        """, unsafe_allow_html=True)
+            _col_ini, _col_planes = st.columns(2)
+            with _col_ini:
+                if st.button("Iniciar sesión", use_container_width=True):
+                    st.session_state.vista_landing = "login"
+                    st.rerun()
+            with _col_planes:
+                if st.button("Ver planes", use_container_width=True, type="primary"):
+                    st.session_state.vista_landing = "planes"
+                    st.rerun()
 
-        # --- Las tres capacidades ---
-        st.markdown('<div class="rp-seccion-lbl">Cómo funciona</div>', unsafe_allow_html=True)
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            st.markdown("""<div class="rp-card rp-card-info">
-                <div class="rp-card-num">01</div>
-                <div class="rp-card-titulo">Blindaje legal</div>
-                <div class="rp-feature">Cada respuesta se audita frase por frase contra un catálogo de reglas jurídicas antes de que la veas. Nunca admite negligencias ni usa términos de alerta sanitaria.</div>
-            </div>""", unsafe_allow_html=True)
-        with col_b:
-            st.markdown("""<div class="rp-card rp-card-info">
-                <div class="rp-card-num">02</div>
-                <div class="rp-card-titulo">SEO invisible</div>
-                <div class="rp-feature">Refuerza el posicionamiento local del negocio con menciones naturales, nunca con palabras clave forzadas. Si no encaja, no se mete.</div>
-            </div>""", unsafe_allow_html=True)
-        with col_c:
-            st.markdown("""<div class="rp-card rp-card-info">
-                <div class="rp-card-num">03</div>
-                <div class="rp-card-titulo">Marca blanca real</div>
-                <div class="rp-feature">Tu agencia entra con su propio logo y color corporativo, también en los informes PDF. Tus clientes ven tu marca, no la nuestra.</div>
-            </div>""", unsafe_allow_html=True)
-
-        # --- El dato de negocio ---
-        # Traído desde la vista de planes, donde solo lo veía quien ya había
-        # decidido mirar precios. Aquí convierte "esto está bien" en "esto
-        # tiene un retorno medible".
-        st.markdown("""
-            <div class="rp-dato">
-              <div class="rp-dato-cifra">5–9%</div>
-              <div class="rp-dato-txt">
-                más de ingresos por cada estrella adicional en Google, según un
-                estudio de la Harvard Business School. En un local que factura
-                60.000&nbsp;€ al mes, son hasta 32.000&nbsp;€ más al año.
-              </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
-        col_cta1, col_cta2 = st.columns(2)
-        with col_cta1:
-            if st.button("Ya tengo cuenta — Iniciar sesión", use_container_width=True):
-                st.session_state.vista_landing = "login"
-                st.rerun()
-        with col_cta2:
-            if st.button("Ver planes y empezar", use_container_width=True, type="primary"):
-                st.session_state.vista_landing = "planes"
-                st.rerun()
-
-        # -----------------------------------------------------
-        # BLOQUE DE CONTACTO / SOPORTE (visible en la landing principal)
-        # -----------------------------------------------------
-        # Aquí lo ve TODO el que llega, tenga cuenta o no. Cubre el caso del
-        # "pago huérfano": alguien que pagó en Stripe pero no llegó a crear su
-        # cuenta y no tiene forma de entrar. El mailto lleva asunto y cuerpo ya
-        # rellenados (incluida la petición del email con el que pagó) para que
-        # el cliente solo tenga que darle a enviar.
-        _email_soporte = "hola@reselia.es"
-        _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
-        _cuerpo = urllib.parse.quote(
-            "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
-            "(Describe aquí tu caso. Si acabas de pagar y no has podido crear la "
-            "cuenta, indícanos el email con el que hiciste el pago.)\n\nGracias."
-        )
-        _mailto = f"mailto:{_email_soporte}?subject={_asunto}&body={_cuerpo}"
-        st.markdown(
-            f"""
-            <div style="
-                margin-top: 2rem;
-                padding: 0.9rem 1.25rem;
-                border: 1px solid rgba(59, 58, 107, 0.18);
-                border-radius: 12px;
-                text-align: center;
-                font-size: 0.88rem;
-            ">
-                <span style="color:#6b7280;">
-                    ¿Has pagado y no puedes acceder, o necesitas ayuda?
-                </span>
-                &nbsp;
-                <a href="{_mailto}" style="
-                    color: {ACCENT_INDIGO};
-                    text-decoration: none;
-                    font-weight: 600;
-                ">Contactar con soporte →</a>
-                <div style="color:#6b7280; margin-top:0.4rem; font-size:0.8rem;">
-                    {_email_soporte}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            # -----------------------------------------------------
+            # BLOQUE DE CONTACTO / SOPORTE
+            # -----------------------------------------------------
+            # Esto no es marketing, es funcional: cubre el caso del "pago
+            # huérfano" (alguien que pagó en Stripe pero no llegó a crear su
+            # cuenta y no tiene forma de entrar). Por eso se conserva aunque
+            # todo el texto de venta de alrededor haya desaparecido. El
+            # mailto lleva asunto y cuerpo ya rellenados para que el cliente
+            # solo tenga que darle a enviar.
+            _email_soporte = "hola@reselia.es"
+            _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
+            _cuerpo = urllib.parse.quote(
+                "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
+                "(Describe aquí tu caso. Si acabas de pagar y no has podido crear la "
+                "cuenta, indícanos el email con el que hiciste el pago.)\n\nGracias."
+            )
+            _mailto = f"mailto:{_email_soporte}?subject={_asunto}&body={_cuerpo}"
+            st.markdown(
+                '<div class="rs-login-pie" style="margin-top:22px;">'
+                "¿Has pagado y no puedes acceder? Escribe a "
+                f'<a href="{_mailto}">{_email_soporte}</a>'
+                "</div>",
+                unsafe_allow_html=True,
+            )
         st.stop()
 
     # Botón para volver a la info desde las otras dos vistas
