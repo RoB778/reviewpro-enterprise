@@ -3828,25 +3828,20 @@ if not st.session_state.sesion_activa:
         # El selector ".st-key-rs_entry_card" es la clase que Streamlit
         # asigna automáticamente al contenedor cuando se le pasa key=... —
         # es la forma soportada de darle una tarjeta CSS propia a un bloque
-        # sin que la regla se escape al resto de la app. La alternativa
-        # (abrir y cerrar un <div> con dos st.markdown sueltos, como estaba
-        # aquí en el primer intento) NO anida de verdad: cada st.markdown es
-        # un nodo aislado en el DOM, así que ese div quedaba huérfano y la
-        # tarjeta no envolvía nada — con container(key=...) sí es un
-        # contenedor real y todo lo de dentro es hijo suyo de verdad.
+        # sin que la regla se escape al resto de la app.
         st.markdown(
             """
             <style>
             .st-key-rs_entry_card {
                 background: var(--er-surface);
                 border: 1px solid var(--er-line-2);
-                border-radius: 22px;
-                padding: 46px 42px 34px;
+                border-radius: 24px;
+                padding: 48px 52px 38px;
                 box-shadow: var(--er-shadow-lg);
                 -webkit-backdrop-filter: blur(18px) saturate(1.5);
                 backdrop-filter: blur(18px) saturate(1.5);
                 position: relative;
-                margin-top: 6vh;
+                margin-top: 5vh;
             }
             /* El mismo hilo de luz que llevan los expanders de cristal en
                el resto de la app — es lo que de verdad vende el "cristal",
@@ -3866,12 +3861,64 @@ if not st.session_state.sesion_activa:
             .st-key-rs_entry_card .stButton > button[kind="secondary"] {
                 background: var(--er-sunken) !important;
             }
+
+            /* --- Ejemplo artístico: relleno del hueco, no un bloque de venta ---
+               A propósito NO reutiliza el texto de la landing externa (ni la
+               reseña del gluten, ni la del cobro de más): mismo lenguaje
+               visual, ejemplo distinto, para que no se sienta una copia
+               reformateada. Todo son frases sueltas, sin párrafos ni notas
+               explicativas debajo — es una pieza decorativa que se entiende
+               de un vistazo, no un bloque más para leer. */
+            .rs-ejemplo {
+                margin-top: 36px;
+                padding-top: 30px;
+                border-top: 1px solid var(--er-line);
+            }
+            .rs-ejemplo-kicker {
+                font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                font-size: .64rem; letter-spacing: .28em; text-transform: uppercase;
+                color: var(--er-faint); text-align: center; margin-bottom: 18px;
+            }
+            .rs-ejemplo-resena {
+                font-family: 'Fraunces', Georgia, serif; font-style: italic;
+                font-size: 1.05rem; line-height: 1.5; color: var(--er-body);
+                text-align: center; max-width: 480px; margin: 0 auto 24px;
+            }
+            .rs-ejemplo-fila {
+                display: flex; align-items: flex-start; gap: 12px;
+                padding: 13px 16px; border-radius: 12px; margin-bottom: 10px;
+                font-size: .88rem; line-height: 1.5;
+            }
+            .rs-ejemplo-fila:last-child { margin-bottom: 0; }
+            .rs-ejemplo-mal {
+                background: rgba(214,69,52,.06);
+                color: var(--er-muted);
+            }
+            .rs-ejemplo-bien {
+                background: var(--er-accent-bg);
+                color: var(--er-ink);
+            }
+            .rs-ejemplo-marca {
+                flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+                display: flex; align-items: center; justify-content: center;
+                font-size: .68rem; font-weight: 700; margin-top: 1px;
+            }
+            .rs-ejemplo-mal .rs-ejemplo-marca { background: rgba(214,69,52,.14); color: var(--er-danger); }
+            .rs-ejemplo-bien .rs-ejemplo-marca { background: var(--er-accent); color: #fff; }
+            .rs-ejemplo-mal p { text-decoration: line-through; text-decoration-color: rgba(214,69,52,.4); }
+            .rs-ejemplo-fila p { margin: 0; }
+            @media (max-width: 640px) {
+                .rs-ejemplo-resena { font-size: .95rem; }
+            }
             </style>
             """,
             unsafe_allow_html=True,
         )
 
-        _izq_info, _centro_info, _der_info = st.columns([1, 1.15, 1])
+        # Columna central bastante más ancha que la del login (esta pantalla
+        # ya no es un formulario estrecho, es la puerta de entrada y tiene
+        # espacio de sobra que llenar con algo que valga la pena mirar).
+        _izq_info, _centro_info, _der_info = st.columns([1, 2.5, 1])
 
         with _centro_info:
             with st.container(key="rs_entry_card"):
@@ -3882,20 +3929,40 @@ if not st.session_state.sesion_activa:
                     unsafe_allow_html=True,
                 )
 
-                # Apilados, no lado a lado: en esta columna central estrecha
-                # (~330px, deliberadamente angosta para que el formulario de
-                # login no quede desangelado) dos botones a media anchura con
-                # fuente más grande partían el texto en dos líneas — "Iniciar"
-                # / "sesión" en renglones distintos. Apilados a ancho
-                # completo caben de sobra y además permiten el tamaño de
-                # fuente más grande que se pedía.
-                if st.button("Iniciar sesión", use_container_width=True):
-                    st.session_state.vista_landing = "login"
-                    st.rerun()
-                st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-                if st.button("Ver planes", use_container_width=True, type="primary"):
-                    st.session_state.vista_landing = "planes"
-                    st.rerun()
+                # Lado a lado: con la columna más ancha ya hay sitio de sobra
+                # (antes, a 330px, "Iniciar sesión" partía en dos líneas).
+                _col_ini, _col_planes = st.columns(2, gap="medium")
+                with _col_ini:
+                    if st.button("Iniciar sesión", use_container_width=True):
+                        st.session_state.vista_landing = "login"
+                        st.rerun()
+                with _col_planes:
+                    if st.button("Ver planes", use_container_width=True, type="primary"):
+                        st.session_state.vista_landing = "planes"
+                        st.rerun()
+
+                # --- El ejemplo artístico ---
+                st.markdown(
+                    """
+                    <div class="rs-ejemplo">
+                        <div class="rs-ejemplo-kicker">Una reseña real</div>
+                        <div class="rs-ejemplo-resena">
+                            «Reservamos para las nueve y a las nueve y media
+                            seguíamos en la puerta. Nadie nos avisó de nada.»
+                        </div>
+                        <div class="rs-ejemplo-fila rs-ejemplo-mal">
+                            <div class="rs-ejemplo-marca">✕</div>
+                            <p>«Lamentamos el fallo en la gestión de reservas de esa noche.»</p>
+                        </div>
+                        <div class="rs-ejemplo-fila rs-ejemplo-bien">
+                            <div class="rs-ejemplo-marca">§</div>
+                            <p>«Una espera así no es lo que quiero para nadie que
+                            venga con ganas. Lo reviso personalmente con el equipo de sala.»</p>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
                 # -----------------------------------------------------
                 # BLOQUE DE CONTACTO / SOPORTE
