@@ -3819,50 +3819,109 @@ if not st.session_state.sesion_activa:
     # que de verdad hace falta en este punto: elegir entre iniciar sesión o
     # ver los planes. Se reduce a eso.
     if st.session_state.vista_landing == "info":
+        # CSS con ámbito propio: los botones de ESTA pantalla se agrandan
+        # respecto al tamaño estándar de la app (0.55rem/0.9rem de siempre,
+        # pensado para botones secundarios dentro de formularios). Aquí son
+        # las DOS únicas acciones de toda la pantalla, así que tienen que
+        # pesar como tal.
+        #
+        # El selector ".st-key-rs_entry_card" es la clase que Streamlit
+        # asigna automáticamente al contenedor cuando se le pasa key=... —
+        # es la forma soportada de darle una tarjeta CSS propia a un bloque
+        # sin que la regla se escape al resto de la app. La alternativa
+        # (abrir y cerrar un <div> con dos st.markdown sueltos, como estaba
+        # aquí en el primer intento) NO anida de verdad: cada st.markdown es
+        # un nodo aislado en el DOM, así que ese div quedaba huérfano y la
+        # tarjeta no envolvía nada — con container(key=...) sí es un
+        # contenedor real y todo lo de dentro es hijo suyo de verdad.
+        st.markdown(
+            """
+            <style>
+            .st-key-rs_entry_card {
+                background: var(--er-surface);
+                border: 1px solid var(--er-line-2);
+                border-radius: 22px;
+                padding: 46px 42px 34px;
+                box-shadow: var(--er-shadow-lg);
+                -webkit-backdrop-filter: blur(18px) saturate(1.5);
+                backdrop-filter: blur(18px) saturate(1.5);
+                position: relative;
+                margin-top: 6vh;
+            }
+            /* El mismo hilo de luz que llevan los expanders de cristal en
+               el resto de la app — es lo que de verdad vende el "cristal",
+               más que el blur en sí. */
+            .st-key-rs_entry_card::before {
+                content: "";
+                position: absolute; top: 0; left: 18px; right: 18px; height: 1px;
+                background: var(--er-glass-edge);
+            }
+            .st-key-rs_entry_card .stButton > button {
+                padding: 1.05rem 1.2rem !important;
+                font-size: 1.02rem !important;
+                font-weight: 600 !important;
+                border-radius: 12px !important;
+                letter-spacing: -0.01em !important;
+            }
+            .st-key-rs_entry_card .stButton > button[kind="secondary"] {
+                background: var(--er-sunken) !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         _izq_info, _centro_info, _der_info = st.columns([1, 1.15, 1])
 
         with _centro_info:
-            st.markdown(
-                '<div class="rs-login-cab" style="margin-bottom:8px;">'
-                '<div class="rs-login-marca">RESELIA</div>'
-                "</div>",
-                unsafe_allow_html=True,
-            )
+            with st.container(key="rs_entry_card"):
+                st.markdown(
+                    '<div class="rs-login-cab" style="margin-bottom:26px;">'
+                    '<div class="rs-login-marca">RESELIA</div>'
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
 
-            _col_ini, _col_planes = st.columns(2)
-            with _col_ini:
+                # Apilados, no lado a lado: en esta columna central estrecha
+                # (~330px, deliberadamente angosta para que el formulario de
+                # login no quede desangelado) dos botones a media anchura con
+                # fuente más grande partían el texto en dos líneas — "Iniciar"
+                # / "sesión" en renglones distintos. Apilados a ancho
+                # completo caben de sobra y además permiten el tamaño de
+                # fuente más grande que se pedía.
                 if st.button("Iniciar sesión", use_container_width=True):
                     st.session_state.vista_landing = "login"
                     st.rerun()
-            with _col_planes:
+                st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
                 if st.button("Ver planes", use_container_width=True, type="primary"):
                     st.session_state.vista_landing = "planes"
                     st.rerun()
 
-            # -----------------------------------------------------
-            # BLOQUE DE CONTACTO / SOPORTE
-            # -----------------------------------------------------
-            # Esto no es marketing, es funcional: cubre el caso del "pago
-            # huérfano" (alguien que pagó en Stripe pero no llegó a crear su
-            # cuenta y no tiene forma de entrar). Por eso se conserva aunque
-            # todo el texto de venta de alrededor haya desaparecido. El
-            # mailto lleva asunto y cuerpo ya rellenados para que el cliente
-            # solo tenga que darle a enviar.
-            _email_soporte = "hola@reselia.es"
-            _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
-            _cuerpo = urllib.parse.quote(
-                "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
-                "(Describe aquí tu caso. Si acabas de pagar y no has podido crear la "
-                "cuenta, indícanos el email con el que hiciste el pago.)\n\nGracias."
-            )
-            _mailto = f"mailto:{_email_soporte}?subject={_asunto}&body={_cuerpo}"
-            st.markdown(
-                '<div class="rs-login-pie" style="margin-top:22px;">'
-                "¿Has pagado y no puedes acceder? Escribe a "
-                f'<a href="{_mailto}">{_email_soporte}</a>'
-                "</div>",
-                unsafe_allow_html=True,
-            )
+                # -----------------------------------------------------
+                # BLOQUE DE CONTACTO / SOPORTE
+                # -----------------------------------------------------
+                # Esto no es marketing, es funcional: cubre el caso del "pago
+                # huérfano" (alguien que pagó en Stripe pero no llegó a crear
+                # su cuenta y no tiene forma de entrar). Por eso se conserva
+                # aunque todo el texto de venta de alrededor haya
+                # desaparecido. El mailto lleva asunto y cuerpo ya rellenados
+                # para que el cliente solo tenga que darle a enviar.
+                _email_soporte = "hola@reselia.es"
+                _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
+                _cuerpo = urllib.parse.quote(
+                    "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
+                    "(Describe aquí tu caso. Si acabas de pagar y no has podido "
+                    "crear la cuenta, indícanos el email con el que hiciste el "
+                    "pago.)\n\nGracias."
+                )
+                _mailto = f"mailto:{_email_soporte}?subject={_asunto}&body={_cuerpo}"
+                st.markdown(
+                    '<div class="rs-login-pie" style="margin-top:24px;">'
+                    "¿Has pagado y no puedes acceder? Escribe a "
+                    f'<a href="{_mailto}">{_email_soporte}</a>'
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
         st.stop()
 
     # Botón para volver a la info desde las otras dos vistas
