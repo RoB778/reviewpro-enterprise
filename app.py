@@ -3799,9 +3799,17 @@ if not st.session_state.sesion_activa:
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="rp-eyebrow">Reselia</div>', unsafe_allow_html=True)
-    st.markdown('<div class="rp-hero-title">Reputación bajo control.<br>Respuestas con precisión.</div>', unsafe_allow_html=True)
-    st.markdown('<div class="rp-hero-sub">Plataforma de inteligencia de reputación para agencias. Respuestas redactadas con IA, con tu marca y SEO local integrado, para toda tu cartera de clientes.</div>', unsafe_allow_html=True)
+    # El hero grande de marketing (eyebrow + titular + subtítulo) SOLO va
+    # aquí, no en login/planes. Antes era incondicional y se colaba encima
+    # del formulario de acceso: alguien que llegaba desde el botón "Entrar"
+    # del HTML externo —donde ya ha leído todo este argumentario— se
+    # encontraba el mismo discurso repetido antes de poder escribir su email.
+    # Con login pensado como destino directo desde fuera, tiene que ser una
+    # pantalla de acceso limpia, no una tercera vuelta a la misma venta.
+    if st.session_state.vista_landing == "info":
+        st.markdown('<div class="rp-eyebrow">Reselia</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rp-hero-title">Reputación bajo control.<br>Respuestas con precisión.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rp-hero-sub">Plataforma de inteligencia de reputación para agencias. Respuestas redactadas con IA, con tu marca y SEO local integrado, para toda tu cartera de clientes.</div>', unsafe_allow_html=True)
 
     # -----------------------------------------------------
     # VISTA 1: INFO — presentación del producto antes de pedir nada
@@ -3961,8 +3969,11 @@ if not st.session_state.sesion_activa:
 
     if mostrar_planes:
         st.caption("¿Ya tienes cuenta? Usa el botón '← Volver' de arriba y elige 'Iniciar sesión'.")
-    if mostrar_login:
-        st.caption("¿Todavía no tienes cuenta? Usa el botón '← Volver' de arriba y elige 'Ver planes'.")
+    # La caption equivalente para login se ha quitado: repetía, con otras
+    # palabras, lo mismo que ya dice el botón "← Volver" de arriba y lo que
+    # va a decir el enlace "¿No tienes cuenta?" al pie de la propia tarjeta
+    # de login. Era la tercera vez que la misma idea aparecía en pantalla
+    # antes de llegar al campo de email.
 
     # -----------------------------------------------------
     # VISTA: PLANES Y PRECIOS
@@ -4210,7 +4221,6 @@ if not st.session_state.sesion_activa:
                   <div class="rs-login-marca">RESELIA</div>
                   <h1 class="rs-login-titulo">Bienvenido de nuevo</h1>
                   <p class="rs-login-sub">
-                    Accede con tu email y contraseña personales.
                     Cada usuario de tu agencia tiene su propio acceso.
                   </p>
                 </div>
@@ -4331,6 +4341,19 @@ if not st.session_state.sesion_activa:
                 "</div>",
                 unsafe_allow_html=True,
             )
+
+            # Único sitio donde login ofrece "no tengo cuenta". Antes esta
+            # misma idea aparecía TRES veces en pantalla (la caption de
+            # arriba, el botón "← Volver" y este mensaje). Un botón discreto
+            # al pie de la tarjeta, sin use_container_width ni type="primary",
+            # basta: está donde se busca sin competir con "Iniciar sesión".
+            st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+            _col_np_izq, _col_np_centro, _col_np_der = st.columns([1, 1.4, 1])
+            with _col_np_centro:
+                if st.button("¿No tienes cuenta? Ver planes",
+                             key="_btn_ver_planes_desde_login"):
+                    st.session_state.vista_landing = "planes"
+                    st.rerun()
 
     st.stop()
 
