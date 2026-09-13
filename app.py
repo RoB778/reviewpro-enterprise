@@ -1303,6 +1303,35 @@ def agencia_en_beta(agencia):
     dias_beta = agencia.get("dias_beta", 7) or 7
     return datetime.utcnow() < fecha_alta + timedelta(days=dias_beta)
 
+
+def beta_expirada(agencia):
+    """
+    True SOLO si esta agencia tuvo una ventana de beta y YA se le ha pasado.
+
+    Es distinto de `not agencia_en_beta(...)`: esa negación también sería True
+    para una agencia que nunca estuvo en beta o para un plan de pago. Aquí
+    queremos el caso concreto "disfrutó de la beta y se le acabó", que es el
+    único al que tiene sentido enseñarle el muro de '¿te ha gustado Reselia?'.
+
+    Condiciones: interruptor maestro activo, plan gratuito, con fecha de alta
+    válida, y fecha actual PASADA la ventana (creado_en + dias_beta).
+    """
+    if not MODO_BETA_RESPUESTAS_ILIMITADAS:
+        return False
+    if agencia.get("plan", "free") != "free":
+        return False
+    creado_en_raw = agencia.get("creado_en")
+    if not creado_en_raw:
+        return False
+    try:
+        fecha_alta = datetime.fromisoformat(creado_en_raw.replace("Z", "+00:00"))
+        if fecha_alta.tzinfo is not None:
+            fecha_alta = fecha_alta.replace(tzinfo=None)
+    except (ValueError, AttributeError):
+        return False
+    dias_beta = agencia.get("dias_beta", 7) or 7
+    return datetime.utcnow() >= fecha_alta + timedelta(days=dias_beta)
+
 # --- Constantes de la calculadora de ROI ---
 # Basadas en el estudio de Michael Luca (Harvard Business School), "Reviews,
 # Reputation, and Revenue: The Case of Yelp.com": una subida de 1 estrella en la
@@ -2865,6 +2894,194 @@ def render_pagina_planes_upgrade(agencia, color_agencia):
                         redirigir_a_stripe(url_pago)
 
 
+def _resumen_valor_beta(agencia):
+    """Reúne, de forma barata y tolerante a fallos, las cifras reales que la
+    agencia ha acumulado durante su beta: cuántas respuestas ha generado, sobre
+    cuántos locales y desde hace cuántos días. Son la munición del muro: no le
+    pedimos que confíe en una promesa, le enseñamos lo que YA ha construido.
+
+    Devuelve un dict con claves siempre presentes (0 si algo falla), para que la
+    pantalla nunca reviente por un problema de consulta."""
+    datos = {"respuestas": 0, "locales": 0, "dias_uso": 0}
+    ag_id = agencia.get("id")
+    if not ag_id:
+        return datos
+    try:
+        r = supabase.table("historico_respuestas") \
+            .select("id", count="exact") \
+            .eq("agencia_id", ag_id) \
+            .execute()
+        datos["respuestas"] = r.count or 0
+    except Exception:
+        pass
+    try:
+        r = supabase.table("locales") \
+            .select("id", count="exact") \
+            .eq("agencia_id", ag_id) \
+            .execute()
+        datos["locales"] = r.count or 0
+    except Exception:
+        pass
+    try:
+        creado = agencia.get("creado_en")
+        if creado:
+            f = datetime.fromisoformat(creado.replace("Z", "+00:00"))
+            if f.tzinfo is not None:
+                f = f.replace(tzinfo=None)
+            datos["dias_uso"] = max((datetime.utcnow() - f).days, 0)
+    except Exception:
+        pass
+    return datos
+
+
+def render_muro_fin_beta(agencia, usuario, color_agencia):
+    """
+    Pantalla que ve una agencia cuando su beta ha expirado (beta_expirada()==True)
+    y todavía sigue en plan gratuito. Sustituye al panel entero: mientras no
+    actualice, esto es lo único que ve al entrar.
+
+    POR QUÉ ESTÁ ASÍ DISEÑADA (persuasión honesta, no trucos)
+    El objetivo es que una agencia que ha probado el producto decida pagar. Las
+    palancas usadas son legítimas — todas se apoyan en algo real, ninguna miente
+    ni mete falsa urgencia:
+
+      1. EFECTO DOTACIÓN + RECIPROCIDAD: primero le devolvemos lo que construyó
+         (sus cifras reales de la beta). La gente valora mucho más lo que ya
+         siente como suyo; ver "has generado 143 respuestas para 12 locales" pesa
+         más que cualquier lista de features.
+      2. MICRO-COMPROMISO (técnica del "sí" previo): una sola pregunta —"¿te ha
+         resultado útil?"— antes de pedir la acción. Quien se responde que sí a sí
+         mismo es mucho más coherente pulsando luego "actualizar". No condiciona
+         el acceso a los planes: es un paso de reflexión, no un peaje.
+      3. CONTINUIDAD, NO PÉRDIDA: el marco es "sigue donde lo dejaste", que apela
+         a no perder lo ya invertido sin caer en amenazas ("perderás tus datos").
+         Los datos no se borran, así que no lo insinuamos: sería mentira y además
+         quema la confianza.
+      4. CIERRE CLARO CON UN SOLO CTA PRINCIPAL: una decisión, un botón grande.
+         Menos fricción, menos parálisis.
+
+    Lo que deliberadamente NO se hace: ni cuentas atrás falsas, ni "solo hoy", ni
+    "quedan 2 plazas", ni insinuar borrado de datos. Reselia vende que no crea
+    responsabilidad ni engaña; el muro tiene que respirar lo mismo.
+    """
+    val = _resumen_valor_beta(agencia)
+    nombre_agencia = agencia.get("nombre_agencia") or "tu agencia"
+
+    st.markdown(
+        f"""
+        <div style="max-width:680px;margin:2.5rem auto 1.5rem;text-align:center;">
+          <div style="font-family:ui-monospace,monospace;font-size:.72rem;
+                      letter-spacing:.18em;text-transform:uppercase;color:{ACCENT_INDIGO};
+                      opacity:.7;margin-bottom:1rem;">Tu beta ha terminado</div>
+          <h1 style="font-size:2rem;line-height:1.2;margin:0 0 .6rem;color:{ACCENT_INDIGO};">
+            Has llevado a {nombre_agencia} más lejos de lo que crees.
+          </h1>
+          <p style="font-size:1.05rem;color:#4a5570;margin:0 auto;max-width:52ch;">
+            Estos días de prueba no han sido en balde. Esto es lo que has construido
+            con Reselia:
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --- Las cifras reales: el efecto dotación en acción ---
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(
+            f"<div style='text-align:center;'><div style='font-size:2.4rem;font-weight:700;"
+            f"color:{ACCENT_INDIGO};line-height:1;'>{val['respuestas']}</div>"
+            f"<div style='font-size:.85rem;color:#6d7385;margin-top:.3rem;'>respuestas generadas</div></div>",
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            f"<div style='text-align:center;'><div style='font-size:2.4rem;font-weight:700;"
+            f"color:{ACCENT_INDIGO};line-height:1;'>{val['locales']}</div>"
+            f"<div style='font-size:.85rem;color:#6d7385;margin-top:.3rem;'>"
+            f"{'local gestionado' if val['locales']==1 else 'locales gestionados'}</div></div>",
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            f"<div style='text-align:center;'><div style='font-size:2.4rem;font-weight:700;"
+            f"color:{ACCENT_INDIGO};line-height:1;'>{val['dias_uso']}</div>"
+            f"<div style='font-size:.85rem;color:#6d7385;margin-top:.3rem;'>días contigo</div></div>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
+
+    # --- Micro-compromiso: la pregunta que pide un "sí" antes del CTA ---
+    # Se guarda en sesión para que, una vez respondida, el mensaje se personalice
+    # y el botón principal gane protagonismo. No bloquea el acceso a los planes.
+    respondio = st.session_state.get("_beta_feedback")
+
+    if not respondio:
+        st.markdown(
+            f"<p style='text-align:center;font-size:1.15rem;font-weight:600;"
+            f"color:{ACCENT_INDIGO};margin-bottom:1rem;'>Una pregunta rápida: "
+            f"¿te ha resultado útil Reselia estos días?</p>",
+            unsafe_allow_html=True,
+        )
+        cols = st.columns([1, 1, 1])
+        with cols[0]:
+            if st.button("Sí, mucho", key="beta_fb_si", use_container_width=True, type="primary"):
+                st.session_state["_beta_feedback"] = "si"
+                st.rerun()
+        with cols[1]:
+            if st.button("Algo", key="beta_fb_algo", use_container_width=True):
+                st.session_state["_beta_feedback"] = "algo"
+                st.rerun()
+        with cols[2]:
+            if st.button("No mucho", key="beta_fb_no", use_container_width=True):
+                st.session_state["_beta_feedback"] = "no"
+                st.rerun()
+    else:
+        # Mensaje-puente adaptado a la respuesta. Incluso el "no" reconduce con
+        # elegancia hacia la conversión, sin presionar.
+        if respondio == "si":
+            puente = ("Entonces esto es fácil. Sigue exactamente donde lo dejaste, "
+                      "sin perder el ritmo que ya has cogido con tus clientes.")
+        elif respondio == "algo":
+            puente = ("Lo bueno viene con el uso continuado: cuantas más reseñas "
+                      "gestionas, más afinado trabaja el asistente para ti. Dale la "
+                      "oportunidad de demostrártelo un mes completo.")
+        else:
+            puente = ("Nos vale para mejorar. Si te animas a seguir, el plan de pago "
+                      "incluye soporte directo: cuéntanos qué faltó y lo trabajamos contigo.")
+        st.markdown(
+            f"<p style='text-align:center;font-size:1.05rem;color:#4a5570;"
+            f"max-width:54ch;margin:0 auto 1.4rem;'>{puente}</p>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='height:.6rem;'></div>", unsafe_allow_html=True)
+
+    # --- CTA principal: una sola decisión, un botón grande ---
+    cta = st.columns([1, 2, 1])
+    with cta[1]:
+        if st.button("Continuar con Reselia — ver planes",
+                     key="muro_ver_planes", use_container_width=True, type="primary"):
+            st.session_state.mostrar_pagina_planes = True
+            st.rerun()
+        st.caption(
+            "Todo tu trabajo y tus locales siguen intactos. Al actualizar, "
+            "retomas justo donde lo dejaste."
+        )
+
+    # --- Salida secundaria, discreta: nunca encerramos a nadie ---
+    st.markdown("<div style='height:1.2rem;'></div>", unsafe_allow_html=True)
+    salir = st.columns([1, 1, 1])
+    with salir[1]:
+        if st.button("Cerrar sesión", key="muro_logout", use_container_width=True):
+            _revocar_token_sesion()
+            for key in ["sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia", "local_activo"]:
+                st.session_state[key] = False if key == "sesion_activa" else None if "actual" in key else []
+            st.session_state.vista_landing = "info"
+            st.rerun()
+
+
 def cargar_perfil_login(email, password_plano, nombre_usuario=None):
     """
     Resuelve el login y devuelve (perfil, error).
@@ -4421,6 +4638,19 @@ if st.session_state.pop("_recien_registrado", False):
 # comparativa de planes dentro del propio panel en vez de saltar directo a Stripe.
 if st.session_state.mostrar_pagina_planes:
     render_pagina_planes_upgrade(agencia, color_agencia)
+    st.stop()
+
+# MURO DE FIN DE BETA. Si a esta agencia se le ha agotado su ventana de beta y
+# sigue en plan gratuito, lo primero que ve al entrar es la pantalla de
+# reactivación, no el panel. Va DESPUÉS de la comprobación de la página de
+# planes (para que el botón "ver planes" del muro pueda llevar ahí) y ANTES de
+# renderizar el panel (para que sea un muro de verdad, no un aviso más).
+#
+# Nota: beta_expirada() ya excluye a los planes de pago, así que en cuanto la
+# agencia actualiza, esta pantalla deja de aparecer sola. Cuando termine la beta
+# global (MODO_BETA_SIN_PAGOS = False), los botones del muro llevan a Stripe real.
+if beta_expirada(agencia):
+    render_muro_fin_beta(agencia, usuario, color_agencia)
     st.stop()
 
 # =========================================================
