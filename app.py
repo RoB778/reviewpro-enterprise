@@ -1,4 +1,5 @@
 import base64
+import html as _html
 import json
 import secrets as _secrets_modulo
 import os
@@ -11,8 +12,6 @@ from datetime import datetime, timedelta
 from io import BytesIO
 
 import bcrypt
-import httpx
-import requests
 import stripe
 import streamlit as st
 from anthropic import Anthropic
@@ -101,16 +100,15 @@ if not hasattr(st, "_secrets_originales"):
 # como VALOR POR DEFECTO en las firmas de grafico_barras_pos_neg más abajo,
 # y los valores por defecto se calculan al cargar el módulo, no al llamar a
 # la función — así que estos dos sí tienen que estar disponibles desde ya.
-# Son módulos de solo constantes, sin motor gráfico detrás: coste casi nulo.
+# reportlab y qrcode se cargan DIFERIDOS, dentro de las funciones que los usan
+# (informe_pdf.py para el informe, generar_qr_png para los códigos). Antes se
+# cargaban al arrancar el proceso aunque nadie hubiera pedido nunca un informe
+# ni un QR. En un servicio con 512 MB de límite eso es peso muerto pagado por
+# adelantado.
 #
-# Todo lo demás de reportlab (el motor de maquetación PDF y el de gráficos
-# de barras) y qrcode se cargan ahora DIFERIDOS, dentro de las funciones que
-# los usan (generar_informe_pdf_mensual, grafico_barras_pos_neg y
-# generar_qr_png). Antes se cargaban al arrancar el proceso, en cada
-# instancia, aunque nadie hubiera pedido nunca un informe ni un QR. En un
-# servicio con 512 MB de límite eso es peso muerto pagado por adelantado.
-from reportlab.lib import colors
-from reportlab.lib.units import cm
+# Desde que la maquetación del PDF vive en informe_pdf.py, app.py ya no
+# necesita importar NADA de reportlab a nivel de módulo: ni siquiera 'colors'
+# ni 'cm', que eran los dos únicos que quedaban arriba.
 from supabase import create_client
 
 # Configuración de las claves secretas de los servidores
@@ -118,38 +116,8 @@ from supabase import create_client
 # Streamlit Cloud (p.ej. pegando la key con """triple comillas""" en el
 # secrets.toml) provoca httpx.LocalProtocolError ("Illegal header value"),
 # que el SDK de Anthropic enmascara como APIConnectionError.
-# También se limpian comillas envolventes accidentales: es un error muy común
-# al pegar una key en el panel de variables de entorno de Render — si se pega
-# como "sk-ant-..." (con las comillas incluidas como caracteres literales), la
-# API la rechaza con AuthenticationError porque las comillas pasan a formar
-# parte de la key. strip('"\'') las quita si están, y no hace nada si no lo están.
-def _limpiar_secreto(valor):
-    if not isinstance(valor, str):
-        return valor
-    return valor.strip().strip('"').strip("'").strip()
-
 _anthropic_api_key_raw = st.secrets["ANTHROPIC_API_KEY"]
-_anthropic_api_key = _limpiar_secreto(_anthropic_api_key_raw)
-
-# Diagnóstico al arrancar, SIN exponer la key completa: solo confirma su forma
-# (prefijo esperado "sk-ant-" y longitud aproximada) para poder verificar en
-# los logs de Render si el valor que llega es plausible, sin tener que
-# imprimir el secreto entero en ningún sitio.
-if isinstance(_anthropic_api_key, str) and _anthropic_api_key:
-    _prefijo_ok = _anthropic_api_key.startswith("sk-ant-")
-    print(
-        f"[Reselia] ANTHROPIC_API_KEY cargada: prefijo 'sk-ant-' = {_prefijo_ok}, "
-        f"longitud = {len(_anthropic_api_key)}, empieza por '{_anthropic_api_key[:10]}...'"
-    )
-    if not _prefijo_ok:
-        print(
-            "[Reselia] AVISO: la key no empieza por 'sk-ant-', que es el prefijo "
-            "estándar de las API keys de Anthropic. Revisa el valor en Render → "
-            "Environment: puede que se haya pegado mal, con comillas extra, o que "
-            "sea una key de otro servicio."
-        )
-else:
-    print("[Reselia] AVISO: ANTHROPIC_API_KEY está vacía tras la limpieza.")
+_anthropic_api_key = _anthropic_api_key_raw.strip() if isinstance(_anthropic_api_key_raw, str) else _anthropic_api_key_raw
 
 
 # -----------------------------------------------------------------------
@@ -177,39 +145,7 @@ def _crear_cliente_supabase(url, key):
 
 
 client = _crear_cliente_anthropic(_anthropic_api_key)
-
-# Mismo problema que tuvo ANTHROPIC_API_KEY: un salto de línea, espacio o
-# comillas accidentales colados al pegar el valor en Render rompen la URL o
-# la key sin que salte ningún KeyError (la variable SÍ existe, solo que su
-# contenido está corrupto). El síntoma es un httpx.ConnectError del tipo
-# "Name or service not known": Python intenta resolver por DNS un host que
-# en realidad no es válido porque lleva basura pegada. _limpiar_secreto ya
-# se define arriba (se usó para la key de Anthropic) y aquí se reutiliza.
-_supabase_url_raw = st.secrets["SUPABASE_URL"]
-_supabase_key_raw = st.secrets["SUPABASE_KEY"]
-_supabase_url = _limpiar_secreto(_supabase_url_raw)
-_supabase_key = _limpiar_secreto(_supabase_key_raw)
-
-# Diagnóstico al arrancar, sin exponer la key: solo confirma la FORMA de la
-# URL (debe empezar por https:// y terminar en .supabase.co) para poder ver
-# en los logs de Render si el valor que llega es plausible o está corrupto.
-if isinstance(_supabase_url, str) and _supabase_url:
-    _forma_url_ok = _supabase_url.startswith("https://") and ".supabase.co" in _supabase_url
-    print(
-        f"[Reselia] SUPABASE_URL cargada: longitud={len(_supabase_url)}, "
-        f"forma válida (https:// ... .supabase.co)={_forma_url_ok}, "
-        f"valor='{_supabase_url}'"
-    )
-    if not _forma_url_ok:
-        print(
-            "[Reselia] AVISO: la URL de Supabase no tiene la forma esperada. "
-            "Revisa Render -> Environment -> SUPABASE_URL: puede llevar un "
-            "salto de línea, comillas o espacio pegados al copiarla."
-        )
-else:
-    print("[Reselia] AVISO: SUPABASE_URL está vacía tras la limpieza.")
-
-supabase = _crear_cliente_supabase(_supabase_url, _supabase_key)
+supabase = _crear_cliente_supabase(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
 
 # -----------------------------------------------------------------------
@@ -1291,6 +1227,8 @@ LIMITE_USOS_POR_PLAN = {
     "individual": None,        # 1 local, respuestas ilimitadas
     "starter": None,
     "growth": None,
+    # Legado: el plan Enterprise ya no se vende (ver PLANES_AUTOSERVICIO). La
+    # clave se mantiene sólo por si quedara alguna fila antigua en Supabase.
     "enterprise": None,
 }
 
@@ -1310,12 +1248,12 @@ LIMITE_USOS_POR_PLAN = {
 # servicio de golpe sino que ofrece hablar para ampliarlo (igual que ya se
 # hace con el límite de velocidad). Así protege margen sin penalizar a nadie
 # que esté usando el plan como se espera.
-# None = sin techo (Enterprise ya se negocia caso a caso).
+# None = sin techo.
 LIMITE_MENSUAL_BLANDO_PLANES_ILIMITADOS = {
     "individual": 400,   # ~13/día de media — de sobra para cualquier local normal
     "starter":    1500,  # varios locales
     "growth":     4000,
-    "enterprise": None,
+    "enterprise": None,   # legado, ver nota en PLANES_AUTOSERVICIO
 }
 LIMITE_LOCALES_POR_PLAN = {"free": 1, "individual": 1,
                             "starter": 10, "growth": 30, "enterprise": None}  # None = sin límite
@@ -1324,7 +1262,10 @@ LIMITE_LOCALES_POR_PLAN = {"free": 1, "individual": 1,
 LIMITE_USUARIOS_POR_PLAN = {"free": 1, "individual": 1,
                             "starter": 5, "growth": 15, "enterprise": None}
 UMBRAL_ACTIVIDAD_INUSUAL_POR_LOCAL = 150  # aviso informativo, no bloqueante
-EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Antes era r"^[^@\s]+@[^@\s]+\.[^@\s]+$", que solo prohibía espacios y
+# arrobas: aceptaba <, > y comillas, así que "<img/src=x/onerror=1>@a.bc" se
+# daba por válido y acababa interpolado en el HTML de la barra lateral.
+EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
 
 def agencia_en_beta(agencia):
@@ -1391,10 +1332,10 @@ STRIPE_PRICES = {
         "mensual": "price_1TqCZFKwc34DG74Mpw8r8lfi",     # existente (ajusta el importe a 299€ en Stripe)
         "anual":   "price_TODO_GROWTH_2870EUR_ANO",       # ⚠️ crear en Stripe (2.870€/año = 299×12×0,8)
     },
-    "enterprise": {
-        "mensual": "price_1Tr1RoKwc34DG74M8L4sjSVL",     # existente (ajusta el importe a 349€ en Stripe)
-        "anual":   "price_TODO_ENTERPRISE_3350EUR_ANO",   # ⚠️ crear en Stripe (3.350€/año = 349×12×0,8)
-    },
+    # Enterprise eliminado: el plan ya no existe, así que no hay precio que cobrar.
+    # Si algún día vuelve, se recrea aquí con sus price_ids nuevos de Stripe.
+    # IMPORTANTE: archiva también los precios antiguos en el Dashboard de Stripe
+    # (Producto → Pricing → Archive) para que nadie pueda reutilizar un enlace viejo.
 }
 
 DESCUENTO_ANUAL = 0.20  # -20% al pagar por año
@@ -1456,19 +1397,20 @@ PLANES_AUTOSERVICIO = {
         "gancho": "Menos de 10€ por local — el favorito de las agencias.",
         "destacado": True,
     },
-    # RETIRADO DE LA VENTA. Ya no aparece en la landing ni en el selector de
-    # planes: no se ofrece a ningún cliente nuevo. La definición se conserva a
-    # propósito porque los límites por plan se consultan por clave, y si alguna
-    # cuenta de Supabase tuviera plan="enterprise", borrar esto la dejaría sin
-    # límites resueltos y rompería su sesión. No borrar sin migrar antes esas
-    # filas a "growth".
-    "enterprise": {
-        "nombre": "Enterprise", "target": "Agencias grandes · locales ilimitados",
-        "precio_mensual": 349, "price_ids": STRIPE_PRICES["enterprise"],
-        "features": ["Locales ilimitados", "Soporte prioritario", "Marca blanca completa",
-                     "Multi-usuario + analítica + ROI"],
-        "gancho": "Sin techo de crecimiento. Cuantos más locales, más barato sale cada uno.",
-    },
+    # Enterprise ELIMINADO definitivamente del catálogo (agosto 2026).
+    #
+    # Al quitarlo de aquí desaparece de los DOS sitios donde se pintaba: la
+    # landing (que ya lo excluía a mano) y el selector de planes de dentro de
+    # la app, render_pagina_planes_upgrade(), que recorre este diccionario
+    # entero y por tanto SÍ lo seguía enseñando hasta ahora.
+    #
+    # Las tablas de límites de más arriba (LIMITE_LOCALES_POR_PLAN,
+    # LIMITE_USUARIOS_POR_PLAN, LIMITES_VELOCIDAD_POR_PLAN...) conservan a
+    # propósito su clave "enterprise" como red de seguridad: se consultan con
+    # .get(plan) y, si quedara alguna fila en Supabase con plan='enterprise',
+    # seguiría resolviendo sus límites en vez de romper la sesión.
+    # Cuando confirmes con un SELECT que no queda ninguna fila así, puedes
+    # borrar también esas claves sin ningún riesgo.
 }
 
 # =========================================================
@@ -1498,7 +1440,8 @@ BETA_MENSAJE_PLANES = (
 STRIPE_PRICE_ID_INDIVIDUAL = STRIPE_PRICES["individual"]["mensual"]
 STRIPE_PRICE_ID_STARTER = STRIPE_PRICES["starter"]["mensual"]
 STRIPE_PRICE_ID_GROWTH = STRIPE_PRICES["growth"]["mensual"]
-STRIPE_PRICE_ID_ENTERPRISE = STRIPE_PRICES["enterprise"]["mensual"]
+# STRIPE_PRICE_ID_ENTERPRISE se elimina con el plan. Nadie lo referenciaba
+# fuera de esta línea, así que quitarlo no rompe ninguna ruta de pago.
 
 
 def crear_sesion_pago_stripe(agencia_id, plan_nombre, price_id):
@@ -1716,7 +1659,15 @@ def _obtener_ip_cliente():
         cabeceras = st.context.headers
         reenviada = cabeceras.get("X-Forwarded-For") or cabeceras.get("x-forwarded-for")
         if reenviada:
-            return reenviada.split(",")[0].strip()
+            # ÚLTIMO elemento, no el primero. X-Forwarded-For se construye
+            # por acumulación: el primer valor es el que MANDA EL CLIENTE, así
+            # que un atacante solo tiene que enviar la cabecera con una IP
+            # inventada y tu proxy le añade la real detrás. Cogiendo [0] nos
+            # quedábamos con la falsa, distinta en cada petición, y los límites
+            # de altas por IP se saltaban con una línea de curl.
+            # El último valor lo escribe nuestro propio proxy (Render), que es
+            # el único eslabón de la cadena en el que podemos confiar.
+            return reenviada.split(",")[-1].strip()
     except Exception:
         pass
     return None
@@ -2149,48 +2100,6 @@ def render_formulario_alta_pendiente():
                 st.error(resultado)
 
 
-def grafico_barras_pos_neg(categorias, valores_positivas, valores_negativas,
-                            color_positivas=colors.HexColor("#1a2238"),
-                            color_negativas=colors.HexColor("#B8B7C9"),
-                            ancho=16 * cm, alto=6 * cm):
-    """Gráfico de barras agrupadas (positivas vs. negativas) hecho con
-    reportlab.graphics puro — sin pandas ni numpy, para no repetir el
-    segfault que ya tuvimos con pyarrow en Streamlit Cloud."""
-    # Import diferido: el motor de gráficos de reportlab solo se carga
-    # cuando de verdad se genera un informe, no en cada arranque del proceso.
-    from reportlab.graphics.shapes import Drawing
-    from reportlab.graphics.charts.barcharts import VerticalBarChart
-    from reportlab.graphics.charts.legends import Legend
-
-    dibujo = Drawing(ancho, alto)
-    grafico = VerticalBarChart()
-    grafico.x = 40
-    grafico.y = 25
-    grafico.width = ancho - 90
-    grafico.height = alto - 55
-    grafico.data = [valores_positivas, valores_negativas]
-    grafico.categoryAxis.categoryNames = categorias
-    grafico.categoryAxis.labels.fontSize = 7.5
-    grafico.categoryAxis.labels.boxAnchor = "n"
-    grafico.valueAxis.valueMin = 0
-    grafico.bars[0].fillColor = color_positivas
-    grafico.bars[1].fillColor = color_negativas
-    grafico.groupSpacing = 12
-    grafico.barSpacing = 2
-    dibujo.add(grafico)
-
-    leyenda = Legend()
-    leyenda.x = ancho - 55
-    leyenda.y = alto - 8
-    leyenda.dx = 7
-    leyenda.dy = 7
-    leyenda.fontSize = 7.5
-    leyenda.colorNamePairs = [(color_positivas, "Positivas"), (color_negativas, "Negativas")]
-    dibujo.add(leyenda)
-
-    return dibujo
-
-
 def generar_resumen_ejecutivo_ia(cliente_ia, total, positivas, negativas, pct_positivas, local_principal, num_locales):
     """Genera la frase-titular del informe con IA. Si la llamada falla por
     cualquier motivo (red, límite, lo que sea), cae a una plantilla fija —
@@ -2234,364 +2143,48 @@ def generar_informe_pdf_mensual(agencia, historico, historico_anterior, locales_
                                  cliente_ia=None, resultado_score=None, dias_periodo=30,
                                  roi=None, roi_estrellas_actuales=None, roi_estrellas_objetivo=None):
     """
-    Genera el informe PDF de marca blanca (v2): Reputation Score, resumen
-    ejecutivo, comparación con el periodo anterior, actividad por local con
-    gráfico, reparto por usuario del equipo, un caso destacado real y la
-    actividad de contenido SEO generado. Devuelve los bytes del PDF.
+    Genera el informe PDF de marca blanca. Devuelve los bytes del PDF.
+
+    La maquetación vive en informe_pdf.py; aquí solo se decide QUÉ se le pasa.
+    Esta función es la frontera entre lógica de negocio (planes, score, IA) y
+    presentación, y se mantiene con la firma de siempre para que el punto de
+    llamada no cambie.
+
+    El import es diferido a propósito: informe_pdf arrastra reportlab, que solo
+    debe cargarse cuando alguien pulsa de verdad "generar informe". Es la misma
+    arquitectura de antes y el motivo de que la app arranque ligera.
     """
-    # Import diferido: el motor de maquetación de PDF de reportlab (y sus
-    # tablas de fuentes) solo se carga cuando alguien pide de verdad un
-    # informe, no en cada arranque del proceso.
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+    import informe_pdf
 
-    buffer = BytesIO()
-    color_hex = agencia.get("color_marca", "#2A2C31").lstrip("#")
-    color_rl = colors.HexColor(f"#{color_hex}")
+    # Marca blanca: en el plan gratuito el informe menciona a Reselia; a partir
+    # de Individual el documento lleva únicamente la marca del cliente, que es
+    # justo lo que se vende en la landing ("Marca blanca (no incluida)" en el
+    # plan Free frente a "Marca blanca completa" en Starter y Growth).
+    es_marca_blanca = agencia.get("plan", "free") != "free"
 
-    # Color para las CABECERAS DE TABLA. El color de marca de la agencia se
-    # respeta SIEMPRE que sea suficientemente oscuro como para que el texto
-    # blanco encima se lea bien y no resulte chillón. Colores muy brillantes
-    # o saturados (el caso típico: el morado fosforito #635BFF que venía por
-    # defecto en el esquema antiguo) se sustituyen por el índigo corporativo
-    # sobrio, que combina con la paleta neutra del resto del informe.
-    def _color_tabla_seguro(hex_str):
-        indigo_corporativo = colors.HexColor("#1a2238")
-        try:
-            h = hex_str.lstrip("#")
-            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        except (ValueError, IndexError):
-            return indigo_corporativo
-        # Dos motivos para rechazar un color de marca como fondo de cabecera:
-        #  1) Demasiado CLARO: el texto blanco encima no se leería.
-        #  2) Demasiado SATURADO/brillante: queda "fosforito" y choca con la
-        #     paleta sobria del resto del informe (caso típico: #635BFF).
-        # En ambos casos usamos el índigo corporativo, que siempre queda bien.
-        luminancia = 0.299 * r + 0.587 * g + 0.114 * b
-        maximo, minimo = max(r, g, b), min(r, g, b)
-        saturacion = (maximo - minimo) / maximo if maximo > 0 else 0
-        if luminancia > 130:
-            return indigo_corporativo
-        if saturacion > 0.45 and maximo > 150:
-            # muy saturado y con un canal brillante → fosforito
-            return indigo_corporativo
-        return colors.HexColor(f"#{h}")
-
-    color_tabla = _color_tabla_seguro(color_hex)
-
-    # -----------------------------------------------------------------
-    # PALETA PREMIUM DEL INFORME — "Editorial Light", la misma línea visual
-    # que el resto de la app: negro casi puro, índigo de marca y grises
-    # cálidos. Sin verde/rojo tipo semáforo ni azul navy genérico: todo el
-    # informe se mueve dentro de la identidad corporativa (tinta + índigo).
-    # PDF_INK se usa para el bloque "hero" (la tarjeta del Reputation Score),
-    # independiente del color que elija cada agencia, para que quede premium
-    # pase lo que pase. Las cabeceras de tabla usan color_rl (el color propio
-    # de cada agencia) para que el informe se sienta realmente "suyo".
-    # -----------------------------------------------------------------
-    PDF_INK = colors.HexColor("#1a2238")     # negro casi puro, igual que --er-ink
-    PDF_BODY = colors.HexColor("#232c47")    # gris de cuerpo, igual que --er-body
-    PDF_MUTED = colors.HexColor("#6b7280")   # gris cálido para notas/pies
-    PDF_ACENTO = colors.HexColor("#1a2238")  # índigo de marca — el único color de acento
-    # Bloque de ROI en tonos índigo/tinta (antes era verde): sobrio y corporativo,
-    # coherente con el resto de la identidad. Nada de verde/rojo tipo semáforo.
-    PDF_ROI_BG = colors.HexColor("#F1F1F5")       # lavanda muy tenue, casi gris
-    PDF_ROI_BORDE = colors.HexColor("#1a2238")    # índigo
-    PDF_ROI_BORDE_SUAVE = colors.HexColor("#D6D5E0")
-
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
-    estilos = getSampleStyleSheet()
-    estilo_titulo = ParagraphStyle("TituloInforme", parent=estilos["Title"], textColor=color_tabla, fontSize=20)
-    estilo_subtitulo = ParagraphStyle("Subtitulo", parent=estilos["Normal"], textColor=PDF_MUTED, fontSize=11)
-    estilo_seccion = ParagraphStyle("Seccion", parent=estilos["Heading2"], textColor=color_tabla, spaceBefore=14)
-    estilo_resumen_ejecutivo = ParagraphStyle(
-        "ResumenEjecutivo", parent=estilos["Normal"], fontSize=11.5, leading=16,
-        textColor=PDF_INK, spaceBefore=2, spaceAfter=2
+    return informe_pdf.generar_informe_pdf_mensual(
+        agencia=agencia,
+        historico=historico,
+        historico_anterior=historico_anterior,
+        locales_agencia=locales_agencia,
+        id_a_nombre_usuario=id_a_nombre_usuario,
+        contenido_seo_periodo=contenido_seo_periodo,
+        periodo_texto=periodo_texto,
+        cliente_ia=cliente_ia,
+        resultado_score=resultado_score,
+        dias_periodo=dias_periodo,
+        roi=roi,
+        roi_estrellas_actuales=roi_estrellas_actuales,
+        roi_estrellas_objetivo=roi_estrellas_objetivo,
+        # Se inyectan las funciones de negocio en vez de que informe_pdf
+        # importe app.py, lo que crearía una dependencia circular.
+        calcular_reputation_score=calcular_reputation_score,
+        etiqueta_reputation_score=etiqueta_reputation_score,
+        generar_resumen_ejecutivo_ia=generar_resumen_ejecutivo_ia,
+        fmt_eur=_fmt_eur,
+        pesos_score=PESOS_REPUTATION_SCORE,
+        es_marca_blanca=es_marca_blanca,
     )
-    estilo_caso = ParagraphStyle(
-        "Caso", parent=estilos["Normal"], fontSize=9.5, leading=13.5,
-        textColor=PDF_BODY, leftIndent=8, spaceAfter=4
-    )
-    estilo_nota = ParagraphStyle("Nota", parent=estilos["Normal"], fontSize=8, textColor=PDF_MUTED, spaceBefore=4)
-
-    story = []
-
-    # Logo (si se puede descargar; si falla, se omite sin romper el informe).
-    # Se escala preservando la proporción original dentro de una caja más amplia,
-    # en vez de forzar unas medidas fijas que aplastaban logos no apaisados.
-    # IMPORTANTE: convertimos el logo a RGB con fondo blanco antes de meterlo.
-    # Un PNG con transparencia (canal alfa) puede hacer que reportlab reviente
-    # más tarde, en doc.build() — fuera de este try — y entonces NO se genera
-    # el PDF (el navegador acaba descargando un archivo corrupto). Aplanando
-    # el alfa aquí, el logo siempre entra en un formato que reportlab maneja bien.
-    imagen_logo = None
-    try:
-        from PIL import Image as PILImage
-        resp_logo = requests.get(agencia["logo_url"], timeout=5)
-        logo_pil = PILImage.open(BytesIO(resp_logo.content))
-        if logo_pil.mode in ("RGBA", "LA", "P"):
-            fondo = PILImage.new("RGB", logo_pil.size, (255, 255, 255))
-            logo_conv = logo_pil.convert("RGBA")
-            fondo.paste(logo_conv, mask=logo_conv.split()[-1])
-            logo_pil = fondo
-        else:
-            logo_pil = logo_pil.convert("RGB")
-        ancho_px, alto_px = logo_pil.size
-        proporcion = alto_px / ancho_px if ancho_px else 0.4
-        ancho_logo = 5.5 * cm                       # más ancho que antes (era 4 cm)
-        alto_logo = ancho_logo * proporcion
-        alto_maximo = 3.0 * cm                      # techo por si el logo es muy vertical
-        if alto_logo > alto_maximo:
-            alto_logo = alto_maximo
-            ancho_logo = alto_logo / proporcion if proporcion else 5.5 * cm
-        logo_buffer = BytesIO()
-        logo_pil.save(logo_buffer, format="PNG")
-        logo_buffer.seek(0)
-        imagen_logo = RLImage(logo_buffer, width=ancho_logo, height=alto_logo)
-        imagen_logo.hAlign = "CENTER"
-        story.append(imagen_logo)
-        story.append(Spacer(1, 14))
-    except Exception:
-        imagen_logo = None
-
-    story.append(Paragraph("Informe de reputación online", estilo_titulo))
-    story.append(Paragraph(f"{agencia['nombre_agencia']} · {periodo_texto}", estilo_subtitulo))
-    story.append(Spacer(1, 14))
-
-    # --- Métricas del periodo actual y del anterior (para la comparación) ---
-    total = len(historico)
-    positivas = sum(1 for r in historico if r["sentimiento"] == "positivo")
-    negativas = total - positivas
-    pct_positivas = round(positivas / total * 100) if total else 0
-
-    total_ant = len(historico_anterior)
-    pct_positivas_ant = round(sum(1 for r in historico_anterior if r["sentimiento"] == "positivo") / total_ant * 100) if total_ant else None
-
-    def texto_delta(actual, anterior, sufijo=""):
-        if anterior is None:
-            return ""
-        delta = actual - anterior
-        if delta > 0:
-            return f" (▲ +{delta}{sufijo})"
-        elif delta < 0:
-            return f" (▼ {delta}{sufijo})"
-        return " (=)"
-
-    delta_total = texto_delta(total, total_ant if historico_anterior else None)
-    delta_pct = texto_delta(pct_positivas, pct_positivas_ant, sufijo=" pts")
-
-    # --- Desglose por local (para la tabla, el gráfico y el resumen ejecutivo) ---
-    id_a_nombre_local = {l["id"]: l["nombre"] for l in locales_agencia}
-    conteo_local_pos, conteo_local_neg = {}, {}
-    for fila in historico:
-        nombre = id_a_nombre_local.get(fila["local_id"], "Local desconocido")
-        if fila["sentimiento"] == "positivo":
-            conteo_local_pos[nombre] = conteo_local_pos.get(nombre, 0) + 1
-        else:
-            conteo_local_neg[nombre] = conteo_local_neg.get(nombre, 0) + 1
-    nombres_locales_activos = sorted(set(conteo_local_pos) | set(conteo_local_neg),
-                                      key=lambda n: conteo_local_pos.get(n, 0) + conteo_local_neg.get(n, 0),
-                                      reverse=True)
-    local_principal = nombres_locales_activos[0] if nombres_locales_activos else None
-
-    # --- Reputation Score (titular del informe, si se ha calculado) ---
-    if resultado_score is None:
-        resultado_score = calcular_reputation_score(historico, historico_anterior, dias_periodo)
-    score_valor = resultado_score.get("score")
-    if score_valor is not None:
-        banda_score, color_banda_hex = etiqueta_reputation_score(score_valor)
-        color_banda = colors.HexColor(color_banda_hex)
-        estilo_score_num = ParagraphStyle(
-            "ScoreNum", parent=estilos["Normal"], fontSize=30, leading=32,
-            textColor=color_banda, alignment=1
-        )
-        estilo_score_label = ParagraphStyle(
-            "ScoreLabel", parent=estilos["Normal"], fontSize=9, textColor=colors.white, alignment=1
-        )
-        celda_score = [
-            [Paragraph(f"<b>{score_valor}</b> <font size=12>/ 100</font>", estilo_score_num)],
-            [Paragraph(f"REPUTATION SCORE · {banda_score.upper()}", estilo_score_label)],
-        ]
-        tabla_score = Table(celda_score, colWidths=[16 * cm])
-        tabla_score.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), PDF_INK),
-            ("TOPPADDING", (0, 0), (-1, 0), 12),
-            ("BOTTOMPADDING", (0, 1), (-1, 1), 10),
-            ("TOPPADDING", (0, 1), (-1, 1), 0),
-            ("LINEBELOW", (0, 0), (-1, 0), 0, PDF_INK),
-            ("BOX", (0, 0), (-1, -1), 1, color_banda),
-        ]))
-        story.append(tabla_score)
-        story.append(Spacer(1, 12))
-
-    # --- Resumen ejecutivo (IA con fallback en plantilla) ---
-    resumen_texto = generar_resumen_ejecutivo_ia(
-        cliente_ia, total, positivas, negativas, pct_positivas, local_principal, len(locales_agencia)
-    )
-    story.append(Paragraph(resumen_texto, estilo_resumen_ejecutivo))
-    story.append(Spacer(1, 12))
-
-    # --- Calculadora de ROI (si se han pasado datos de facturación/estrellas) ---
-    if roi and roi.get("delta_estrellas", 0) > 0:
-        estilo_roi_titulo = ParagraphStyle(
-            "RoiTitulo", parent=estilos["Normal"], fontSize=10, textColor=PDF_ACENTO,
-            spaceBefore=2, spaceAfter=4
-        )
-        estilo_roi_cifra = ParagraphStyle(
-            "RoiCifra", parent=estilos["Normal"], fontSize=13, leading=16,
-            textColor=PDF_ACENTO, alignment=1
-        )
-        estilo_roi_label = ParagraphStyle(
-            "RoiLabel", parent=estilos["Normal"], fontSize=8, textColor=PDF_BODY, alignment=1
-        )
-        story.append(Paragraph(
-            f"Potencial de ingresos: subir de {roi_estrellas_actuales}★ a {roi_estrellas_objetivo}★",
-            estilo_roi_titulo
-        ))
-        tabla_roi = Table([
-            [Paragraph("INGRESOS EXTRA / MES", estilo_roi_label), Paragraph("INGRESOS EXTRA / AÑO", estilo_roi_label)],
-            [Paragraph(f"<b>{_fmt_eur(roi['mensual_min'])} – {_fmt_eur(roi['mensual_max'])}</b>", estilo_roi_cifra),
-             Paragraph(f"<b>{_fmt_eur(roi['anual_min'])} – {_fmt_eur(roi['anual_max'])}</b>", estilo_roi_cifra)],
-        ], colWidths=[8 * cm, 8 * cm])
-        tabla_roi.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), PDF_ROI_BG),
-            ("BOX", (0, 0), (-1, -1), 1, PDF_ROI_BORDE),
-            ("INNERGRID", (0, 0), (-1, -1), 0.5, PDF_ROI_BORDE_SUAVE),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ]))
-        story.append(tabla_roi)
-        story.append(Paragraph(
-            "Estimación según el estudio de Harvard Business School (Michael Luca): cada estrella de más "
-            "supone entre un 5% y un 9% más de ingresos en negocios independientes.",
-            estilo_nota
-        ))
-        story.append(Spacer(1, 14))
-
-    # --- Resumen del periodo, con comparación al periodo anterior ---
-    story.append(Paragraph("Resumen del periodo", estilo_seccion))
-    tabla_resumen = Table([
-        ["Respuestas generadas", "Reseñas positivas", "Reseñas negativas", "% positivas"],
-        [f"{total}{delta_total}", str(positivas), str(negativas), f"{pct_positivas}%{delta_pct}"]
-    ], colWidths=[4 * cm, 4 * cm, 4 * cm, 5 * cm])
-    tabla_resumen.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    story.append(tabla_resumen)
-    if not historico_anterior:
-        story.append(Paragraph("Sin datos del periodo anterior todavía para comparar.", estilo_nota))
-    story.append(Spacer(1, 16))
-
-    # --- Actividad por local: tabla + gráfico ---
-    story.append(Paragraph("Actividad por local", estilo_seccion))
-    filas_tabla_local = [["Local", "Positivas", "Negativas", "Total"]]
-    categorias, serie_pos, serie_neg = [], [], []
-    for nombre in nombres_locales_activos:
-        p, n = conteo_local_pos.get(nombre, 0), conteo_local_neg.get(nombre, 0)
-        filas_tabla_local.append([nombre, str(p), str(n), str(p + n)])
-        categorias.append(nombre)
-        serie_pos.append(p)
-        serie_neg.append(n)
-    tabla_locales = Table(filas_tabla_local, colWidths=[7 * cm, 3 * cm, 3 * cm, 3 * cm])
-    tabla_locales.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    story.append(tabla_locales)
-    story.append(Spacer(1, 10))
-    if categorias:
-        story.append(grafico_barras_pos_neg(categorias, serie_pos, serie_neg))
-    story.append(Spacer(1, 16))
-
-    # --- Reparto de trabajo por usuario del equipo (antes se calculaba y no se usaba) ---
-    story.append(Paragraph("Reparto de trabajo por usuario del equipo", estilo_seccion))
-    conteo_usuario = {}
-    for fila in historico:
-        nombre_u = id_a_nombre_usuario.get(fila.get("usuario_id"), "Usuario eliminado")
-        conteo_usuario[nombre_u] = conteo_usuario.get(nombre_u, 0) + 1
-    if conteo_usuario:
-        filas_usuario = [["Usuario", "Respuestas generadas"]] + \
-                         [[u, str(n)] for u, n in sorted(conteo_usuario.items(), key=lambda x: -x[1])]
-        tabla_usuarios = Table(filas_usuario, colWidths=[10 * cm, 5 * cm])
-        tabla_usuarios.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        story.append(tabla_usuarios)
-    else:
-        story.append(Paragraph("Sin datos de usuario para este periodo.", estilo_nota))
-    story.append(Spacer(1, 16))
-
-    # --- Caso destacado del periodo (requiere la migración de extracto_resena/extracto_respuesta) ---
-    casos_con_extracto = [r for r in historico if r["sentimiento"] == "negativo" and r.get("extracto_resena")]
-    if casos_con_extracto:
-        caso = max(casos_con_extracto, key=lambda r: r.get("longitud_palabras", 0))
-        story.append(Paragraph("Caso destacado del periodo", estilo_seccion))
-        story.append(Paragraph(f"<b>Lo que dijo el cliente:</b> «{caso['extracto_resena']}»", estilo_caso))
-        if caso.get("extracto_respuesta"):
-            story.append(Paragraph(f"<b>Cómo se respondió:</b> «{caso['extracto_respuesta']}»", estilo_caso))
-        story.append(Spacer(1, 16))
-
-    # --- Contenido SEO y redes generado en el periodo ---
-    story.append(Paragraph("Contenido SEO y redes generado", estilo_seccion))
-    if contenido_seo_periodo:
-        conteo_tipo = {}
-        for fila in contenido_seo_periodo:
-            tipo = fila.get("tipo_contenido", "Otro")
-            conteo_tipo[tipo] = conteo_tipo.get(tipo, 0) + 1
-        filas_seo = [["Tipo de contenido", "Piezas generadas"]] + \
-                    [[t, str(n)] for t, n in sorted(conteo_tipo.items(), key=lambda x: -x[1])]
-        tabla_seo = Table(filas_seo, colWidths=[10 * cm, 5 * cm])
-        tabla_seo.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), color_tabla),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        story.append(tabla_seo)
-    else:
-        story.append(Paragraph("No se generó contenido SEO adicional en este periodo.", estilo_nota))
-    story.append(Spacer(1, 20))
-
-    story.append(Paragraph(
-        f"Informe generado automáticamente por Reselia en nombre de {agencia['nombre_agencia']}. "
-        "Documento de uso interno/comercial para justificar la gestión de reputación online frente a sus clientes.",
-        ParagraphStyle("Pie", parent=estilos["Normal"], fontSize=7, textColor=PDF_MUTED)
-    ))
-
-    # Red de seguridad: si la construcción falla (típicamente por el logo, que
-    # es el único elemento externo e impredecible), reintentamos generando el
-    # informe SIN logo. Mejor un PDF perfecto sin logo que un archivo corrupto.
-    try:
-        doc.build(story)
-    except Exception:
-        if imagen_logo is not None and imagen_logo in story:
-            idx = story.index(imagen_logo)
-            # Quitamos el logo y el Spacer que va justo detrás de él.
-            del story[idx:idx + 2]
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
-        doc.build(story)
-    buffer.seek(0)
-    return buffer.getvalue()
 
 
 def generar_qr_png(url_destino):
@@ -3538,6 +3131,289 @@ def _cerrar_sesion_local():
         st.session_state.pop(clave, None)
 
 
+# =========================================================
+# 🔑 RECUPERACIÓN DE CONTRASEÑA
+# =========================================================
+#
+# POR QUÉ HACE FALTA
+# ------------------
+# Hasta ahora la única salida para alguien que olvidaba su contraseña era
+# escribir a soporte y que alguien entrase a mano en Supabase a reescribir un
+# password_hash. Con altas de autoservicio, esa incidencia llega el primer día.
+#
+# CÓMO FUNCIONA
+# -------------
+# Mismo mecanismo que el token de sesión, con tres diferencias que importan:
+#   · caduca en 30 minutos, no en 8 horas;
+#   · es de UN SOLO USO (se marca 'usado' en cuanto se consume);
+#   · en la base de datos se guarda el SHA-256 del token, nunca el token.
+#
+# Esa última es la que evita que la tabla se convierta en un llavero: si
+# alguien consigue leerla, tiene hashes, no credenciales.
+#
+# QUÉ NECESITA EN SUPABASE (ejecutar una vez)
+# -------------------------------------------
+#   create table resets_password (
+#     id          uuid primary key default gen_random_uuid(),
+#     token_hash  text not null unique,
+#     usuario_id  uuid not null references usuarios(id) on delete cascade,
+#     expira_en   timestamptz not null,
+#     usado       boolean not null default false,
+#     creado_en   timestamptz not null default now()
+#   );
+#   create index on resets_password (token_hash);
+#
+# SOBRE EL ENVÍO DEL EMAIL
+# ------------------------
+# La app no tenía ningún proveedor de correo configurado, así que el envío es
+# OPCIONAL y por SMTP estándar (secrets SMTP_HOST, SMTP_USER, SMTP_PASSWORD,
+# SMTP_REMITENTE). Si no están configurados, el enlace se escribe en los logs
+# del servidor: la recuperación sigue funcionando, pero pasando por ti. Es
+# deliberado — es mejor un flujo completo con el último tramo manual que
+# seguir sin flujo, y el día que añadas Resend/SendGrid solo cambia
+# _enviar_email_reset().
+# =========================================================
+
+TABLA_RESETS_PASSWORD = "resets_password"
+CADUCIDAD_RESET_SEGUNDOS = 30 * 60
+
+
+def _hash_token(token):
+    """SHA-256 del token. Lo que se guarda en la base de datos.
+
+    No lleva bcrypt a propósito: un token de 32 bytes aleatorios no es
+    adivinable por fuerza bruta, así que no necesita un hash lento, y aquí
+    la latencia sí importa (se consulta en cada carga de la pantalla).
+    """
+    import hashlib
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _enviar_email_reset(destinatario, enlace):
+    """Envía el enlace de recuperación. Devuelve True si salió de verdad.
+
+    Si no hay SMTP configurado, deja el enlace en stderr (visible en los logs
+    de Render) y devuelve False, para que la interfaz pueda decir la verdad al
+    usuario en vez de prometer un correo que nunca va a llegar.
+    """
+    host = st.secrets.get("SMTP_HOST")
+    usuario_smtp = st.secrets.get("SMTP_USER")
+    clave_smtp = st.secrets.get("SMTP_PASSWORD")
+    remitente = st.secrets.get("SMTP_REMITENTE") or usuario_smtp
+
+    if not (host and usuario_smtp and clave_smtp and remitente):
+        print(
+            f"[RESET SIN SMTP] Enlace de recuperación para {destinatario}: {enlace}",
+            file=sys.stderr,
+        )
+        return False
+
+    try:
+        import smtplib
+        from email.message import EmailMessage
+
+        mensaje = EmailMessage()
+        mensaje["Subject"] = "Restablecer tu contraseña de Reselia"
+        mensaje["From"] = remitente
+        mensaje["To"] = destinatario
+        mensaje.set_content(
+            "Has pedido restablecer tu contraseña de Reselia.\n\n"
+            f"Abre este enlace para elegir una nueva:\n{enlace}\n\n"
+            "El enlace caduca en 30 minutos y solo se puede usar una vez.\n"
+            "Si no has sido tú, puedes ignorar este mensaje: tu contraseña "
+            "actual sigue siendo válida.\n"
+        )
+
+        puerto = int(st.secrets.get("SMTP_PUERTO") or 587)
+        with smtplib.SMTP(host, puerto, timeout=15) as servidor:
+            servidor.starttls()
+            servidor.login(usuario_smtp, clave_smtp)
+            servidor.send_message(mensaje)
+        return True
+    except Exception as e:
+        log_error_completo("envío de email de recuperación", e)
+        return False
+
+
+def solicitar_reset_password(email):
+    """
+    Crea un token de recuperación para ese email y lo envía.
+
+    Devuelve (enviado_por_email, None) o (False, motivo_tecnico).
+
+    IMPORTANTE: quien llama a esto NUNCA debe cambiar el mensaje que enseña en
+    función de si el email existía o no. Si dijéramos "ese correo no está
+    registrado", habríamos construido un enumerador de cuentas gratuito. Se
+    responde siempre lo mismo, exista o no.
+    """
+    email_normalizado = (email or "").lower().strip()
+    if not EMAIL_REGEX.match(email_normalizado):
+        return False, "formato"
+
+    try:
+        candidatos = (
+            supabase.table("usuarios")
+            .select("id, email")
+            .eq("email", email_normalizado)
+            .eq("activo", True)
+            .execute()
+        )
+    except Exception as e:
+        return False, log_error_completo("búsqueda de usuario para reset", e)
+
+    if not candidatos.data:
+        # No existe: no se crea nada, pero se devuelve como si todo hubiera ido
+        # bien para que la pantalla no delate la diferencia.
+        return False, None
+
+    token = _secrets_modulo.token_urlsafe(32)
+    expira_en = (datetime.utcnow() + timedelta(seconds=CADUCIDAD_RESET_SEGUNDOS)).isoformat()
+
+    try:
+        # Un solo enlace activo por persona: se invalidan los anteriores para
+        # que pedir el correo dos veces no deje dos llaves circulando.
+        for fila_usuario in candidatos.data:
+            supabase.table(TABLA_RESETS_PASSWORD) \
+                .update({"usado": True}) \
+                .eq("usuario_id", fila_usuario["id"]) \
+                .eq("usado", False) \
+                .execute()
+
+        supabase.table(TABLA_RESETS_PASSWORD).insert({
+            "token_hash": _hash_token(token),
+            "usuario_id": candidatos.data[0]["id"],
+            "expira_en": expira_en,
+        }).execute()
+    except Exception as e:
+        return False, log_error_completo("creación de token de reset", e)
+
+    enlace = f"{APP_URL}/?r={token}"
+    return _enviar_email_reset(email_normalizado, enlace), None
+
+
+def validar_token_reset(token):
+    """Devuelve (usuario_id, None) si el token sirve, o (None, motivo)."""
+    if not token:
+        return None, "Enlace incompleto."
+
+    try:
+        fila = (
+            supabase.table(TABLA_RESETS_PASSWORD)
+            .select("id, usuario_id, expira_en, usado")
+            .eq("token_hash", _hash_token(token))
+            .execute()
+        )
+    except Exception:
+        return None, "No se ha podido comprobar el enlace. Inténtalo de nuevo en un momento."
+
+    if not fila.data:
+        return None, "Este enlace no es válido. Pide uno nuevo desde la pantalla de acceso."
+
+    registro = fila.data[0]
+
+    if registro.get("usado"):
+        return None, "Este enlace ya se usó. Pide uno nuevo desde la pantalla de acceso."
+
+    expira = registro.get("expira_en")
+    if expira:
+        try:
+            caducado = datetime.fromisoformat(
+                expira.replace("Z", "+00:00")
+            ).replace(tzinfo=None) < datetime.utcnow()
+        except (ValueError, AttributeError):
+            caducado = True
+        if caducado:
+            return None, "Este enlace ha caducado (duran 30 minutos). Pide uno nuevo."
+
+    return registro["usuario_id"], None
+
+
+def consumar_reset_password(token, password_nueva):
+    """
+    Cambia la contraseña y quema el token. Devuelve (True, None) o (False, motivo).
+
+    El token se revalida aquí aunque ya se validara al pintar el formulario:
+    entre una cosa y otra pueden pasar minutos, y la comprobación que cuenta es
+    la del momento de escribir en la base de datos.
+    """
+    if len(password_nueva or "") < 8:
+        return False, "La contraseña debe tener al menos 8 caracteres."
+
+    usuario_id, motivo = validar_token_reset(token)
+    if not usuario_id:
+        return False, motivo
+
+    try:
+        nuevo_hash = bcrypt.hashpw(
+            password_nueva.encode("utf-8"), bcrypt.gensalt()
+        ).decode("utf-8")
+
+        supabase.table("usuarios") \
+            .update({"password_hash": nuevo_hash}) \
+            .eq("id", usuario_id) \
+            .execute()
+
+        supabase.table(TABLA_RESETS_PASSWORD) \
+            .update({"usado": True}) \
+            .eq("token_hash", _hash_token(token)) \
+            .execute()
+
+        # Cambiar la contraseña tiene que echar de todas partes: si alguien
+        # entró con la contraseña vieja, su sesión persistente moriría aquí.
+        # Es justo el motivo por el que la gente resetea.
+        supabase.table(TABLA_SESIONES_PERSISTENTES) \
+            .delete().eq("usuario_id", usuario_id).execute()
+    except Exception as e:
+        return False, log_error_completo("cambio de contraseña por reset", e)
+
+    return True, None
+
+
+def render_pantalla_reset(token):
+    """Pantalla de 'elige una contraseña nueva', a la que se llega por ?r=token."""
+    _izq_r, _centro_r, _der_r = st.columns([1, 1.15, 1])
+
+    with _centro_r:
+        st.markdown(
+            """
+            <div class="rs-login-cab">
+              <div class="rs-login-marca">RESELIA</div>
+              <h1 class="rs-login-titulo">Elige una contraseña nueva</h1>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        usuario_id, motivo = validar_token_reset(token)
+        if not usuario_id:
+            st.error(motivo)
+            if st.button("Volver al acceso", use_container_width=True):
+                st.query_params.pop("r", None)
+                st.session_state.vista_landing = "login"
+                st.rerun()
+            return
+
+        with st.form("form_reset_password", border=False):
+            nueva = st.text_input("Contraseña nueva", type="password")
+            repetida = st.text_input("Repítela", type="password")
+            enviado = st.form_submit_button(
+                "Guardar contraseña", use_container_width=True, type="primary"
+            )
+
+        if enviado:
+            if nueva != repetida:
+                st.error("Las dos contraseñas no coinciden.")
+            else:
+                ok, motivo_error = consumar_reset_password(token, nueva)
+                if ok:
+                    st.query_params.pop("r", None)
+                    st.session_state.vista_landing = "login"
+                    st.session_state["_reset_completado"] = True
+                    st.rerun()
+                else:
+                    st.error(motivo_error)
+
+
 def sesion_valida():
     """False si la sesión caducó por inactividad. Si caduca, la cierra."""
     ultima = st.session_state.get("_ultima_actividad")
@@ -3690,6 +3566,20 @@ if "alta_pendiente" not in st.session_state:
 # ramas). Si esto fuera después, una vuelta desde Stripe podría borrar el
 # token de la URL antes de que diera tiempo a leerlo.
 _restaurar_sesion_desde_token()
+
+# =========================================================
+# 🔑 VUELTA DESDE UN ENLACE DE RECUPERACIÓN (?r=token)
+# =========================================================
+# Va justo aquí, antes del bloque de Stripe, por el mismo motivo que la
+# restauración de sesión: más abajo hay varias ramas que hacen
+# st.query_params.clear() y se llevarían el token por delante.
+#
+# Se atiende ANTES de comprobar la sesión a propósito. Alguien puede estar
+# logueado en otra pestaña y aun así querer cambiar su contraseña desde el
+# enlace del correo; y el token, no la sesión, es lo que autoriza aquí.
+if st.query_params.get("r"):
+    render_pantalla_reset(st.query_params.get("r"))
+    st.stop()
 
 # =========================================================
 # 💳 VUELTA DESDE STRIPE: activación automática del plan
@@ -3909,156 +3799,196 @@ if not st.session_state.sesion_activa:
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="rp-eyebrow">Reselia</div>', unsafe_allow_html=True)
-    st.markdown('<div class="rp-hero-title">Reputación bajo control.<br>Respuestas con precisión.</div>', unsafe_allow_html=True)
-    st.markdown('<div class="rp-hero-sub">Plataforma de inteligencia de reputación para agencias. Respuestas redactadas con IA, con tu marca y SEO local integrado, para toda tu cartera de clientes.</div>', unsafe_allow_html=True)
+    # El hero grande de marketing (eyebrow + titular + subtítulo) SOLO va
+    # aquí, no en login/planes. Antes era incondicional y se colaba encima
+    # del formulario de acceso: alguien que llegaba desde el botón "Entrar"
+    # del HTML externo —donde ya ha leído todo este argumentario— se
+    # encontraba el mismo discurso repetido antes de poder escribir su email.
+    # Con login pensado como destino directo desde fuera, tiene que ser una
+    # pantalla de acceso limpia, no una tercera vuelta a la misma venta.
 
     # -----------------------------------------------------
-    # VISTA 1: INFO — presentación del producto antes de pedir nada
+    # VISTA 1: INFO — ya no vende nada, solo bifurca
     # -----------------------------------------------------
+    # Antes esto repetía entera la landing externa: la tesis ("disculpa o
+    # confesión"), la demo de contraste, las tres tarjetas de "cómo funciona"
+    # y el banner de ROI. Todo eso ya vive en Landing-main/index.html, que es
+    # lo primero que ve cualquiera antes de llegar aquí — quien pulsa
+    # "Entrar" o "Abrir la herramienta" ya ha leído ese argumentario una vez.
+    # Repetirlo dentro de la app no vende más, solo retrasa el único gesto
+    # que de verdad hace falta en este punto: elegir entre iniciar sesión o
+    # ver los planes. Se reduce a eso.
     if st.session_state.vista_landing == "info":
-
-        # --- El argumento central, antes que cualquier característica ---
-        # Esto iba enterrado en la vista de planes o directamente no estaba.
-        # Es lo único que explica por qué esto no es "ChatGPT con otro nombre",
-        # y por tanto lo primero que tiene que leer una agencia.
-        st.markdown("""
-            <div class="rp-tesis">
-              <div class="rp-tesis-frase">
-                Una respuesta a una reseña puede ser una disculpa
-                <span class="rp-tesis-o">o</span> una confesión.
-              </div>
-              <div class="rp-tesis-sub">
-                Un modelo genérico escribe la segunda sin saberlo. Reselia solo puede escribir la primera.
-              </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-        # --- Demostración por contraste ---
-        # Una agencia no compra una lista de características: compra la
-        # diferencia entre estas dos respuestas. Enseñarla es más persuasivo
-        # que cualquier adjetivo, y se entiende en cinco segundos.
-        st.markdown("""
-            <div class="rp-demo">
-              <div class="rp-demo-resena">
-                <span class="rp-demo-lbl">Reseña recibida</span>
-                «Pedí el plato sin gluten porque soy celíaca y acabé en urgencias.
-                Nadie me avisó de nada.»
-              </div>
-              <div class="rp-demo-grid">
-                <div class="rp-demo-col rp-demo-mal">
-                  <span class="rp-demo-tag rp-demo-tag-mal">IA genérica</span>
-                  <p>«Lamentamos <u>el error en la preparación de su plato</u>.
-                  Revisaremos nuestros <u>protocolos de alérgenos</u> para que
-                  <u>no vuelva a ocurrir</u>.»</p>
-                  <span class="rp-demo-nota">
-                    Tres admisiones por escrito, públicas y permanentes: un fallo,
-                    su causa y que el problema es conocido.
-                  </span>
-                </div>
-                <div class="rp-demo-col rp-demo-bien">
-                  <span class="rp-demo-tag rp-demo-tag-bien">Reselia</span>
-                  <p>«Que alguien lo pase mal después de venir a comer aquí es lo
-                  último que queremos, y siento de veras el mal rato que describe.
-                  Lo he trasladado internamente para revisarlo con calma.»</p>
-                  <span class="rp-demo-nota">
-                    Valida la experiencia por completo. No confirma ni un solo hecho.
-                  </span>
-                </div>
-              </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-        # --- Las tres capacidades ---
-        st.markdown('<div class="rp-seccion-lbl">Cómo funciona</div>', unsafe_allow_html=True)
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            st.markdown("""<div class="rp-card rp-card-info">
-                <div class="rp-card-num">01</div>
-                <div class="rp-card-titulo">Blindaje legal</div>
-                <div class="rp-feature">Cada respuesta se audita frase por frase contra un catálogo de reglas jurídicas antes de que la veas. Nunca admite negligencias ni usa términos de alerta sanitaria.</div>
-            </div>""", unsafe_allow_html=True)
-        with col_b:
-            st.markdown("""<div class="rp-card rp-card-info">
-                <div class="rp-card-num">02</div>
-                <div class="rp-card-titulo">SEO invisible</div>
-                <div class="rp-feature">Refuerza el posicionamiento local del negocio con menciones naturales, nunca con palabras clave forzadas. Si no encaja, no se mete.</div>
-            </div>""", unsafe_allow_html=True)
-        with col_c:
-            st.markdown("""<div class="rp-card rp-card-info">
-                <div class="rp-card-num">03</div>
-                <div class="rp-card-titulo">Marca blanca real</div>
-                <div class="rp-feature">Tu agencia entra con su propio logo y color corporativo, también en los informes PDF. Tus clientes ven tu marca, no la nuestra.</div>
-            </div>""", unsafe_allow_html=True)
-
-        # --- El dato de negocio ---
-        # Traído desde la vista de planes, donde solo lo veía quien ya había
-        # decidido mirar precios. Aquí convierte "esto está bien" en "esto
-        # tiene un retorno medible".
-        st.markdown("""
-            <div class="rp-dato">
-              <div class="rp-dato-cifra">5–9%</div>
-              <div class="rp-dato-txt">
-                más de ingresos por cada estrella adicional en Google, según un
-                estudio de la Harvard Business School. En un local que factura
-                60.000&nbsp;€ al mes, son hasta 32.000&nbsp;€ más al año.
-              </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
-        col_cta1, col_cta2 = st.columns(2)
-        with col_cta1:
-            if st.button("Ya tengo cuenta — Iniciar sesión", use_container_width=True):
-                st.session_state.vista_landing = "login"
-                st.rerun()
-        with col_cta2:
-            if st.button("Ver planes y empezar", use_container_width=True, type="primary"):
-                st.session_state.vista_landing = "planes"
-                st.rerun()
-
-        # -----------------------------------------------------
-        # BLOQUE DE CONTACTO / SOPORTE (visible en la landing principal)
-        # -----------------------------------------------------
-        # Aquí lo ve TODO el que llega, tenga cuenta o no. Cubre el caso del
-        # "pago huérfano": alguien que pagó en Stripe pero no llegó a crear su
-        # cuenta y no tiene forma de entrar. El mailto lleva asunto y cuerpo ya
-        # rellenados (incluida la petición del email con el que pagó) para que
-        # el cliente solo tenga que darle a enviar.
-        _email_soporte = "hola@reselia.es"
-        _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
-        _cuerpo = urllib.parse.quote(
-            "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
-            "(Describe aquí tu caso. Si acabas de pagar y no has podido crear la "
-            "cuenta, indícanos el email con el que hiciste el pago.)\n\nGracias."
-        )
-        _mailto = f"mailto:{_email_soporte}?subject={_asunto}&body={_cuerpo}"
+        # CSS con ámbito propio: los botones de ESTA pantalla se agrandan
+        # respecto al tamaño estándar de la app (0.55rem/0.9rem de siempre,
+        # pensado para botones secundarios dentro de formularios). Aquí son
+        # las DOS únicas acciones de toda la pantalla, así que tienen que
+        # pesar como tal.
+        #
+        # El selector ".st-key-rs_entry_card" es la clase que Streamlit
+        # asigna automáticamente al contenedor cuando se le pasa key=... —
+        # es la forma soportada de darle una tarjeta CSS propia a un bloque
+        # sin que la regla se escape al resto de la app.
         st.markdown(
-            f"""
-            <div style="
-                margin-top: 2rem;
-                padding: 0.9rem 1.25rem;
-                border: 1px solid rgba(59, 58, 107, 0.18);
-                border-radius: 12px;
-                text-align: center;
-                font-size: 0.88rem;
-            ">
-                <span style="color:#6b7280;">
-                    ¿Has pagado y no puedes acceder, o necesitas ayuda?
-                </span>
-                &nbsp;
-                <a href="{_mailto}" style="
-                    color: {ACCENT_INDIGO};
-                    text-decoration: none;
-                    font-weight: 600;
-                ">Contactar con soporte →</a>
-                <div style="color:#6b7280; margin-top:0.4rem; font-size:0.8rem;">
-                    {_email_soporte}
-                </div>
-            </div>
+            """
+            <style>
+            .st-key-rs_entry_card {
+                background: var(--er-surface);
+                border: 1px solid var(--er-line-2);
+                border-radius: 24px;
+                padding: 48px 52px 38px;
+                box-shadow: var(--er-shadow-lg);
+                -webkit-backdrop-filter: blur(18px) saturate(1.5);
+                backdrop-filter: blur(18px) saturate(1.5);
+                position: relative;
+                margin-top: 5vh;
+            }
+            /* El mismo hilo de luz que llevan los expanders de cristal en
+               el resto de la app — es lo que de verdad vende el "cristal",
+               más que el blur en sí. */
+            .st-key-rs_entry_card::before {
+                content: "";
+                position: absolute; top: 0; left: 18px; right: 18px; height: 1px;
+                background: var(--er-glass-edge);
+            }
+            .st-key-rs_entry_card .stButton > button {
+                padding: 1.05rem 1.2rem !important;
+                font-size: 1.02rem !important;
+                font-weight: 600 !important;
+                border-radius: 12px !important;
+                letter-spacing: -0.01em !important;
+            }
+            .st-key-rs_entry_card .stButton > button[kind="secondary"] {
+                background: var(--er-sunken) !important;
+            }
+
+            /* --- Ejemplo artístico: relleno del hueco, no un bloque de venta ---
+               A propósito NO reutiliza el texto de la landing externa (ni la
+               reseña del gluten, ni la del cobro de más): mismo lenguaje
+               visual, ejemplo distinto, para que no se sienta una copia
+               reformateada. Todo son frases sueltas, sin párrafos ni notas
+               explicativas debajo — es una pieza decorativa que se entiende
+               de un vistazo, no un bloque más para leer. */
+            .rs-ejemplo {
+                margin-top: 36px;
+                padding-top: 30px;
+                border-top: 1px solid var(--er-line);
+            }
+            .rs-ejemplo-kicker {
+                font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                font-size: .64rem; letter-spacing: .28em; text-transform: uppercase;
+                color: var(--er-faint); text-align: center; margin-bottom: 18px;
+            }
+            .rs-ejemplo-resena {
+                font-family: 'Fraunces', Georgia, serif; font-style: italic;
+                font-size: 1.05rem; line-height: 1.5; color: var(--er-body);
+                text-align: center; max-width: 480px; margin: 0 auto 24px;
+            }
+            .rs-ejemplo-fila {
+                display: flex; align-items: flex-start; gap: 12px;
+                padding: 13px 16px; border-radius: 12px; margin-bottom: 10px;
+                font-size: .88rem; line-height: 1.5;
+            }
+            .rs-ejemplo-fila:last-child { margin-bottom: 0; }
+            .rs-ejemplo-mal {
+                background: rgba(214,69,52,.06);
+                color: var(--er-muted);
+            }
+            .rs-ejemplo-bien {
+                background: var(--er-accent-bg);
+                color: var(--er-ink);
+            }
+            .rs-ejemplo-marca {
+                flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+                display: flex; align-items: center; justify-content: center;
+                font-size: .68rem; font-weight: 700; margin-top: 1px;
+            }
+            .rs-ejemplo-mal .rs-ejemplo-marca { background: rgba(214,69,52,.14); color: var(--er-danger); }
+            .rs-ejemplo-bien .rs-ejemplo-marca { background: var(--er-accent); color: #fff; }
+            .rs-ejemplo-mal p { text-decoration: line-through; text-decoration-color: rgba(214,69,52,.4); }
+            .rs-ejemplo-fila p { margin: 0; }
+            @media (max-width: 640px) {
+                .rs-ejemplo-resena { font-size: .95rem; }
+            }
+            </style>
             """,
             unsafe_allow_html=True,
         )
+
+        # Columna central bastante más ancha que la del login (esta pantalla
+        # ya no es un formulario estrecho, es la puerta de entrada y tiene
+        # espacio de sobra que llenar con algo que valga la pena mirar).
+        _izq_info, _centro_info, _der_info = st.columns([1, 2.5, 1])
+
+        with _centro_info:
+            with st.container(key="rs_entry_card"):
+                st.markdown(
+                    '<div class="rs-login-cab" style="margin-bottom:26px;">'
+                    '<div class="rs-login-marca">RESELIA</div>'
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # Lado a lado: con la columna más ancha ya hay sitio de sobra
+                # (antes, a 330px, "Iniciar sesión" partía en dos líneas).
+                _col_ini, _col_planes = st.columns(2, gap="medium")
+                with _col_ini:
+                    if st.button("Iniciar sesión", use_container_width=True):
+                        st.session_state.vista_landing = "login"
+                        st.rerun()
+                with _col_planes:
+                    if st.button("Ver planes", use_container_width=True, type="primary"):
+                        st.session_state.vista_landing = "planes"
+                        st.rerun()
+
+                # --- El ejemplo artístico ---
+                st.markdown(
+                    """
+                    <div class="rs-ejemplo">
+                        <div class="rs-ejemplo-kicker">Una reseña real</div>
+                        <div class="rs-ejemplo-resena">
+                            «Reservamos para las nueve y a las nueve y media
+                            seguíamos en la puerta. Nadie nos avisó de nada.»
+                        </div>
+                        <div class="rs-ejemplo-fila rs-ejemplo-mal">
+                            <div class="rs-ejemplo-marca">✕</div>
+                            <p>«Lamentamos el fallo en la gestión de reservas de esa noche.»</p>
+                        </div>
+                        <div class="rs-ejemplo-fila rs-ejemplo-bien">
+                            <div class="rs-ejemplo-marca">§</div>
+                            <p>«Una espera así no es lo que quiero para nadie que
+                            venga con ganas. Lo reviso personalmente con el equipo de sala.»</p>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                # -----------------------------------------------------
+                # BLOQUE DE CONTACTO / SOPORTE
+                # -----------------------------------------------------
+                # Esto no es marketing, es funcional: cubre el caso del "pago
+                # huérfano" (alguien que pagó en Stripe pero no llegó a crear
+                # su cuenta y no tiene forma de entrar). Por eso se conserva
+                # aunque todo el texto de venta de alrededor haya
+                # desaparecido. El mailto lleva asunto y cuerpo ya rellenados
+                # para que el cliente solo tenga que darle a enviar.
+                _email_soporte = "hola@reselia.es"
+                _asunto = urllib.parse.quote("Necesito ayuda con mi cuenta / pago")
+                _cuerpo = urllib.parse.quote(
+                    "Hola,\n\nHe tenido un problema y necesito ayuda. Os cuento:\n\n"
+                    "(Describe aquí tu caso. Si acabas de pagar y no has podido "
+                    "crear la cuenta, indícanos el email con el que hiciste el "
+                    "pago.)\n\nGracias."
+                )
+                _mailto = f"mailto:{_email_soporte}?subject={_asunto}&body={_cuerpo}"
+                st.markdown(
+                    '<div class="rs-login-pie" style="margin-top:24px;">'
+                    "¿Has pagado y no puedes acceder? Escribe a "
+                    f'<a href="{_mailto}">{_email_soporte}</a>'
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
         st.stop()
 
     # Botón para volver a la info desde las otras dos vistas
@@ -4071,8 +4001,11 @@ if not st.session_state.sesion_activa:
 
     if mostrar_planes:
         st.caption("¿Ya tienes cuenta? Usa el botón '← Volver' de arriba y elige 'Iniciar sesión'.")
-    if mostrar_login:
-        st.caption("¿Todavía no tienes cuenta? Usa el botón '← Volver' de arriba y elige 'Ver planes'.")
+    # La caption equivalente para login se ha quitado: repetía, con otras
+    # palabras, lo mismo que ya dice el botón "← Volver" de arriba y lo que
+    # va a decir el enlace "¿No tienes cuenta?" al pie de la propia tarjeta
+    # de login. Era la tercera vez que la misma idea aparecía en pantalla
+    # antes de llegar al campo de email.
 
     # -----------------------------------------------------
     # VISTA: PLANES Y PRECIOS
@@ -4256,9 +4189,9 @@ if not st.session_state.sesion_activa:
         st.markdown('<div class="rp-plan-target" style="font-size:0.95rem; margin-bottom:8px;">¿Gestionas varios locales? Planes para agencias:</div>', unsafe_allow_html=True)
         col_starter, col_growth = st.columns(2)
 
-        # Enterprise se retiró de la venta. Su definición sigue existiendo más
-        # abajo (PLANES_AUTOSERVICIO) para no romper cuentas que ya lo tuvieran
-        # asignado en la base de datos, pero ya no se ofrece a nadie nuevo.
+        # Solo hay dos planes de agencia. Enterprise ya no existe: se eliminó
+        # del catálogo (ver PLANES_AUTOSERVICIO), así que esta lista y el
+        # selector de dentro de la app enseñan exactamente lo mismo.
         planes_agencia = [
             ("starter", col_starter, "landing_elegir_starter"),
             ("growth", col_growth, "landing_elegir_growth"),
@@ -4320,7 +4253,6 @@ if not st.session_state.sesion_activa:
                   <div class="rs-login-marca">RESELIA</div>
                   <h1 class="rs-login-titulo">Bienvenido de nuevo</h1>
                   <p class="rs-login-sub">
-                    Accede con tu email y contraseña personales.
                     Cada usuario de tu agencia tiene su propio acceso.
                   </p>
                 </div>
@@ -4395,6 +4327,45 @@ if not st.session_state.sesion_activa:
                         except Exception as e:
                             st.error(redactar_secretos(f"Error de conexión con la base de datos: {e}"))
 
+            # ---- Recuperación de contraseña ----
+            # Fuera del st.form de arriba: un formulario dentro de otro no es
+            # válido, y además así el expander se puede abrir sin disparar el
+            # envío del login.
+            if st.session_state.pop("_reset_completado", False):
+                st.success(
+                    "Contraseña actualizada. Ya puedes entrar con la nueva."
+                )
+
+            with st.expander("He olvidado mi contraseña"):
+                email_reset = st.text_input(
+                    "Tu email",
+                    key="_email_reset",
+                    placeholder="tu@agencia.com",
+                )
+                if st.button("Enviarme un enlace", key="_btn_reset", use_container_width=True):
+                    if not email_reset.strip():
+                        st.warning("Escribe tu email.")
+                    else:
+                        enviado, motivo_tecnico = solicitar_reset_password(email_reset)
+                        if motivo_tecnico == "formato":
+                            st.warning("Ese email no tiene un formato válido.")
+                        elif enviado:
+                            # Mensaje deliberadamente idéntico exista o no la
+                            # cuenta: ver la nota en solicitar_reset_password().
+                            st.success(
+                                "Si ese email tiene una cuenta, te hemos enviado "
+                                "un enlace para elegir una contraseña nueva. "
+                                "Caduca en 30 minutos."
+                            )
+                        else:
+                            # Sin SMTP configurado (o fallo de envío). No se
+                            # promete un correo que no va a llegar.
+                            st.info(
+                                "Hemos registrado tu solicitud. Escríbenos a "
+                                "hola@reselia.es y te mandamos el enlace de "
+                                "recuperación hoy mismo."
+                            )
+
             st.markdown(
                 '<div class="rs-login-pie">'
                 '¿Problemas para entrar? Escribe a '
@@ -4402,6 +4373,19 @@ if not st.session_state.sesion_activa:
                 "</div>",
                 unsafe_allow_html=True,
             )
+
+            # Único sitio donde login ofrece "no tengo cuenta". Antes esta
+            # misma idea aparecía TRES veces en pantalla (la caption de
+            # arriba, el botón "← Volver" y este mensaje). Un botón discreto
+            # al pie de la tarjeta, sin use_container_width ni type="primary",
+            # basta: está donde se busca sin competir con "Iniciar sesión".
+            st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+            _col_np_izq, _col_np_centro, _col_np_der = st.columns([1, 1.4, 1])
+            with _col_np_centro:
+                if st.button("¿No tienes cuenta? Ver planes",
+                             key="_btn_ver_planes_desde_login"):
+                    st.session_state.vista_landing = "planes"
+                    st.rerun()
 
     st.stop()
 
@@ -4711,8 +4695,12 @@ with st.sidebar:
     # ---- Identidad de la agencia ----
     st.image(agencia["logo_url"], use_container_width=True)
 
+    # _html.escape() en todo dato que venga de la base de datos. nombre_agencia
+    # lo escribe el propio usuario en el alta y no se valida: sin escapar, un
+    # admin de agencia puede inyectar <script> y ejecutarlo en el navegador de
+    # todos los gestores de su equipo.
     st.markdown(
-        f"<div class='rs-marca'>{agencia['nombre_agencia']}</div>",
+        f"<div class='rs-marca'>{_html.escape(agencia['nombre_agencia'])}</div>",
         unsafe_allow_html=True,
     )
 
@@ -4816,21 +4804,24 @@ with st.sidebar:
     )
     _limite_barra = LIMITE_USOS_POR_PLAN.get(_plan_barra)
 
-    if agencia_en_beta(agencia):
+    # Una sola consulta, reutilizada por el texto y por la barra de progreso.
+    # Antes se llamaba a contar_usos_del_mes() dos veces por rerun.
+    _usos_barra = None if agencia_en_beta(agencia) else contar_usos_del_mes(agencia["id"])
+
+    if _usos_barra is None:
         _uso_txt = "Beta · sin límite"
     elif _limite_barra is None:
-        _uso_txt = f"{contar_usos_del_mes(agencia['id'])} respuestas este mes"
+        _uso_txt = f"{_usos_barra} respuestas este mes"
     else:
-        _hechos = contar_usos_del_mes(agencia["id"])
-        _uso_txt = f"{_hechos} de {_limite_barra} este mes"
+        _uso_txt = f"{_usos_barra} de {_limite_barra} este mes"
 
     st.markdown(
         f"<div class='rs-plan'><b>{_nombre_plan_barra}</b><span>{_uso_txt}</span></div>",
         unsafe_allow_html=True,
     )
 
-    if _limite_barra is not None:
-        st.progress(min(1.0, contar_usos_del_mes(agencia["id"]) / max(1, _limite_barra)))
+    if _limite_barra is not None and _usos_barra is not None:
+        st.progress(min(1.0, _usos_barra / max(1, _limite_barra)))
 
     if st.button("Ver planes", use_container_width=True, key="barra_ver_planes"):
         st.session_state.mostrar_pagina_planes = True
@@ -4840,8 +4831,9 @@ with st.sidebar:
 
     # ---- Cuenta ----
     st.markdown(
-        f"<div class='rs-cuenta'>{usuario['nombre_usuario']}"
-        f"<span>{usuario['email']} · {usuario['rol']}</span></div>",
+        f"<div class='rs-cuenta'>{_html.escape(usuario['nombre_usuario'])}"
+        f"<span>{_html.escape(usuario['email'])} · "
+        f"{_html.escape(usuario['rol'])}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -4892,7 +4884,12 @@ if usuario.get("rol") == "admin":
             for m in activos:
                 col_m1, col_m2, col_m3 = st.columns([3, 1.4, 1.2])
                 with col_m1:
-                    st.markdown(f"{m['nombre_usuario']}  \n<span style='color:#6b7280; font-size:0.82rem;'>{m['email']}</span>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"{_html.escape(m['nombre_usuario'])}  \n"
+                        f"<span style='color:#6b7280; font-size:0.82rem;'>"
+                        f"{_html.escape(m['email'])}</span>",
+                        unsafe_allow_html=True,
+                    )
                 with col_m2:
                     es_tu = m["id"] == usuario["id"]
                     etiqueta_rol = "Administrador" if m.get("rol") == "admin" else "Gestor"
@@ -5561,6 +5558,11 @@ if vista_activa == "Responder reseña":
         submit = st.form_submit_button(etiqueta_boton, use_container_width=True)
 
     if submit:
+        # Se calcula UNA vez, y solo al enviar el formulario: las comprobaciones
+        # de velocidad cuestan consultas a la base de datos y no tienen sentido
+        # en los reruns en los que el usuario solo está escribiendo.
+        _velocidad = verificar_velocidad(agencia)
+
         if not resena_cliente.strip():
             st.warning("Pega primero la reseña del cliente.")
         elif not acepta_terminos:
@@ -5570,10 +5572,14 @@ if vista_activa == "Responder reseña":
             if st.button("Ver planes de pago", key="ver_planes_limite_usos"):
                 st.session_state.mostrar_pagina_planes = True
                 st.rerun()
-        elif not verificar_velocidad(agencia)["permitido"]:
-            st.error(redactar_secretos(verificar_velocidad(agencia)["razon"]))
+        elif not _velocidad["permitido"]:
+            st.error(redactar_secretos(_velocidad["razon"]))
         else:
-            _adv_velocidad = verificar_velocidad(agencia).get("advertencia")
+            # Se reutiliza el mismo dict calculado arriba. Antes esto llamaba
+            # tres veces a verificar_velocidad(), y cada llamada lanza hasta
+            # dos COUNT contra historico_respuestas: seis consultas por rerun,
+            # y Streamlit re-ejecuta el script en cada pulsación.
+            _adv_velocidad = _velocidad.get("advertencia")
             if _adv_velocidad:
                 st.info(_adv_velocidad)
 
@@ -5699,68 +5705,257 @@ if vista_activa == "Responder reseña":
                 st.caption(f"Causa raíz (revisa también Manage app → Logs): {causa_raiz}")
 
 # ---------------------------------------------------------
-# PESTAÑA: PEDIR RESEÑAS (WhatsApp + QR)
+# PESTAÑA: KIT DE CAPTACIÓN (WhatsApp + QRs múltiples + hoja imprimible)
 # ---------------------------------------------------------
+# El nombre "Pedir reseñas" que llevaba esta sección se ha quedado corto: ahora
+# también se generan QRs para la carta y las reservas, y una hoja A4 con todos
+# los QRs del local maquetados para plastificar y dejar en la mesa. Todo
+# apoyado en kit_captacion.py, para no ensuchar app.py con el motor de PDF.
+#
+# Nota práctica: la etiqueta del menú lateral sigue diciendo "Pedir reseñas"
+# (más abajo, en SECCIONES). Cambiarla implicaría migrar la clave del radio
+# en session_state, y no compensa hacerlo la víspera del lanzamiento.
 if vista_activa == "Pedir reseñas":
-    st.subheader("Consigue más reseñas de las que ya tienes")
-    st.caption("Genera un mensaje de WhatsApp y un código QR para que el propio negocio pida reseñas a sus clientes satisfechos.")
+    import kit_captacion
+
+    st.subheader("Kit de captación del local")
+    st.caption(
+        "Genera QRs para reseñas, carta y reservas, y una hoja imprimible "
+        "para dejar en la mesa. Todo con la marca del negocio."
+    )
 
     locales_disponibles_pr = st.session_state.locales_agencia
     if not locales_disponibles_pr:
         st.info("Esta agencia todavía no tiene locales.")
     else:
         nombre_local_pr = st.selectbox(
-            "Local:", options=[l["nombre"] for l in locales_disponibles_pr], key="selector_local_pedir_resenas"
+            "Local:",
+            options=[l["nombre"] for l in locales_disponibles_pr],
+            key="selector_local_pedir_resenas"
         )
-        local_pr = next(l for l in locales_disponibles_pr if l["nombre"] == nombre_local_pr)
+        local_pr = next(l for l in locales_disponibles_pr
+                        if l["nombre"] == nombre_local_pr)
 
-        enlace_actual = local_pr.get("enlace_resena_google") or ""
-        nuevo_enlace = st.text_input(
-            "Enlace directo de Google para dejar una reseña:",
-            value=enlace_actual,
-            placeholder="https://g.page/r/xxxxxxxxxx/review",
-            help="Lo encuentras en Google Business Profile → Solicitar reseñas → Copiar enlace."
+        # ------------------------------------------------------------------
+        # ENLACES DEL LOCAL — todos en un solo formulario y un solo guardado
+        # ------------------------------------------------------------------
+        # Antes había un input para reseñas con su propio botón "Guardar". Con
+        # cuatro enlaces distintos, cuatro botones de guardado sería un ruido
+        # innecesario: se usa un st.form con un único botón, que además evita
+        # que Streamlit re-ejecute todo el script cada vez que el usuario
+        # teclea un carácter en cualquiera de los cuatro campos.
+        st.markdown("#### Enlaces del negocio")
+        st.caption(
+            "Solo hace falta uno para empezar. Los que dejes vacíos no "
+            "aparecerán en la hoja imprimible."
         )
 
-        if st.button("Guardar enlace"):
+        # Diagnóstico de calidad del QR ANTES del form: se evalúa sobre el
+        # valor guardado, para avisar al usuario nada más entrar si su enlace
+        # actual va a generar un QR problemático.
+        _url_actual_resenas = (local_pr.get("enlace_resena_google") or "").strip()
+        if _url_actual_resenas:
+            _nivel_qr, _msg_qr = kit_captacion.diagnostico_qr(_url_actual_resenas)
+            if _nivel_qr == "error":
+                st.error(f"⚠️ QR demasiado complejo — {_msg_qr}")
+            elif _nivel_qr == "warning":
+                st.warning(f"💡 {_msg_qr}")
+
+        with st.form("form_enlaces_kit", border=False):
+            enlace_resenas_input = st.text_input(
+                "Enlace de Google para dejar una reseña",
+                value=local_pr.get("enlace_resena_google") or "",
+                placeholder="https://g.page/r/xxxxxxxxxx/review",
+                help=(
+                    "En Google Maps: busca el negocio → pulsa 'Compartir' → "
+                    "pestaña 'Enlace corto'. Si el negocio gestiona su ficha, "
+                    "también sale en Google Business Profile → 'Solicitar reseñas'."
+                ),
+            )
+            enlace_carta_input = st.text_input(
+                "Enlace de la carta digital (opcional)",
+                value=local_pr.get("enlace_carta") or "",
+                placeholder="https://mibar.com/carta",
+                help="La URL a la que va el cliente cuando escanea el QR de la mesa.",
+            )
+            enlace_reservas_input = st.text_input(
+                "Enlace de reservas (opcional)",
+                value=local_pr.get("enlace_reservas") or "",
+                placeholder="https://thefork.es/... o el sistema que ya use el local",
+                help=(
+                    "Si el negocio ya usa TheFork, Cover Manager o similares, "
+                    "pega aquí ese enlace: no hace falta que tengan un sistema "
+                    "propio."
+                ),
+            )
+
+            col_et, col_url = st.columns([1, 2])
+            with col_et:
+                extra_etiqueta_input = st.text_input(
+                    "Etiqueta del QR extra (opcional)",
+                    value=(local_pr.get("enlace_extra_etiqueta") or ""),
+                    placeholder="p. ej. 'Menú del día'",
+                )
+            with col_url:
+                extra_url_input = st.text_input(
+                    "URL del QR extra",
+                    value=(local_pr.get("enlace_extra_url") or ""),
+                    placeholder="https://...",
+                    help=(
+                        "Para lo que no encaje en los anteriores: menú del día, "
+                        "ofertas, redes sociales, formulario de eventos..."
+                    ),
+                )
+
+            guardar = st.form_submit_button(
+                "Guardar enlaces", type="primary", use_container_width=True
+            )
+
+        if guardar:
+            # Normalización antes de guardar: si el usuario escribió
+            # "www.mibar.com/carta" sin http, kit_captacion.normalizar_url()
+            # lo rescata añadiendo https. Si no se puede rescatar, se guarda
+            # vacío (mejor que un enlace roto latente en la base de datos).
+            actualizacion = {
+                "enlace_resena_google": kit_captacion.normalizar_url(
+                    enlace_resenas_input),
+                "enlace_carta": kit_captacion.normalizar_url(
+                    enlace_carta_input),
+                "enlace_reservas": kit_captacion.normalizar_url(
+                    enlace_reservas_input),
+                "enlace_extra_etiqueta": (extra_etiqueta_input or "").strip(),
+                "enlace_extra_url": kit_captacion.normalizar_url(
+                    extra_url_input),
+            }
             try:
-                supabase.table("locales").update({"enlace_resena_google": nuevo_enlace.strip()}).eq("id", local_pr["id"]).execute()
-                local_pr["enlace_resena_google"] = nuevo_enlace.strip()
-                st.success("Enlace guardado.")
+                supabase.table("locales").update(actualizacion)                     .eq("id", local_pr["id"]).execute()
+                # Se actualiza el dict en memoria para que el resto del render
+                # de esta misma pasada ya use los valores nuevos, sin esperar
+                # a un rerun completo.
+                local_pr.update(actualizacion)
+                st.success("Enlaces guardados.")
             except Exception as e:
                 st.error(redactar_secretos(f"No se pudo guardar: {e}"))
 
-        if not nuevo_enlace.strip():
-            st.warning("Guarda primero el enlace de reseña de Google para generar el mensaje y el QR.")
+        # ------------------------------------------------------------------
+        # RESULTADOS — WhatsApp + hoja imprimible + QRs sueltos
+        # ------------------------------------------------------------------
+        enlace_resenas = (local_pr.get("enlace_resena_google") or "").strip()
+        enlaces_kit = {
+            "resenas": enlace_resenas,
+            "carta": (local_pr.get("enlace_carta") or "").strip(),
+            "reservas": (local_pr.get("enlace_reservas") or "").strip(),
+            "extra": {
+                "etiqueta": (local_pr.get("enlace_extra_etiqueta") or "").strip(),
+                "url": (local_pr.get("enlace_extra_url") or "").strip(),
+            },
+        }
+        # Se cuenta cuántos son válidos antes de decidir qué enseñar. Si no hay
+        # ninguno, tampoco tiene sentido ofrecer el kit ni WhatsApp.
+        enlaces_validos = sum(
+            1 for k in ("resenas", "carta", "reservas") if enlaces_kit[k]
+        ) + (1 if enlaces_kit["extra"]["url"] and enlaces_kit["extra"]["etiqueta"] else 0)
+
+        if enlaces_validos == 0:
+            st.info(
+                "Guarda al menos un enlace arriba para poder generar el QR y "
+                "la hoja imprimible."
+            )
         else:
-            col_wa, col_qr = st.columns(2)
-            with col_wa:
-                st.markdown("**Mensaje listo para WhatsApp:**")
-                enlace_wa = generar_mensaje_whatsapp(nombre_local_pr, nuevo_enlace.strip())
-                st.markdown(f'<a href="{enlace_wa}" target="_blank" style="text-decoration:none;"><div style="background:#FFFFFF;color:#1a2238;padding:11px 20px;border:1px solid #D6D3CA;border-radius:6px;font-weight:500;cursor:pointer;width:100%;text-align:center;box-shadow:0 1px 1px rgba(22,21,26,0.03);">Abrir en WhatsApp &rarr;</div></a>', unsafe_allow_html=True)
-                st.caption("Se abre con el mensaje ya escrito; solo hay que elegir el contacto.")
-            with col_qr:
-                st.markdown("**Código QR para imprimir en el local:**")
-                png_qr = generar_qr_png(nuevo_enlace.strip())
-                st.image(png_qr, width=180)
-                # Mismo motivo que el PDF: enlace con data URI para que el proxy
-                # de Render no sirva el PNG como .txt con nombre de hash.
-                b64_qr = base64.b64encode(png_qr).decode("utf-8")
-                st.markdown(
-                    f"""
-                    <a href="data:image/png;base64,{b64_qr}" download="qr_resenas_{nombre_local_pr}.png" style="
-                        display:inline-block;
-                        padding:0.5rem 1.2rem;
-                        background:{ACCENT_INDIGO};
-                        color:#ffffff;
-                        text-decoration:none;
-                        border-radius:8px;
-                        font-weight:600;
-                        font-size:0.85rem;
-                    ">⬇ Descargar QR (PNG)</a>
-                    """,
-                    unsafe_allow_html=True,
+            st.markdown("#### Descargables")
+
+            # --- Hoja imprimible del kit (siempre disponible si hay ≥1 enlace) ---
+            with st.expander("📄 Hoja imprimible con todos los QRs (A4)", expanded=True):
+                st.caption(
+                    "Un PDF listo para imprimir, plastificar y colocar en la "
+                    "mesa o en la barra. Se adapta a los enlaces que tengas "
+                    "guardados."
                 )
+                try:
+                    pdf_kit = kit_captacion.generar_hoja_imprimible(
+                        nombre_local=nombre_local_pr,
+                        enlaces=enlaces_kit,
+                        color_marca=agencia.get("color_marca", ACCENT_INDIGO),
+                        # Mismo criterio que el informe PDF: solo se firma con
+                        # la agencia cuando el plan la contempla como marca
+                        # blanca (Individual en adelante). En Free no aparece.
+                        nombre_agencia=(
+                            agencia.get("nombre_agencia")
+                            if agencia.get("plan", "free") != "free" else None
+                        ),
+                    )
+                    st.download_button(
+                        label="⬇ Descargar hoja imprimible",
+                        data=pdf_kit,
+                        file_name=f"kit_{nombre_local_pr}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+                except ValueError as e:
+                    # Puede pasar si TODOS los enlaces se filtran por normalización
+                    # a pesar de tener texto. Se avisa con el mensaje real.
+                    st.warning(str(e))
+
+            # --- WhatsApp: solo tiene sentido si hay enlace de reseñas ---
+            if enlace_resenas:
+                with st.expander("💬 Mensaje de WhatsApp para pedir reseñas"):
+                    st.caption(
+                        "Se abre en WhatsApp con el mensaje ya escrito; solo "
+                        "hay que elegir el contacto."
+                    )
+                    enlace_wa = generar_mensaje_whatsapp(
+                        nombre_local_pr, enlace_resenas)
+                    st.markdown(
+                        f'<a href="{enlace_wa}" target="_blank" '
+                        f'style="text-decoration:none;">'
+                        f'<div style="background:{ACCENT_INDIGO};color:#ffffff;'
+                        f'padding:11px 20px;border-radius:6px;font-weight:600;'
+                        f'text-align:center;">Abrir en WhatsApp →</div></a>',
+                        unsafe_allow_html=True,
+                    )
+
+            # --- QRs sueltos (PNG) por si quieren imprimir uno grande solo ---
+            # Se dejan en un expander cerrado por defecto: el usuario típico va
+            # a querer la hoja imprimible, no cuatro PNGs por separado. Pero
+            # están ahí para el que prefiera pegar un QR grande en la puerta.
+            with st.expander("🖼️ QRs sueltos (PNG)"):
+                st.caption(
+                    "Un PNG por cada enlace, por si prefieres imprimir uno "
+                    "muy grande (puerta, escaparate, ticket)."
+                )
+                # Se enumeran solo los que tienen enlace válido, en el mismo
+                # orden que la hoja imprimible.
+                candidatos_png = [
+                    ("Reseñas de Google", enlaces_kit["resenas"], "resenas"),
+                    ("Carta digital", enlaces_kit["carta"], "carta"),
+                    ("Reservas", enlaces_kit["reservas"], "reservas"),
+                ]
+                if enlaces_kit["extra"]["url"] and enlaces_kit["extra"]["etiqueta"]:
+                    candidatos_png.append((
+                        enlaces_kit["extra"]["etiqueta"],
+                        enlaces_kit["extra"]["url"],
+                        "extra",
+                    ))
+                candidatos_png = [c for c in candidatos_png if c[1]]
+
+                # Rejilla de hasta 3 columnas: legible en desktop y aceptable
+                # en móvil (Streamlit las apila cuando se estrecha).
+                for fila in range(0, len(candidatos_png), 3):
+                    trio = candidatos_png[fila:fila + 3]
+                    cols = st.columns(len(trio))
+                    for col, (etiqueta, url, sufijo) in zip(cols, trio):
+                        with col:
+                            st.markdown(f"**{_html.escape(etiqueta)}**")
+                            png_qr = kit_captacion.generar_qr_png(url)
+                            st.image(png_qr, width=170)
+                            st.download_button(
+                                label="⬇ Descargar",
+                                data=png_qr,
+                                file_name=f"qr_{sufijo}_{nombre_local_pr}.png",
+                                mime="image/png",
+                                key=f"dl_qr_{sufijo}_{local_pr['id']}",
+                                use_container_width=True,
+                            )
 
 # ---------------------------------------------------------
 # PESTAÑA: CONTENIDO SEO EXTRA
@@ -6156,9 +6351,9 @@ if usuario.get("rol") == "admin":
 st.divider()
 st.markdown(f"""
 <div style="font-size: 10px; color: #6c757d; text-align: justify; line-height: 1.4;">
-    <strong>Aviso Legal y Condiciones de Uso Enterprise (Marca Blanca):</strong> Esta plataforma es una
+    <strong>Aviso Legal y Condiciones de Uso (Marca Blanca):</strong> Esta plataforma es una
     herramienta tecnológica de asistencia basada en modelos de Inteligencia Artificial generativa, licenciada
-    bajo un contrato B2B a <strong>{agencia['nombre_agencia']}</strong>. El software no presta asesoramiento
+    bajo un contrato B2B a <strong>{_html.escape(agencia['nombre_agencia'])}</strong>. El software no presta asesoramiento
     legal, jurídico, ni de relaciones públicas vinculante. La agencia operadora es la única responsable de
     revisar, verificar y autorizar cualquier contenido generado antes de su publicación. Queda expresamente
     prohibida la ingeniería inversa, descompilación o extracción de la lógica de negocio de esta plataforma.
