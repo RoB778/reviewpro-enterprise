@@ -158,9 +158,16 @@ class ResultadoBlindaje:
     violaciones_residuales: List[Violacion] = field(default_factory=list)
     alertas_entrada: List[str] = field(default_factory=list)
 
+    # True si en la vía blindada el auditor independiente (Capa 2) no pudo
+    # completar su revisión (caída de la API o salida ilegible) en alguna
+    # pasada. La respuesta sigue habiendo pasado la Capa 1, pero NO se puede
+    # anunciar como "auditada": el sello lo dice y la UI lo marca como aviso.
+    auditoria_incompleta: bool = False
+
     @property
     def limpia(self) -> bool:
-        return not self.bloqueada and not self.violaciones_residuales
+        return (not self.bloqueada and not self.violaciones_residuales
+                and not self.auditoria_incompleta)
 
     @property
     def sello(self) -> str:
@@ -170,10 +177,12 @@ class ResultadoBlindaje:
 
         if self.modo_usado == MODO_RAPIDO:
             base = f"Vía rápida · {self.segundos:.1f}s · filtro legal básico superado"
+        elif self.auditoria_incompleta:
+            base = (f"Blindaje completo · {self.segundos:.1f}s · el auditor independiente no "
+                    f"respondió: solo se ha aplicado el filtro básico, revísala antes de publicar")
         else:
             pasadas = "pasada" if self.intentos == 1 else "pasadas"
             base = f"Blindaje completo · {self.segundos:.1f}s · auditada en {self.intentos} {pasadas}"
-
         if self.violaciones_corregidas:
             base += f" · {len(self.violaciones_corregidas)} corregida(s)"
         if self.violaciones_residuales:
@@ -388,7 +397,7 @@ _SENALES_RIESGO = [
      "menciona un daño físico"),
     (r"\bracis|\bdiscrimin|\bhomofob|\bxenofob|\bmachist|\bnos echaron\b", "alto",
      "menciona discriminación"),
-    (r"\bmenor\b|\bmi hij|\bniñ|\bnino\b|\b1[0-7] años\b", "alto",
+    (r"\bmenor\b|\bmi hij|\bnin[oa]s?\b|\bninit|\b1[0-7] años\b", "alto",
      "menciona a un menor"),
     (r"\bdenunci|\babogad|\binspeccion|\bhoja de reclamacion|\bjuzgad|\bdemand", "alto",
      "amenaza con acciones legales"),
@@ -423,7 +432,10 @@ def analizar_riesgo(resena: str) -> AnalisisRiesgo:
     nivel_max = "bajo"
 
     for patron, nivel, explicacion in _SENALES_RIESGO:
-        if re.search(patron, norm) and explicacion not in vistas:
+        # El texto se compara sin tildes; el patrón también, o "niñ" / "años"
+        # no coincidirían nunca con "nina" / "anos" (bug: reseñas sobre menores
+        # no se marcaban como delicadas).
+        if re.search(_sin_tildes(patron), norm) and explicacion not in vistas:
             vistas.add(explicacion)
             a.senales.append(explicacion)
             if nivel == "alto":
@@ -629,6 +641,7 @@ def _buscar(patrones: List[str], texto_norm: str, es_literal: bool = False) -> L
     """Devuelve los fragmentos encontrados."""
     hallazgos = []
     for p in patrones:
+        p = _sin_tildes(p)  # mismo criterio que texto_norm
         patron = re.escape(p) if es_literal else p
         m = re.search(patron, texto_norm)
         if m:
@@ -655,6 +668,44 @@ def _cifras_significativas(texto: str) -> set:
     return cifras
 
 
+def _parsear_keywords(keywords) -> List[str]:
+    """Acepta lista o texto separado por comas/saltos. Solo términos con peso
+    (>= 4 caracteres) para no marcar coincidencias triviales."""
+    if isinstance(keywords, (list, tuple)):
+        crudos = keywords
+    else:
+        crudos = re.split(r"[,;\n]", keywords or "")
+    return [k for k in (_normalizar(str(x)) for x in crudos) if len(k) >= 4]
+
+
+def auditar_seo_determinista(respuesta: str, keywords, resena_grave: bool = False) -> List[Violacion]:
+    """Hace cumplir, sin coste, las dos reglas SEO que más daño hacen si se
+    incumplen (REGLAS_SEO_PROFESIONAL las pedía, pero nada las comprobaba):
+
+      · SEO-GRAVE    keywords en la respuesta a una reseña delicada (salud,
+                     menores, discriminación...). Ahí el SEO se apaga.
+      · SEO-RELLENO  dos keywords en la misma frase: delata el mecanismo y
+                     suena a cinismo a quien lee la disculpa.
+    """
+    kws = _parsear_keywords(keywords)
+    if not kws or not respuesta:
+        return []
+    v: List[Violacion] = []
+    norm = _normalizar(respuesta)
+    presentes = [k for k in kws if re.search(r"\b" + re.escape(k) + r"\b", norm)]
+    if resena_grave:
+        for k in presentes:
+            v.append(Violacion("SEO-GRAVE", "alta", k,
+                               "Keyword comercial en la respuesta a una reseña delicada: quítala."))
+        return v
+    for frase in re.split(r"(?<=[.!?¡¿])\s+", norm):
+        en_frase = [k for k in presentes if re.search(r"\b" + re.escape(k) + r"\b", frase)]
+        if len(en_frase) >= 2:
+            v.append(Violacion("SEO-RELLENO", "media", en_frase[1],
+                               "Dos keywords en la misma frase: suena a SEO forzado. Deja solo una o ninguna."))
+    return v
+
+
 def auditar_determinista(resena: str, respuesta: str, nombre_local: str = "") -> List[Violacion]:
     """
     Comprobaciones mecánicas sobre la respuesta generada. Sin API, sin coste.
@@ -663,12 +714,12 @@ def auditar_determinista(resena: str, respuesta: str, nombre_local: str = "") ->
     r = _normalizar(respuesta)
 
     for termino in _LEXICO_JURIDICO:
-        if re.search(r"\b" + re.escape(termino) + r"\b", r):
+        if re.search(r"\b" + re.escape(_sin_tildes(termino)) + r"\b", r):
             v.append(Violacion("R13", "critica", termino,
                                "Léxico jurídico: encuadra la respuesta en clave legal."))
 
     for termino in _LEXICO_SANITARIO:
-        if re.search(r"\b" + re.escape(termino) + r"\b", r):
+        if re.search(r"\b" + re.escape(_sin_tildes(termino)) + r"\b", r):
             v.append(Violacion("R9", "critica", termino,
                                "Término sanitario prohibido, incluso para negarlo."))
 
@@ -781,7 +832,51 @@ Dos advertencias sobre tu propio criterio:
 - El fragmento que cites tiene que aparecer LITERALMENTE en la respuesta. No lo parafrasees ni lo reconstruyas."""
 
 
+def _extraer_json(bruto: str):
+    """Extrae el primer objeto/array JSON de la salida de un modelo.
+
+    Antes solo se quitaban las vallas ``` si el texto EMPEZABA por ellas. Si el
+    modelo anteponía una frase ("Aquí tienes el análisis:") o añadía algo detrás
+    del JSON, json.loads fallaba. En el auditor ese fallo se tragaba en silencio
+    y la respuesta salía como "0 violaciones" sin haberse auditado.
+    Lanza ValueError si no hay JSON válido.
+    """
+    texto = (bruto or "").strip()
+    texto = re.sub(r"```(?:json)?", "", texto).strip()
+    try:
+        return json.loads(texto)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    dec = json.JSONDecoder()
+    for i, ch in enumerate(texto):
+        if ch in "{[":
+            try:
+                obj, _ = dec.raw_decode(texto[i:])
+                return obj
+            except json.JSONDecodeError:
+                continue
+    raise ValueError("La salida del modelo no contiene JSON válido.")
+
+
 def auditar_con_modelo(client, resena: str, respuesta: str) -> List[Violacion]:
+    """Compatibilidad: devuelve solo la lista. Usa auditar_con_modelo_detallado
+    para saber además si la auditoría llegó a completarse."""
+    violaciones, _ok = auditar_con_modelo_detallado(client, resena, respuesta)
+    return violaciones
+
+
+def auditar_con_modelo_detallado(client, resena: str, respuesta: str, reintentos: int = 1):
+    """Devuelve (violaciones, auditoria_completada). Reintenta una vez ante
+    fallo de red o JSON ilegible; si aun así falla, auditoria_completada=False
+    para que el sello NO diga que la respuesta está auditada."""
+    for _ in range(reintentos + 1):
+        violaciones = _auditar_una_vez(client, resena, respuesta)
+        if violaciones is not None:
+            return violaciones, True
+    return [], False
+
+
+def _auditar_una_vez(client, resena: str, respuesta: str):
     """
     Segunda pasada: el auditor lee la reseña y la respuesta, nada más.
 
@@ -813,10 +908,9 @@ def auditar_con_modelo(client, resena: str, respuesta: str) -> List[Violacion]:
                 bruto = bloque.text.strip()
                 break
 
-        if bruto.startswith("```"):
-            bruto = re.sub(r"^```(?:json)?|```$", "", bruto).strip()
-
-        datos = json.loads(bruto)
+        datos = _extraer_json(bruto)
+        if not isinstance(datos, dict):
+            return None
 
         violaciones = []
         for item in datos.get("violaciones", []):
@@ -834,7 +928,8 @@ def auditar_con_modelo(client, resena: str, respuesta: str) -> List[Violacion]:
         return violaciones
 
     except Exception:
-        return []
+        # None = "no se pudo auditar", distinto de [] = "auditado y limpio".
+        return None
 
 
 # =============================================================================
@@ -1002,12 +1097,11 @@ def generar_respuesta(
                 bruto = bloque.text.strip()
                 break
 
-        if bruto.startswith("```"):
-            bruto = re.sub(r"^```(?:json)?|```$", "", bruto).strip()
-
         try:
-            datos = json.loads(bruto)
-        except json.JSONDecodeError:
+            datos = _extraer_json(bruto)
+            if not isinstance(datos, dict):
+                raise ValueError("se esperaba un objeto JSON")
+        except ValueError:
             if intento >= max_vueltas:
                 resultado.bloqueada = True
                 resultado.motivo_bloqueo = "El redactor ha devuelto un formato inesperado."
@@ -1029,11 +1123,18 @@ def generar_respuesta(
 
         # ---- CAPA 1 (siempre, gratis, 0 ms) ---------------------------------
         violaciones = auditar_determinista(resena_limpia, respuesta_nativa, nombre_local)
+        violaciones += auditar_seo_determinista(
+            respuesta_nativa, keywords, resena_grave=analizar_riesgo(resena_limpia).nivel == "alto"
+        )
 
         # ---- CAPA 2 (solo vía blindada: es la que cuesta tiempo) ------------
         if modo == MODO_BLINDADO:
             avisar("auditando", "Revisando frase por frase")
-            violaciones += auditar_con_modelo(client, resena_limpia, respuesta_nativa)
+            _v_modelo, _auditada = auditar_con_modelo_detallado(client, resena_limpia, respuesta_nativa)
+            violaciones += _v_modelo
+            # Refleja la pasada ACTUAL: si en una reescritura el auditor ya sí
+            # responde, la respuesta final sí queda auditada.
+            resultado.auditoria_incompleta = not _auditada
 
         vistos, unicas = set(), []
         for v in violaciones:
