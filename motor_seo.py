@@ -50,6 +50,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+# Extractor de JSON tolerante (frases antes/después, vallas ```): compartido con blindaje.
+from blindaje import _extraer_json
+
 # Coherencia con blindaje.py: mismos modelos.
 MODELO_REDACTOR_SEO = "claude-sonnet-4-6"
 MODELO_AUDITOR_SEO = "claude-sonnet-4-6"
@@ -904,9 +907,7 @@ Si todo está respaldado, devuelve la lista vacía."""
             if getattr(b, "type", None) == "text":
                 bruto = b.text.strip()
                 break
-        if bruto.startswith("```"):
-            bruto = re.sub(r"^```(?:json)?|```$", "", bruto).strip()
-        datos = json.loads(bruto)
+        datos = _extraer_json(bruto)
         return [str(x).strip() for x in datos.get("afirmaciones_sin_respaldo", []) if str(x).strip()]
     except Exception:
         # Si el auditor falla, no bloqueamos la generación por ello: el filtro
@@ -923,6 +924,7 @@ def generar_contenido_seo(
     tipo_contenido: str,
     keywords: Optional[list] = None,
     modo_asistido: bool = True,
+    enfoque: str = "",
 ) -> ResultadoSEO:
     """Punto de entrada del motor. Sustituye a generar_contenido_seo_extra.
 
@@ -946,7 +948,15 @@ def generar_contenido_seo(
         nombre_local, nicho, ciudad, lex, keywords, instruccion, modo_asistido
     )
 
-    historial = [{"role": "user", "content": f"Genera el contenido para «{nombre_local}»."}]
+    peticion = f"Genera el contenido para «{nombre_local}»."
+    enfoque = (enfoque or "").strip()[:200]
+    if enfoque:
+        # El enfoque viene del asistente (p. ej. "destacar la terraza"). Es una
+        # preferencia de ángulo, nunca una fuente de hechos: si no se apoya en
+        # un hecho afirmable se ignora, y el auditor de veracidad sigue actuando.
+        peticion += (f" Ángulo preferido: {enfoque}. Úsalo solo si se apoya en los "
+                     "hechos afirmables; si no, ignóralo sin mencionarlo.")
+    historial = [{"role": "user", "content": peticion}]
 
     for intento in range(1, MAX_INTENTOS_VERACIDAD + 2):
         res.intentos = intento
@@ -970,11 +980,13 @@ def generar_contenido_seo(
         limpio = bruto.replace("```json", "").replace("```", "").strip()
 
         try:
-            variantes = json.loads(limpio)
+            variantes = _extraer_json(limpio)
             if not (isinstance(variantes, list) and variantes):
                 variantes = [bruto] if bruto else []
         except (json.JSONDecodeError, ValueError):
-            variantes = [bruto] if bruto else []
+            # Antes esto entregaba el JSON crudo (con corchetes y comillas) como
+            # "variante" publicable. Solo aceptamos texto sin sintaxis JSON.
+            variantes = [bruto] if bruto and not bruto.lstrip().startswith(("[", "{")) and '"]' not in bruto else []
         variantes = [str(v).strip() for v in variantes if str(v).strip()]
 
         if not variantes:
@@ -1065,9 +1077,7 @@ Devuelve EXCLUSIVAMENTE este JSON:
             if getattr(b, "type", None) == "text":
                 bruto = b.text.strip()
                 break
-        if bruto.startswith("```"):
-            bruto = re.sub(r"^```(?:json)?|```$", "", bruto).strip()
-        datos = json.loads(bruto)
+        datos = _extraer_json(bruto)
         salida = []
         vistas = set()
         for p in datos.get("preguntas", []):
