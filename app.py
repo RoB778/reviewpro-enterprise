@@ -20,6 +20,7 @@ from anthropic import Anthropic
 # determinista, auditor independiente y reescritura correctiva).
 # Vive en blindaje.py, en la misma carpeta que este archivo.
 from blindaje import (
+    _extraer_json,
     generar_respuesta,
     analizar_riesgo,
     MODO_RAPIDO,
@@ -1550,6 +1551,38 @@ def _stripe_campo(obj, campo, default=None):
         return default
 
 
+def _suscripcion_de_sesion_activa(session):
+    """True si la suscripción creada por esta sesión de Checkout sigue viva.
+
+    Una sesión de Checkout pagada sigue diciendo payment_status="paid" para
+    siempre. Sin esta comprobación, alguien que cancela (y el webhook le baja a
+    Free) podía reabrir la URL antigua de éxito del pago y recuperar el plan
+    sin pagar. Si Stripe no devuelve suscripción (modo payment), no se bloquea.
+    """
+    sub = _stripe_campo(session, "subscription")
+    if not sub:
+        return True
+    try:
+        sub_id = sub if isinstance(sub, str) else _stripe_campo(sub, "id")
+        suscripcion = stripe.Subscription.retrieve(sub_id)
+        return _stripe_campo(suscripcion, "status") in ("active", "trialing")
+    except Exception:
+        # Si Stripe no responde, preferimos no activar a ciegas.
+        return False
+
+
+def _cliente_stripe_ya_usado(customer_id):
+    """True si ya existe una agencia creada con este cliente de Stripe.
+    Impide reutilizar una misma sesión de pago para dar de alta varias cuentas."""
+    if not customer_id:
+        return False
+    try:
+        r = supabase.table("agencias").select("id").eq("stripe_customer_id", customer_id).limit(1).execute()
+        return bool(r.data)
+    except Exception:
+        return False
+
+
 def confirmar_pago_y_activar_plan(session_id):
     """
     Se llama cuando Stripe redirige de vuelta a la app tras un pago DE UPGRADE (agencia ya
@@ -1567,6 +1600,8 @@ def confirmar_pago_y_activar_plan(session_id):
         plan_nombre = _stripe_campo(metadata, "plan")
         if not agencia_id or not plan_nombre:
             return False, "No se pudo identificar la agencia o el plan asociado a este pago."
+        if not _suscripcion_de_sesion_activa(session):
+            return False, "Esta suscripción ya no está activa. Si quieres reactivar el plan, contrátalo de nuevo desde Planes."
         # Guardamos también el stripe_customer_id: es la clave con la que el webhook
         # localiza a esta agencia cuando Stripe avise de una cancelación o un impago.
         datos_update = {"plan": plan_nombre}
@@ -1576,7 +1611,9 @@ def confirmar_pago_y_activar_plan(session_id):
         supabase.table("agencias").update(datos_update).eq("id", agencia_id).execute()
         return True, plan_nombre
     except Exception as e:
-        return False, str(e)
+        log_error_completo("pago Stripe", e)
+        return False, "No se pudo verificar el pago con Stripe. Si se te ha cobrado, escríbenos y lo activamos a mano."
+
 
 
 def verificar_pago_alta_nueva(session_id):
@@ -1596,6 +1633,10 @@ def verificar_pago_alta_nueva(session_id):
         plan_nombre = _stripe_campo(metadata, "plan")
         if not plan_nombre:
             return False, "No se pudo identificar el plan asociado a este pago."
+        if _cliente_stripe_ya_usado(_stripe_campo(session, "customer")):
+            return False, "Este pago ya se usó para crear una cuenta. Inicia sesión con el email que registraste."
+        if not _suscripcion_de_sesion_activa(session):
+            return False, "La suscripción asociada a este pago ya no está activa."
         detalles = _stripe_campo(session, "customer_details")
         email_prefill = _stripe_campo(detalles, "email", "") or ""
         return True, {
@@ -1605,7 +1646,9 @@ def verificar_pago_alta_nueva(session_id):
             "email_prefill": email_prefill,
         }
     except Exception as e:
-        return False, str(e)
+        log_error_completo("pago Stripe", e)
+        return False, "No se pudo verificar el pago con Stripe. Si se te ha cobrado, escríbenos y lo activamos a mano."
+
 
 
 # =========================================================
@@ -1900,6 +1943,8 @@ def registrar_agencia_de_pago(nombre_agencia, nombre_local, email, password_plan
     existente = supabase.table("usuarios").select("id").eq("email", email_normalizado).execute()
     if existente.data:
         return False, "Ya existe una cuenta con ese email. Inicia sesión en su lugar."
+    if _cliente_stripe_ya_usado(stripe_customer_id):
+        return False, "Este pago ya se usó para crear una cuenta. Inicia sesión con el email que registraste."
 
     try:
         datos_agencia = {
@@ -2430,10 +2475,9 @@ Devuelve EXCLUSIVAMENTE este JSON, sin texto alrededor ni bloques de código:
                 bruto = bloque.text.strip()
                 break
 
-        if bruto.startswith("```"):
-            bruto = re.sub(r"^```(?:json)?|```$", "", bruto).strip()
-
-        datos = json.loads(bruto)
+        datos = _extraer_json(bruto)
+        if not isinstance(datos, dict):
+            raise ValueError("formato inesperado")
 
         familias_validas = {"LOCAL", "SERVICIO", "PROBLEMA", "CONFIANZA"}
         limpias = []
@@ -2614,7 +2658,7 @@ Formato exacto: ["variante 1", "variante 2", "variante 3"]"""
         # Limpiar posibles vallas de código y parsear el JSON.
         limpio = texto_bruto.replace("```json", "").replace("```", "").strip()
         try:
-            variantes = json.loads(limpio)
+            variantes = _extraer_json(limpio)
             if isinstance(variantes, list) and variantes:
                 return [str(v).strip() for v in variantes if str(v).strip()]
         except (json.JSONDecodeError, ValueError):
@@ -4407,7 +4451,11 @@ if not refrescar_contexto_si_toca():
 
 agencia = st.session_state.agencia_actual
 usuario = st.session_state.usuario_actual
-color_agencia = agencia["color_marca"]
+# El color va directo a un bloque <style>. Si en BD hubiera algo que no sea un
+# hex (edición manual, importación, un campo futuro editable por el cliente),
+# podría romper el CSS o inyectar reglas. Solo se acepta #rgb / #rrggbb.
+_color_bd = str(agencia.get("color_marca") or "").strip()
+color_agencia = _color_bd if re.fullmatch(r"#(?:[0-9a-fA-F]{3}){1,2}", _color_bd) else "#2A2C31"
 
 # Bienvenida tras el alta. Se consume con pop para que salga una sola vez y
 # no reaparezca en cada rerun de la sesión.
@@ -4993,7 +5041,11 @@ if vista_activa == "Mi asistente":
         st.markdown(
             f"<div class='rs-riesgo' style='border-left-color:var(--er-accent);"
             f"background:var(--er-accent-bg);border-color:var(--er-accent)'>"
-            f"<b>Esto es lo que veo esta semana:</b><br>{st.session_state[_clave_brief]}</div>",
+            # El briefing lo redacta el modelo a partir de reseñas escritas por
+            # desconocidos. Sin escapar, una reseña con HTML/JS inyectado podía
+            # acabar ejecutándose en el panel de la agencia.
+            f"<b>Esto es lo que veo esta semana:</b><br>"
+            f"{_html.escape(st.session_state[_clave_brief]).replace(chr(10), '<br>')}</div>",
             unsafe_allow_html=True,
         )
 
@@ -6340,8 +6392,11 @@ if usuario.get("rol") == "admin":
             else:
                 try:
                     supabase.table("agencias").delete().eq("id", agencia["id"]).execute()
+                    # El token de sesión persistente quedaba vivo en BD y en la URL.
+                    _revocar_token_sesion()
                     for key in ["sesion_activa", "usuario_actual", "agencia_actual", "locales_agencia", "local_activo"]:
-                        st.session_state[key] = False if key == "sesion_activa" else None if "actual" in key else []
+                        st.session_state[key] = (False if key == "sesion_activa"
+                                                 else [] if key == "locales_agencia" else None)
                     st.session_state.vista_landing = "info"
                     st.success("Tu agencia y todos sus datos han sido eliminados.")
                     st.rerun()
