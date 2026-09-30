@@ -459,7 +459,8 @@ def ejecutar_herramienta(nombre, entrada, ctx):
             tipo = entrada.get("tipo") or "Publicación de Google Business"
             enfoque = (entrada.get("enfoque") or "").strip()
             filas = ctx["cargar_ficha_local"](local_id)
-            # Pasamos el enfoque como una keyword extra para guiar sin forzar.
+            # El enfoque se pasa al motor como ángulo preferido (antes se
+            # calculaba y se descartaba: el contenido salía siempre genérico).
             kws = list(local.get("seo_keywords") or [])
             resultado = ctx["generar_contenido_seo"](
                 ctx["client"],
@@ -470,6 +471,7 @@ def ejecutar_herramienta(nombre, entrada, ctx):
                 tipo_contenido=tipo,
                 keywords=kws,
                 modo_asistido=True,
+                enfoque=enfoque,
             )
             if resultado.bloqueado or not resultado.variantes:
                 return ("No se pudo generar contenido veraz con los datos verificados actuales. "
@@ -498,6 +500,50 @@ def ejecutar_herramienta(nombre, entrada, ctx):
 # BUCLE DEL AGENTE — orquestación con herramientas
 # =============================================================================
 
+# Cuántos turnos de usuario (preguntas) se reenvían al modelo. Cada turno puede
+# arrastrar resultados de herramientas con hasta 40 reseñas: sin tope, una
+# conversación larga multiplicaba el coste de cada mensaje y acababa chocando
+# con el límite de contexto. La UI sigue mostrando la conversación entera.
+MAX_TURNOS_CONTEXTO = 8
+
+
+def _es_pregunta_usuario(m):
+    """Mensaje de usuario escrito por la persona (no un tool_result)."""
+    return m.get("role") == "user" and isinstance(m.get("content"), str)
+
+
+def recortar_historial(mensajes, max_turnos=MAX_TURNOS_CONTEXTO):
+    """Conserva los últimos `max_turnos` turnos completos. Siempre corta justo
+    antes de una pregunta del usuario, para no dejar un tool_result huérfano
+    (la API rechaza un tool_result sin su tool_use)."""
+    idx = [i for i, m in enumerate(mensajes) if _es_pregunta_usuario(m)]
+    if len(idx) <= max_turnos:
+        return list(mensajes)
+    return list(mensajes[idx[-max_turnos]:])
+
+
+def _con_cache_en_ultimo(mensajes):
+    """Copia de `mensajes` con un punto de caché en el último bloque. En las
+    vueltas de herramientas de un mismo turno, y entre turnos, el prefijo de la
+    conversación ya enviado se lee de caché en vez de cobrarse entero otra vez."""
+    if not mensajes:
+        return mensajes
+    out = list(mensajes)
+    ultimo = dict(out[-1])
+    contenido = ultimo.get("content")
+    if isinstance(contenido, str):
+        ultimo["content"] = [{"type": "text", "text": contenido,
+                              "cache_control": {"type": "ephemeral"}}]
+    elif isinstance(contenido, list) and contenido and isinstance(contenido[-1], dict):
+        bloques = list(contenido)
+        bloques[-1] = {**bloques[-1], "cache_control": {"type": "ephemeral"}}
+        ultimo["content"] = bloques
+    else:
+        return out
+    out[-1] = ultimo
+    return out
+
+
 def responder_agente(client, historial_mensajes, ctx, on_tool=None):
     """Ejecuta un turno completo del agente, resolviendo llamadas a herramientas.
 
@@ -525,7 +571,12 @@ def responder_agente(client, historial_mensajes, ctx, on_tool=None):
     # dentro del mismo turno si hay más de una vuelta.
     system = [{"type": "text", "text": system_texto, "cache_control": {"type": "ephemeral"}}]
 
-    mensajes = list(historial_mensajes)
+    mensajes = recortar_historial(historial_mensajes)
+    # Historial "de vuelta atrás": si este turno falla, se devuelve sin la
+    # pregunta pendiente. Antes se devolvía con ella (o con un tool_result a
+    # medias) y el siguiente mensaje dejaba dos turnos de usuario seguidos o un
+    # hilo roto: el chat fallaba en todas las preguntas posteriores.
+    base_sin_pregunta = mensajes[:-1] if mensajes and _es_pregunta_usuario(mensajes[-1]) else list(mensajes)
 
     for _ in range(MAX_VUELTAS_HERRAMIENTAS):
         try:
@@ -534,11 +585,11 @@ def responder_agente(client, historial_mensajes, ctx, on_tool=None):
                 max_tokens=MAX_TOKENS_AGENTE,
                 system=system,
                 tools=HERRAMIENTAS,
-                messages=mensajes,
+                messages=_con_cache_en_ultimo(mensajes),
             )
         except Exception:
             return ("Ahora mismo no puedo conectar con el asistente. Prueba de nuevo en un momento.",
-                    mensajes)
+                    base_sin_pregunta)
 
         # ¿El modelo quiere usar herramientas?
         bloques_tool = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
@@ -547,6 +598,8 @@ def responder_agente(client, historial_mensajes, ctx, on_tool=None):
             # Respuesta final de texto.
             texto = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
             mensajes.append({"role": "assistant", "content": resp.content})
+            if getattr(resp, "stop_reason", None) == "max_tokens" and texto:
+                texto += "\n\n_(Me he quedado sin espacio. Dime «sigue» y continúo.)_"
             return (texto or "¿En qué te ayudo con tu negocio?"), mensajes
 
         # Registrar la intención del asistente (incluye los tool_use).
@@ -574,15 +627,26 @@ def responder_agente(client, historial_mensajes, ctx, on_tool=None):
             model=MODELO_AGENTE,
             max_tokens=MAX_TOKENS_AGENTE,
             system=system,
-            messages=mensajes + [{
+            # Se pasan las herramientas (el historial contiene tool_use y la API
+            # las exige para interpretarlo) pero se prohíbe usarlas.
+            tools=HERRAMIENTAS,
+            tool_choice={"type": "none"},
+            messages=mensajes[:-1] + [{
                 "role": "user",
-                "content": "Resume lo que has encontrado y dame una recomendación concreta, sin usar más herramientas.",
+                "content": list(mensajes[-1]["content"]) + [{
+                    "type": "text",
+                    "text": "Resume lo que has encontrado y dame una recomendación concreta, sin usar más herramientas.",
+                }],
             }],
         )
         texto = "".join(b.text for b in cierre.content if getattr(b, "type", None) == "text").strip()
-        return (texto or "He revisado tus datos. ¿Quieres que profundice en algo?"), mensajes
+        texto = texto or "He revisado tus datos. ¿Quieres que profundice en algo?"
+        # Se cierra el hilo con este texto: si no, el historial acababa en un
+        # tool_result y la siguiente pregunta rompía la alternancia de turnos.
+        mensajes.append({"role": "assistant", "content": texto})
+        return texto, mensajes
     except Exception:
-        return ("He revisado varios datos de tu negocio. ¿Sobre cuál quieres que me centre?", mensajes)
+        return ("He revisado varios datos de tu negocio. ¿Sobre cuál quieres que me centre?", base_sin_pregunta)
 
 
 # =============================================================================
