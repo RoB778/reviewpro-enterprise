@@ -422,7 +422,7 @@ def html_etapas(etapas, etapa_actual):
 
 def html_sello(resultado):
     """Sello de auditoría que va bajo la respuesta."""
-    if resultado.violaciones_residuales:
+    if resultado.violaciones_residuales or getattr(resultado, "auditoria_incompleta", False):
         clase = "aviso"
     elif resultado.modo_usado == "blindado":
         clase = "ok"
